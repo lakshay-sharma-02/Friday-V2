@@ -197,6 +197,24 @@ When a goal only *describes* a file ("the receipt pdf in my downloads"),
 (`directory` can be a configured folder like `$facts.downloads`); a plan
 locates it with one step and sends `"$steps.1.result.path"` with the next.
 
+## Testing
+
+A dependency-free unittest suite lives in `tests/` and covers every layer
+and feature: the contract registry, observability (redaction, rotation,
+`log_transform`), the executor (ref resolver, retry policy, blocked
+primitives), the planner (validate_plan, catalog, facts), all L2 checks,
+window protected-classes, the dev dangerous-gate, gmail/notify/secrets,
+and the watch loop. Every side-effect boundary is mocked — the suite
+never sends, launches, clicks, or touches the compositor.
+
+```sh
+./.venv/bin/python -m unittest discover -s tests -v   # run directly
+./.venv/bin/python gates/test_suite.py                # run + write gates/TESTS_PROOF.md
+```
+
+The runner captures the raw output into `gates/TESTS_PROOF.md`, the same
+proof discipline as every gate.
+
 ## Task counter (the ≥10 mechanism)
 
 `var/logs/tasks.jsonl` — one JSON line per run, from Gate 6 onward:
