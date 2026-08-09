@@ -1,0 +1,10 @@
+{
+  "goal": "deliberately failing plan: set volume to 50 but claim music is playing (it is not) - must FAIL, RETRY, then ABORT loudly",
+  "steps": [
+    {
+      "primitive": "media.set_volume",
+      "args": {"percent": 50},
+      "verify": {"check": "checks.media_playing", "expect": true}
+    }
+  ]
+}

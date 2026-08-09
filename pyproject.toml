@@ -1,0 +1,16 @@
+[project]
+name = "friday"
+version = "0.8.0"
+description = "Friday V8 - layered desktop automation (L0 observability through L4 planning)"
+requires-python = ">=3.11"
+dependencies = [
+    "playwright>=1.49",
+    "requests>=2.31",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["friday", "friday.l1", "friday.l2", "friday.l3", "friday.l4"]

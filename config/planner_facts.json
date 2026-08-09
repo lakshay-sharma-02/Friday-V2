@@ -1,0 +1,22 @@
+{
+  "_docs": "PROJECT FACTS for the LLM planning prompt, editable without touching code.\n\n'file_paths' and 'recipients' are NAMED entries: a goal (or plan arg) may\nreference them as $facts.<name>, e.g. \"file_path\": \"$facts.readme\" or\n\"to\": \"$facts.whatsapp\". The planner substitutes these deterministically\nbefore execution, so goals and plans stay portable - change a value here\nand every future plan picks it up. Names must not repeat across the two\nsections (a $facts.<name> reference must be unambiguous).\n\nPaths are resolved against the project root when relative; ~ expands.\n\n'facts' is a free-form list; each entry renders as one bullet under\nOTHER FACTS. Delete a section key entirely to fall back to that section's\nbuilt-in default. This file is not the only override: set\n$FRIDAY_FACTS_FILE to point at another config file, or pass\nfacts=[...]/file_paths={...}/recipients={...} to planner.plan() and\nplanner.build_prompt(). (This _docs key is ignored.)",
+  "file_paths": {
+    "test_tone": "/home/lakshay/Projects/Friday V2/assets/test_tone.mp3",
+    "readme": "/home/lakshay/Projects/Friday V2/README.md",
+    "downloads": "~/Downloads",
+    "documents": "~/Documents",
+    "pictures": "~/Pictures",
+    "project": "."
+  },
+  "recipients": {
+    "whatsapp": "918396020807",
+    "telegram": "8449939313",
+    "discord": "1535284689642983486"
+  },
+  "facts": [
+    "firefox launches via window.open_app(\"firefox\").",
+    "The user's terminals are kitty windows (hyprctl class 'kitty'). When a goal says 'my terminal' or 'the terminal', that means kitty: use window.close_all with args {\"exclude_classes\": [\"kitty\"]}. Never close a kitty window.",
+    "The 'test tone' is the audio fixture at $facts.test_tone (assets/test_tone.mp3); a goal mentioning 'the test tone' refers to it - pass \"source\": \"$facts.test_tone\" directly, never files.find_file it.",
+    "GitHub login recipe (credentials stored in pass at friday/github). The plan MUST contain at least these three steps, IN THIS ORDER: step 1 browser.goto('https://github.com/login') verified with checks.browser_has_text on 'Sign in to GitHub' - the browser is NEVER on the login page when the plan starts, so goto always comes first; step 2 browser.login(service='github', username_sel='Username or email address', password_sel='Password', submit_sel='Sign in') - those three selector strings are the REAL page labels (they resolve through the fallback chain; never invent others); step 3 verify the logged-in state with checks.browser_has_text on 'Dashboard' (never 'Repositories', that was the old layout) and end with browser.read_page_text as the report. Do not add a logout step to the plan - session handling is the harness's job."
+  ]
+}

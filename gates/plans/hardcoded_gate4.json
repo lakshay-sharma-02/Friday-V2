@@ -1,0 +1,25 @@
+{
+  "goal": "open firefox, verify it appears, close it, verify it is gone, play the test tone briefly, verify it started, stop it, verify it stopped",
+  "steps": [
+    {
+      "primitive": "window.open_app",
+      "args": {"command": "firefox"},
+      "verify": {"check": "checks.window_has_class", "args": {"cls": "firefox"}, "expect": true}
+    },
+    {
+      "primitive": "window.close_window",
+      "args": {"selector": "$steps.1.result.address"},
+      "verify": {"check": "checks.window_has_class", "args": {"cls": "firefox"}, "expect": false}
+    },
+    {
+      "primitive": "media.play_for",
+      "args": {"minutes": 0.1, "source": "/home/lakshay/Projects/Friday V2/assets/test_tone.mp3", "volume": 50},
+      "verify": {"check": "checks.media_playing", "expect": true}
+    },
+    {
+      "primitive": "media.stop",
+      "args": {},
+      "verify": {"check": "checks.media_playing", "expect": false}
+    }
+  ]
+}
