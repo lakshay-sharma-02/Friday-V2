@@ -138,6 +138,18 @@ def _header(payload: dict[str, Any], name: str) -> str:
     return ""
 
 
+def _log_redact_mail_meta(rows: Any) -> Any:
+    """Log-time redaction for gmail.list_unread: the real result keeps
+    sender/subject (plans and L2 checks read them), but the L0 line shows
+    <redacted> for the two fields that carry mail metadata (who sent,
+    what about) - the same privacy discipline as get_message's
+    redact_result, but surgical: message_id and date stay visible so the
+    trace still identifies the message."""
+    if isinstance(rows, list):
+        return [{**r, "sender": "<redacted>", "subject": "<redacted>"} for r in rows]
+    return rows
+
+
 def _body_text(payload: dict[str, Any]) -> str:
     """Best-effort plain-text extraction: single-part body.data, then
     text/plain parts, then the API snippet. Deterministic and bounded -
@@ -173,6 +185,7 @@ def _body_text(payload: dict[str, Any]) -> str:
     "error - DISTINCT from 'no matching emails', which is an empty list, "
     "never an exception.",
     returns="list[dict]: [{message_id, sender, subject, date}] most recent first.",
+    log_transform=_log_redact_mail_meta,
 )
 def list_unread(sender: str, max_results: int = 5) -> list[dict[str, str]]:
     if not sender or not sender.strip():

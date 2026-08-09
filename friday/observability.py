@@ -11,6 +11,8 @@ instrumented with zero call-site edits - Gate 2's explicit requirement.
 
 Config (env vars):
   FRIDAY_LOG_FILE          - log path (default: var/logs/friday.jsonl)
+  FRIDAY_LOG_MAX_BYTES     - rotate the log at this size (default: 10 MB)
+  FRIDAY_LOG_BACKUPS       - rotated files kept (default: 3; 0 disables)
   FRIDAY_RUN_ID            - fixed run id for a whole batch (default: random)
   FRIDAY_OBSERVABILITY=0   - disable logging (never breaks the primitive)
 """
@@ -34,6 +36,13 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LOG_FILE = PROJECT_ROOT / "var" / "logs" / "friday.jsonl"
+
+# Size-based rotation: when the active log passes FRIDAY_LOG_MAX_BYTES it is
+# renamed to <log>.1 (older backups shift up, the oldest is dropped) and a
+# fresh file starts. Bounds disk usage - a long-lived watch loop or a heavy
+# verify poll must not grow the log without limit.
+DEFAULT_LOG_MAX_BYTES = 10 * 1024 * 1024
+DEFAULT_LOG_BACKUPS = 3
 
 _log_lock = threading.Lock()
 # run_id is the trace link for one logical run. Default: one id per process.
@@ -131,6 +140,62 @@ def _log_file() -> Path:
     return Path(os.environ.get("FRIDAY_LOG_FILE", str(DEFAULT_LOG_FILE)))
 
 
+def _log_rotation_config() -> tuple[int, int]:
+    """(max_bytes, backups) from env, falling back to the defaults on
+    garbage values - a broken env var must never break logging."""
+    try:
+        max_bytes = int(os.environ.get("FRIDAY_LOG_MAX_BYTES", str(DEFAULT_LOG_MAX_BYTES)))
+    except ValueError:
+        max_bytes = DEFAULT_LOG_MAX_BYTES
+    try:
+        backups = int(os.environ.get("FRIDAY_LOG_BACKUPS", str(DEFAULT_LOG_BACKUPS)))
+    except ValueError:
+        backups = DEFAULT_LOG_BACKUPS
+    # Clamp: max_bytes < 1 would rotate on every line and backups < 0 is
+    # meaningless - a pathological env value must not turn rotation into a
+    # data shredder.
+    return max(max_bytes, 1), max(backups, 0)
+
+
+def _rotate_if_needed(path: Path) -> None:
+    """Size-based rotation, best-effort and never raising (observability
+    must never break the primitive that triggered it). When the active log
+    exceeds FRIDAY_LOG_MAX_BYTES it is renamed to <path>.1, older backups
+    shift up, the oldest is dropped, and the next append starts a fresh
+    file. Called from _emit under _log_lock, so rotation and append are
+    one atomic writer."""
+    try:
+        max_bytes, backups = _log_rotation_config()
+        if backups <= 0 or not path.exists():
+            return
+        if path.stat().st_size < max_bytes:
+            return
+        # Shift .N-1 -> .N, oldest first, so path.1 is always the most
+        # recent backup and the top backup is overwritten/dropped. (The
+        # outer except Exception below is the only guard needed - a shift
+        # failure must not abort the whole rotation.)
+        for i in range(backups - 1, 0, -1):
+            src = Path(f"{path}.{i}")
+            dst = Path(f"{path}.{i + 1}")
+            if src.exists():
+                src.replace(dst)
+        path.replace(Path(f"{path}.1"))
+    except Exception:
+        pass  # rotation failure must not drop the triggering log line
+
+
+def _log_value(result: Any, log_transform: Callable[[Any], Any] | None) -> Any:
+    """The logged form of a successful result: apply log_transform first,
+    then the standard clip. log_transform is deliberately NEVER allowed to
+    raise - observability must not break the primitive it instruments, and
+    a transform bug must not turn a successful call into a spurious
+    failure (the primitive's real return value is returned regardless)."""
+    try:
+        return log_transform(result) if log_transform else result
+    except Exception:
+        return "<log_transform error>"
+
+
 def emit_event(
     *,
     layer: str,
@@ -162,7 +227,8 @@ def emit_event(
 def _emit(record: dict[str, Any]) -> None:
     """Append one JSON line. Never raises - observability must not break
     the primitive that triggered it. If the log file cannot be written, fall
-    back to stderr so a broken log is not silently invisible."""
+    back to stderr so a broken log is not silently invisible. Rotates the
+    active file first when it has grown past the configured cap."""
     if os.environ.get("FRIDAY_OBSERVABILITY") == "0":
         return
     try:
@@ -170,6 +236,7 @@ def _emit(record: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps(record, default=str, ensure_ascii=False)
         with _log_lock:
+            _rotate_if_needed(path)
             with open(path, "a", encoding="utf-8") as fh:
                 fh.write(line + "\n")
     except Exception as exc:
@@ -179,7 +246,11 @@ def _emit(record: dict[str, Any]) -> None:
             pass
 
 
-def observe(layer: str = "L1", redact_result: bool = False) -> Callable[[F], F]:
+def observe(
+    layer: str = "L1",
+    redact_result: bool = False,
+    log_transform: Callable[[Any], Any] | None = None,
+) -> Callable[[F], F]:
     """Decorator: emit one structured log line per call, result or
     exception. Preserves the wrapped function's metadata via wraps.
 
@@ -187,6 +258,12 @@ def observe(layer: str = "L1", redact_result: bool = False) -> Callable[[F], F]:
     instead of the value itself. Use it for primitives whose RESULT is a
     secret (e.g. credentials() returns the credentials dict) - key-name
     redaction inside _clip is not enough when the whole result is secret.
+
+    log_transform: optional callable applied to the returned value purely
+    for the log line - the real return value is untouched. Use it to
+    redact selected fields (e.g. gmail.list_unread's sender/subject) or
+    project a large result to a compact shape (e.g. window.list_clients,
+    whose raw hyprctl client dicts are the log's dominant payload).
     """
 
     def deco(fn: F) -> F:
@@ -219,7 +296,9 @@ def observe(layer: str = "L1", redact_result: bool = False) -> Callable[[F], F]:
                     "layer": layer,
                     "primitive": _qualified_name(fn),
                     "args": _bind_args(fn, args, kwargs),
-                    "result": "<redacted>" if redact_result else _clip(result),
+                    "result": (
+                        "<redacted>" if redact_result else _clip(_log_value(result, log_transform))
+                    ),
                     "exception": None,
                     "duration_ms": round((time.perf_counter() - started) * 1000, 3),
                     "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),

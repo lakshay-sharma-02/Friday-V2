@@ -48,12 +48,18 @@ def contract(
     failure_mode: str = "",
     returns: str = "",
     redact_result: bool = False,
+    log_transform: Callable[[Any], Any] | None = None,
 ) -> Callable:
     """Decorator that registers a Contract for the wrapped primitive.
 
     redact_result=True: the primitive's returned value is written to the
     L0 log as "<redacted>" (e.g. credentials() returns the credentials
     dict itself - the whole result is a secret, not just a nested key).
+
+    log_transform: applied to the returned value purely for the L0 log
+    line (redact selected fields / compact a large result); the real
+    return value - the one the executor stores and plans reference - is
+    untouched. See friday.observability.observe.
     """
 
     def deco(fn: Callable) -> Callable:
@@ -82,7 +88,9 @@ def contract(
         # L0: wrap every contract-registered primitive with the observability
         # decorator. One choke point instruments all primitives - Gate 2's
         # explicit requirement (no per-call-site instrumentation).
-        wrapped: Callable[..., Any] = observe(redact_result=redact_result)(fn)
+        wrapped: Callable[..., Any] = observe(
+            redact_result=redact_result, log_transform=log_transform
+        )(fn)
         setattr(wrapped, "__contract__", c)
         return wrapped
 

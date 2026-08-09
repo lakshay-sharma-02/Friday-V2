@@ -25,7 +25,8 @@ plan's own terms**, not by omission. Full completion record:
 friday/
   contracts.py      L1 contract registry (pre/post/idempotency/failure)
   errors.py         exception hierarchy (FridayError, PreconditionError, ...)
-  observability.py  L0: one structured JSON line per call (redaction + clip)
+  observability.py  L0: one structured JSON line per call (redaction + clip +
+                    per-primitive log projection + size-based rotation)
   secrets.py        pass-based credential store (friday/<service>)
   l1/               L1 primitives (each contract-registered; see below)
     window.py       hyprctl IPC  (open/close/focus/list/move/shutdown)
@@ -147,8 +148,16 @@ PY
 ```
 
 Every layer logs to `var/logs/friday.jsonl` (`$FRIDAY_LOG_FILE`
-overrides). The same pipeline, run with zero scaffolding, is what Task 11
-(`gates/GATE6_DOD_PROOF.md`) proved end-to-end.
+overrides). The log rotates by size: past `FRIDAY_LOG_MAX_BYTES`
+(default 10 MB) it is renamed to `.1`, older backups shift, and
+`FRIDAY_LOG_BACKUPS` (default 3) are kept; `FRIDAY_OBSERVABILITY=0`
+disables logging entirely. Some primitives project their logged result:
+`window.list_clients` / `get_active_window` / `open_app` log a compact
+client summary (address/class/title/workspace/pid/mapped), and
+`gmail.list_unread` redacts sender/subject while keeping message_id/date -
+the real return values are never affected. The same pipeline, run with
+zero scaffolding, is what Task 11 (`gates/GATE6_DOD_PROOF.md`) proved
+end-to-end.
 
 ## Secrets
 

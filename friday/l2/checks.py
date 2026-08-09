@@ -170,7 +170,6 @@ def whatsapp_identity_ok() -> bool:
 
 
 @observe(layer="L2")
-@observe(layer="L2")
 def gmail_unread_exists(sender: str) -> bool:
     """Claim: 'there is at least one unread message from this sender'.
     Read-only API query (gmail.list_unread is idempotent). An empty

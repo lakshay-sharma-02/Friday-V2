@@ -82,6 +82,37 @@ def _client_haystack(c: dict) -> str:
     ).lower()
 
 
+def _compact_client(c: dict) -> dict[str, Any]:
+    """Compact client summary for the L0 log line ONLY - the real return
+    value keeps every hyprctl field. Raw client dicts carry ~10 fields of
+    window geometry (at/size/monitor/fullscreen/xwayland/pinned/...) that
+    bloat every line; a desktop of several windows dumped on each polled
+    list_clients call is the log's dominant payload. The projection keeps
+    everything a trace needs to identify and follow a window: address,
+    class, title, workspace id, pid, mapped."""
+    ws = c.get("workspace") or {}
+    return {
+        "address": c.get("address"),
+        "class": c.get("class"),
+        "title": str(c.get("title") or ""),
+        "workspace_id": ws.get("id") if isinstance(ws, dict) else None,
+        "pid": c.get("pid"),
+        "mapped": c.get("mapped"),
+    }
+
+
+def _log_clients_result(result: Any) -> Any:
+    """Log-time projection for window primitives: a list of clients is
+    compacted per client; a single client dict is compacted once. Note
+    Task 8's harness reads the logged window.open_app result for its
+    'address' - the projection preserves it."""
+    if isinstance(result, list):
+        return [_compact_client(c) for c in result]
+    if isinstance(result, dict):
+        return _compact_client(result)
+    return result
+
+
 @contract(
     precondition="Hyprland session is live.",
     postcondition="Returns the current client list; makes no state changes.",
@@ -89,6 +120,7 @@ def _client_haystack(c: dict) -> str:
     failure_mode="PrimitiveError if hyprctl fails or returns invalid JSON; "
     "PrimitiveTimeout if hyprctl hangs.",
     returns="list[dict]: raw client objects from `hyprctl clients -j`.",
+    log_transform=_log_clients_result,
 )
 def list_clients() -> list[dict[str, Any]]:
     proc = _hyprctl("clients", "-j")
@@ -107,6 +139,7 @@ def list_clients() -> list[dict[str, Any]]:
     idempotency=Idempotency.IDEMPOTENT,
     failure_mode="PrimitiveError if hyprctl fails.",
     returns="dict | None: the focused client, or None if nothing is focused.",
+    log_transform=_log_clients_result,
 )
 def get_active_window() -> dict[str, Any] | None:
     proc = _hyprctl("activewindow", "-j")
@@ -127,6 +160,7 @@ def get_active_window() -> dict[str, Any] | None:
     failure_mode="PrimitiveError if no matching client appears within 12s - the app may still "
     "have been dispatched, so verify with list_clients(). PreconditionError on empty command.",
     returns="dict: the client entry that appeared.",
+    log_transform=_log_clients_result,
 )
 def open_app(command: str) -> dict[str, Any]:
     if not command or not command.strip():
