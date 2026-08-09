@@ -10,7 +10,9 @@ Layer map:
     L4  Planning       (LLM: goal -> plan JSON)   -- Gate 5
 
 All gates G1-G6 proven with raw output; 13 composite tasks on record in
-var/logs/tasks.jsonl. window.shutdown and vision are deferred by design.
+var/logs/tasks.jsonl. window.shutdown is blocked from the executor
+(EXECUTOR_BLOCKED) and vision is deferred by design. The ambient watch
+loop (friday/watcher.py) turns config/ triggers into background goals.
 """
 
 __version__ = "0.8.0"

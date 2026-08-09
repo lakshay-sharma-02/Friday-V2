@@ -37,8 +37,11 @@ friday/
     files.py        deterministic file discovery (find_file by name)
     gmail.py        Gmail REST API, OAuth2 read-only (list_unread /
                     get_message / summarize; scope gmail.readonly only)
+    notify.py       desktop notifications (notify-send) - the watch loop's
+                    feedback channel
     telegram.py     Telegram Bot API (send_text / send_document)
     discord.py      Discord Bot API (send_text / send_file)
+  watcher.py        ambient watch loop (config/ triggers -> goals -> tasks.jsonl)
   l2/
     checks.py       L2 verification: read-only checks (catalog below)
   l3/
@@ -62,11 +65,12 @@ state already matches).
 
 | Module | Primitives |
 |--------|-----------|
-| `window` | `open_app`, `close_window`, `close_all(exclude_classes=...)`, `focus_window`, `move_to_workspace`, `list_clients`, `get_active_window` (+ `shutdown` — **deferred by design**, never executor-callable) |
+| `window` | `open_app`, `close_window`, `close_all(exclude_classes=...)`, `focus_window`, `move_to_workspace`, `list_clients`, `get_active_window` (+ `shutdown` — **blocked from the executor** via `EXECUTOR_BLOCKED`; direct script calls only) |
 | `media` | `play`, `play_for`, `pause`, `resume`, `stop`, `set_volume`, `is_playing` (read) |
 | `browser` | `goto`, `read_page_text`, `find_locator`, `click`, `type_text`, `press_key`, `upload_file`, `login`, `credentials` (returns secret — result redacted in the log), `close` |
-| `dev` | `run` (claude -p), `run_shell` — explicit opt-in bypass, used only by L4 planning |
+| `dev` | `run` (claude -p), `run_shell` — **arbitrary shell, requires `FRIDAY_ALLOW_DANGEROUS=1`** (checked before claude runs) |
 | `files` | `find_file(name, directory, recursive)` |
+| `notify` | `notify_send(title, body, timeout_ms)` — desktop notification |
 | `gmail` | `list_unread(sender, max_results)`, `get_message(message_id)`, `summarize(message_id)` — OAuth2, `gmail.readonly` only, auto token refresh; one-time setup in `gates/GMAIL_SETUP.md` |
 | `whatsapp` | `get_me`, `upload_document`, `send_document`, `send_text` |
 | `telegram` | `get_me`, `send_document`, `send_text` |
@@ -231,10 +235,56 @@ The master completion record with the full task table lives at
 ## Deferred by design (not gaps)
 
 - **`window.shutdown`** — destructive: it ends the Hyprland session. It is
-  provable only as a deliberate last act on a clear desktop; left unproven,
-  so the executor can never call it.
+  now **mechanically blocked** from the executor: the LLM never sees it in
+  the catalog, `validate_plan` rejects it, and L3 refuses it
+  (`EXECUTOR_BLOCKED` in `friday/contracts.py`). A deliberate script can
+  still call `window.shutdown()` directly as a last act on a clear desktop.
 - **`vision`** — the plan itself says "skip vision for now"; gated off
   until every structured alternative has failed for a target.
+
+## Safety rail (core-enforced, not harness-enforced)
+
+- **Protected windows**: `window.close_window` / `close_all` refuse to
+  close any client whose class is protected — `FRIDAY_PROTECTED_CLASSES`
+  (comma-separated, default `kitty`, the user's terminals). The refusal
+  happens **before any dispatch**, so a plan can never partially close the
+  desktop and then fail.
+- **Dangerous dev**: `dev.run_shell` and `dev.run(allow_bypass_permissions=True)`
+  raise `PreconditionError` unless `FRIDAY_ALLOW_DANGEROUS=1` is set — the
+  flag is the authorization boundary, checked before claude is invoked.
+- **Blocked primitives**: `EXECUTOR_BLOCKED` primitives are unreachable
+  from any plan path (catalog, validation, executor).
+
+## Watch loop (ambient automation)
+
+`friday/watcher.py` turns goals into background automations. Triggers live
+in `config/watcher.json` (all disabled by default — edit to opt in):
+
+```json
+{ "id": "morning-gmail", "goal": "find the most recent unread email from
+  accounts.google.com and summarize it",
+  "schedule": {"type": "time", "at": "09:00", "days": ["mon","tue","wed","thu","fri"]},
+  "enabled": true }
+```
+
+- `time` triggers fire once per day after `at` (on `days` if given);
+  `file` triggers fire once per new file in `directory` matching `name`.
+- A trigger may carry an inline deterministic `plan` (no LLM) or a `goal`
+  planned through L4 (one LLM call per distinct goal per daemon run, then
+  cached).
+- Each firing is recorded in `var/logs/tasks.jsonl` as `watch:<id>` in the
+  gate-6 format (`FRIDAY_TASKS_FILE` overrides the path) and pings the
+  desktop via `notify_send` (`"notify": false` silences it).
+- Triggers run strictly serially — one goal at a time — because the L1
+  media/browser state is a single-writer resource. Safety is inherited
+  from the core (protected windows, blocked primitives, dangerous-dev gate).
+
+```sh
+./.venv/bin/python -m friday.watcher --once      # fire due triggers, exit (cron)
+./.venv/bin/python -m friday.watcher --poll 30   # daemon mode
+```
+
+First end-to-end proof: `gates/WATCHER_PROOF.md`.
 
 ## Gate 1 bring-up (historical runner)
 

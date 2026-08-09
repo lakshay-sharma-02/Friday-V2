@@ -39,6 +39,14 @@ class Contract:
 
 REGISTRY: dict[str, Contract] = {}
 
+# Primitives that ARE registered (their contracts, docs and direct calls
+# stay intact) but must NEVER be reachable through the executor or the
+# planner's catalog: a plan can never contain them, the LLM never sees
+# them, and L3 refuses them. 'window.shutdown' ends the Hyprland session -
+# destructive, with no legitimate plan path. Deferred-by-design becomes
+# mechanically enforced here, not convention.
+EXECUTOR_BLOCKED: frozenset[str] = frozenset({"window.shutdown"})
+
 
 def contract(
     *,

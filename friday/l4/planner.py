@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from friday.contracts import REGISTRY
+from friday.contracts import EXECUTOR_BLOCKED, REGISTRY
 from friday.errors import FridayError
 from friday.observability import emit_event, set_run_id
 
@@ -220,7 +220,7 @@ def _has_unresolved_facts_ref(value: Any) -> bool:
 
 
 # Every L1 module, imported so the contract registry is fully populated.
-_L1_MODULES = ("window", "media", "browser", "dev", "files", "whatsapp", "telegram", "discord", "gmail")
+_L1_MODULES = ("window", "media", "browser", "dev", "files", "whatsapp", "telegram", "discord", "gmail", "notify")
 
 DEFAULT_ATTEMPTS = 3
 DEFAULT_TIMEOUT_S = 300
@@ -278,6 +278,8 @@ def build_catalog() -> str:
     _ensure_registry()
     lines: list[str] = ["PRIMITIVES:"]
     for qualified in sorted(REGISTRY):
+        if qualified in EXECUTOR_BLOCKED:
+            continue  # never advertise a blocked primitive to the LLM
         c = REGISTRY[qualified]
         mod_name, _, fn_name = qualified.partition(".")
         fn = getattr(importlib.import_module(f"friday.l1.{mod_name}"), fn_name)
@@ -599,6 +601,11 @@ def validate_plan(plan: dict[str, Any]) -> tuple[bool, str]:
         primitive = raw.get("primitive")
         if not isinstance(primitive, str) or primitive not in REGISTRY:
             return False, f"step {i}: unknown or unregistered primitive {primitive!r}"
+        if primitive in EXECUTOR_BLOCKED:
+            return False, (
+                f"step {i}: primitive {primitive!r} is blocked from execution "
+                "(EXECUTOR_BLOCKED)"
+            )
         args = raw.get("args")
         if args is not None and not isinstance(args, dict):
             return False, f"step {i}: 'args' must be an object"

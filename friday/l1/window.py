@@ -10,6 +10,7 @@ All functions shell out to `hyprctl`; the compositor session must be live
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 from typing import Any, Callable
@@ -80,6 +81,48 @@ def _client_haystack(c: dict) -> str:
     return " ".join(
         str(c.get(k, "")) for k in ("class", "initialClass", "title", "initialTitle")
     ).lower()
+
+
+# Window classes that must NEVER be closed by close_window/close_all, even
+# when a plan asks for it. Defaults to the user's terminals (per
+# config/planner_facts.json: "never close a kitty window") so the bare
+# pipeline is safe without any configuration; override with the
+# comma-separated FRIDAY_PROTECTED_CLASSES env var. Matched as
+# case-insensitive substrings, like every class check in this module.
+DEFAULT_PROTECTED_CLASSES: tuple[str, ...] = ("kitty",)
+
+
+def _protected_classes() -> tuple[str, ...]:
+    raw = os.environ.get("FRIDAY_PROTECTED_CLASSES")
+    if raw:
+        return tuple(c.strip().lower() for c in raw.split(",") if c.strip())
+    return DEFAULT_PROTECTED_CLASSES
+
+
+def _is_protected(cls: str) -> bool:
+    cls = cls.lower()
+    return any(p in cls for p in _protected_classes())
+
+
+def _refuse_protected_targets(addresses: list[str]) -> None:
+    """Refuse to close any address whose client carries a protected class.
+    Fails BEFORE any dispatch: resolves the addresses to their current
+    clients and raises PreconditionError naming the violation, so a close
+    can never silently kill a protected window (the user's terminals)."""
+    protected_by_addr = {
+        str(c.get("address")): str(c.get("class", ""))
+        for c in list_clients()
+        if _is_protected(str(c.get("class", "")))
+    }
+    hits = [(a, protected_by_addr[a]) for a in addresses if a in protected_by_addr]
+    if hits:
+        raise PreconditionError(
+            "refusing to close protected window(s): "
+            + ", ".join(f"{cls} ({addr})" for addr, cls in hits)
+            + " - protected classes: "
+            + ", ".join(_protected_classes())
+            + " (override with FRIDAY_PROTECTED_CLASSES)"
+        )
 
 
 def _compact_client(c: dict) -> dict[str, Any]:
@@ -205,7 +248,9 @@ def open_app(command: str) -> dict[str, Any]:
     "closing an already-closed window is a no-op. A bare class/name closes "
     "every matching client (resolved to addresses first).",
     idempotency=Idempotency.COMMUTATIVE_SAFE,
-    failure_mode="PrimitiveError if a resolved address survives 5s after its close dispatch.",
+    failure_mode="PrimitiveError if a resolved address survives 5s after its close dispatch; "
+    "PreconditionError if the target is a protected class "
+    "(FRIDAY_PROTECTED_CLASSES, default kitty) - nothing is closed in that case.",
     returns="None",
 )
 def close_window(selector: str) -> None:
@@ -225,6 +270,9 @@ def close_window(selector: str) -> None:
         ]
     if not targets:
         return  # nothing matched; already closed
+    # The refusal runs BEFORE any dispatch: a close can never touch a
+    # protected window, even when the selector is an explicit address.
+    _refuse_protected_targets(targets)
     for address in targets:
         _hyprctl("dispatch", "closewindow", f"address:{address}")
 
@@ -243,17 +291,35 @@ def close_window(selector: str) -> None:
     postcondition="Every client whose class is not in exclude_classes is closed; returns how "
     "many were closed.",
     idempotency=Idempotency.COMMUTATIVE_SAFE,
-    failure_mode="PrimitiveError from any individual close; earlier closes are not rolled back "
-    "(verify with list_clients()).",
+    failure_mode="PrimitiveError from any individual close; PreconditionError if closing "
+    "would touch a protected class (FRIDAY_PROTECTED_CLASSES, default kitty) - "
+    "NOTHING is closed in that case (the refusal happens before any dispatch).",
     returns="int: number of clients closed.",
 )
 def close_all(exclude_classes: list[str] | None = None) -> int:
     exclude = {c.lower() for c in (exclude_classes or [])}
-    closed = 0
+    # Two passes: resolve every target and check protected classes FIRST,
+    # so a refusal closes nothing at all instead of partially closing the
+    # desktop before failing.
+    targets: list[str] = []
+    protected_hits: list[tuple[str, str]] = []
     for c in list_clients():
-        if str(c.get("class", "")).lower() in exclude:
+        cls = str(c.get("class", "")).lower()
+        if cls in exclude:
             continue
-        close_window(str(c["address"]))
+        if _is_protected(cls):
+            protected_hits.append((cls, str(c["address"])))
+        else:
+            targets.append(str(c["address"]))
+    if protected_hits:
+        raise PreconditionError(
+            "refusing close_all: would close protected window(s): "
+            + ", ".join(f"{cls} ({addr})" for cls, addr in protected_hits)
+            + " - exclude them or override FRIDAY_PROTECTED_CLASSES"
+        )
+    closed = 0
+    for address in targets:
+        close_window(address)
         closed += 1
     return closed
 

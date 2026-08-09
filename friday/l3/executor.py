@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from friday.contracts import REGISTRY, Idempotency
+from friday.contracts import EXECUTOR_BLOCKED, REGISTRY, Idempotency
 from friday.errors import FridayError
 from friday.observability import emit_event, set_run_id, set_step_id
 
@@ -95,8 +95,10 @@ class PlanResult:
 
 
 def _resolve_primitive(qualified: str) -> Callable:
-    """Resolve 'module.function' ONLY if it has a registered contract.
-    An unproven primitive is never callable by the executor.
+    """Resolve 'module.function' ONLY if it has a registered contract and
+    is not blocked. An unproven primitive is never callable by the
+    executor, and a blocked one (EXECUTOR_BLOCKED, e.g. the destructive
+    window.shutdown) is refused even though its contract exists.
 
     Import the module FIRST: @contract populates REGISTRY at import time,
     so a module that has not been imported yet looks unregistered even
@@ -115,6 +117,10 @@ def _resolve_primitive(qualified: str) -> Callable:
     if qualified not in REGISTRY:
         raise KeyError(
             f"primitive '{qualified}' has no registered contract; refusing to call it"
+        )
+    if qualified in EXECUTOR_BLOCKED:
+        raise KeyError(
+            f"primitive '{qualified}' is in EXECUTOR_BLOCKED; refusing to execute it"
         )
     fn = getattr(mod, fn_name)
     if not hasattr(fn, "__contract__"):
