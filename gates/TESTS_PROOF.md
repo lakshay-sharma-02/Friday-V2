@@ -1,6 +1,6 @@
 # TESTS_PROOF — automated test suite for Friday
 
-Status date: 2026-08-09T19:00:16+00:00.
+Status date: 2026-08-09T19:19:58+00:00.
 
 The full unittest suite over every layer and feature: registry,
 observability (redaction / rotation / log_transform), the executor
@@ -12,7 +12,7 @@ never sends, launches, clicks or touches the compositor.
 
 ## Verdict: PASS
 
-Ran 200 tests: 200 passed, 0 failed, 0 errors.
+Ran 214 tests: 214 passed, 0 failed, 0 errors.
 
 ## Raw output
 
@@ -89,15 +89,30 @@ test_successful_plan_completes (test_executor.TestRunPlan.test_successful_plan_c
 test_unknown_primitive_aborts (test_executor.TestRunPlan.test_unknown_primitive_aborts) ... ok
 test_verify_failure_exhausts_attempts (test_executor.TestRunPlan.test_verify_failure_exhausts_attempts) ... ok
 test_zero_verify_wait_rejected_before_execution (test_executor.TestRunPlan.test_zero_verify_wait_rejected_before_execution) ... ok
+test_garbage_base64_returns_empty (test_gmail.TestBodyText.test_garbage_base64_returns_empty) ... ok
+test_multipart_prefers_text_plain (test_gmail.TestBodyText.test_multipart_prefers_text_plain) ... ok
+test_no_body_returns_empty (test_gmail.TestBodyText.test_no_body_returns_empty) ... ok
+test_single_part_body_decoded (test_gmail.TestBodyText.test_single_part_body_decoded) ... ok
 test_case_insensitive (test_gmail.TestHeader.test_case_insensitive) ... ok
 test_missing_returns_empty (test_gmail.TestHeader.test_missing_returns_empty) ... ok
 test_non_list_passthrough (test_gmail.TestLogRedactMailMeta.test_non_list_passthrough) ... ok
 test_original_not_mutated (test_gmail.TestLogRedactMailMeta.test_original_not_mutated) ... ok
 test_redacts_sender_and_subject_keeps_ids (test_gmail.TestLogRedactMailMeta.test_redacts_sender_and_subject_keeps_ids) ... ok
+test_empty_llm_summary_raises (test_gmail.TestSummarizeFlow.test_empty_llm_summary_raises) ... ok
+test_message_without_body_or_snippet_raises (test_gmail.TestSummarizeFlow.test_message_without_body_or_snippet_raises) ... ok
+test_summary_body_never_reaches_l0_log (test_gmail.TestSummarizeFlow.test_summary_body_never_reaches_l0_log)
+Regression: the mail body is passed to the LLM subprocess, but ... ok
+test_summary_from_dict_result (test_gmail.TestSummarizeFlow.test_summary_from_dict_result) ... ok
+test_summary_from_string_result (test_gmail.TestSummarizeFlow.test_summary_from_string_result) ... ok
 test_idle_means_stopped (test_media.TestIsPlaying.test_idle_means_stopped) ... ok
 test_no_player_returns_false (test_media.TestIsPlaying.test_no_player_returns_false) ... ok
 test_paused_means_not_playing (test_media.TestIsPlaying.test_paused_means_not_playing) ... ok
 test_playing_when_not_idle_and_not_paused (test_media.TestIsPlaying.test_playing_when_not_idle_and_not_paused) ... ok
+test_launch_mpv_missing_raises_and_leaves_proc (test_media.TestLaunchAndWaitSocket.test_launch_mpv_missing_raises_and_leaves_proc) ... ok
+test_launch_socket_never_ready_stops_and_sweeps (test_media.TestLaunchAndWaitSocket.test_launch_socket_never_ready_stops_and_sweeps) ... ok
+test_launch_success (test_media.TestLaunchAndWaitSocket.test_launch_success) ... ok
+test_wait_socket_false_when_silent (test_media.TestLaunchAndWaitSocket.test_wait_socket_false_when_silent) ... ok
+test_wait_socket_true_when_probe_replies (test_media.TestLaunchAndWaitSocket.test_wait_socket_true_when_probe_replies) ... ok
 test_pgrep_missing_binary_returns_empty (test_media.TestOrphanSweep.test_pgrep_missing_binary_returns_empty) ... ok
 test_pgrep_parses_pids (test_media.TestOrphanSweep.test_pgrep_parses_pids) ... ok
 test_pgrep_timeout_returns_empty (test_media.TestOrphanSweep.test_pgrep_timeout_returns_empty) ... ok
@@ -224,7 +239,7 @@ test_bare_name_becomes_class (test_window.TestSelectorNormalization.test_bare_na
 test_explicit_prefix_passthrough (test_window.TestSelectorNormalization.test_explicit_prefix_passthrough) ... ok
 
 ----------------------------------------------------------------------
-Ran 200 tests in 2.273s
+Ran 214 tests in 2.589s
 
 OK
 ```

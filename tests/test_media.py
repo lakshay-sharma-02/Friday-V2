@@ -8,7 +8,7 @@ import subprocess
 import unittest
 from unittest import mock
 
-from friday.errors import PreconditionError
+from friday.errors import PreconditionError, PrimitiveError
 from friday.l1 import media
 from tests.helpers import EnvTestCase
 
@@ -94,6 +94,59 @@ class TestOrphanSweep(EnvTestCase):
              mock.patch.object(media, "_pgrep_socket", return_value=[]), \
              mock.patch.object(media.subprocess, "run", side_effect=FileNotFoundError):
             self.assertEqual(media._sweep_orphans(), [])
+
+
+class TestLaunchAndWaitSocket(EnvTestCase):
+    """The launch path: _wait_socket's probe loop and _launch's success /
+    mpv-missing / socket-never-ready branches. Popen, the socket probe and
+    builtins.open are all mocked - no real subprocess is ever spawned, no
+    real /tmp/friday_mpv_stderr.log is ever written, nothing is signaled
+    or killed."""
+
+    # _launch builds stderr=open(MPV_STDERR_LOG, 'w') as a Popen argument,
+    # which evaluates even when Popen is mocked - redirect it so the tests
+    # never touch the real debug log.
+    _OPEN = mock.patch("builtins.open", mock.mock_open())
+
+    def test_wait_socket_true_when_probe_replies(self):
+        with mock.patch.object(media, "_socket_send", return_value={"error": "success"}):
+            self.assertTrue(media._wait_socket(timeout=0.2))
+
+    def test_wait_socket_false_when_silent(self):
+        with mock.patch.object(media, "_socket_send", return_value=None):
+            self.assertFalse(media._wait_socket(timeout=0.05))
+
+    def test_launch_mpv_missing_raises_and_leaves_proc(self):
+        sentinel = mock.Mock()  # a pre-existing handle, e.g. a prior player
+        with self._OPEN, mock.patch.object(media, "_proc", sentinel), \
+             mock.patch.object(media.subprocess, "Popen", side_effect=FileNotFoundError):
+            with self.assertRaises(PrimitiveError) as ctx:
+                media._launch(["mpv"], "test")
+            self.assertIs(media._proc, sentinel)  # unchanged by the failed launch
+        self.assertIn("mpv binary not found", str(ctx.exception))
+
+    def test_launch_success(self):
+        proc = mock.Mock(pid=4242)
+        with self._OPEN, mock.patch.object(media, "_proc", None), \
+             mock.patch.object(media.subprocess, "Popen", return_value=proc), \
+             mock.patch.object(media, "_wait_socket", return_value=True):
+            out = media._launch(["mpv", "x"], "test")
+            self.assertEqual(out, {"pid": 4242, "socket": media.SOCKET_PATH})
+            self.assertIs(media._proc, proc)  # the live handle is kept for stop()
+
+    def test_launch_socket_never_ready_stops_and_sweeps(self):
+        proc = mock.Mock(pid=999)
+        with self._OPEN, mock.patch.object(media, "_proc", None), \
+             mock.patch.object(media.subprocess, "Popen", return_value=proc), \
+             mock.patch.object(media, "_wait_socket", return_value=False), \
+             mock.patch.object(media, "_stop_process") as stop, \
+             mock.patch.object(media, "_sweep_orphans") as sweep:
+            with self.assertRaises(PrimitiveError) as ctx:
+                media._launch(["mpv", "x"], "test")
+        self.assertIn("never became ready", str(ctx.exception))
+        stop.assert_called_once_with(proc)  # the just-launched child is reaped
+        sweep.assert_called_once()  # no listener may survive the failure
+        self.assertIsNone(media._proc)  # no stale reference is kept
 
 
 if __name__ == "__main__":
