@@ -1,6 +1,6 @@
 # WATCHER_PROOF — ambient watch loop, first end-to-end proof
 
-Status date: 2026-08-09T18:52:01+00:00.
+Status date: 2026-08-10T04:05:44+00:00.
 
 Two deterministic triggers (inline plans - no LLM, no sends, no
 window/media/browser side effects) run through the real watcher:
@@ -25,9 +25,11 @@ watch:demo-time gate6_passed=True  proof={"trigger": "demo-time", "status": "COM
 watch:demo-file gate6_passed=True  proof={"trigger": "demo-file", "status": "COMPLETED", "steps": [{"step_id": 1, "primitive": "files.find_file", "status": "VERIFIED", "attempts": 1}]}
 watch:demo-time gate6_passed=True  proof={"trigger": "demo-time", "status": "COMPLETED", "steps": [{"step_id": 1, "primitive": "files.find_file", "status": "VERIFIED", "attempts": 1}]}
 watch:demo-file gate6_passed=True  proof={"trigger": "demo-file", "status": "COMPLETED", "steps": [{"step_id": 1, "primitive": "files.find_file", "status": "VERIFIED", "attempts": 1}]}
+watch:demo-time gate6_passed=True  proof={"trigger": "demo-time", "status": "COMPLETED", "steps": [{"step_id": 1, "primitive": "files.find_file", "status": "VERIFIED", "attempts": 1}]}
+watch:demo-file gate6_passed=True  proof={"trigger": "demo-file", "status": "COMPLETED", "steps": [{"step_id": 1, "primitive": "files.find_file", "status": "VERIFIED", "attempts": 1}]}
 ```
 
-Result: 6/6 demo triggers passed.
+Result: 8/8 demo triggers passed.
 
 ## What this proves
 

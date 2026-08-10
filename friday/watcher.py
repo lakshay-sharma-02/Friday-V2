@@ -78,6 +78,15 @@ def _validate_trigger(t: Any, seen: set[str]) -> None:
         raise FridayError(f"watcher: trigger {tid!r} needs a 'goal' or a 'plan'")
     if t.get("plan") is not None and not isinstance(t["plan"], dict):
         raise FridayError(f"watcher: trigger {tid!r} 'plan' must be a plan object")
+    allow = t.get("allow")
+    if allow is not None and (
+        not isinstance(allow, list)
+        or not all(isinstance(a, str) and a.strip() for a in allow)
+    ):
+        raise FridayError(
+            f"watcher: trigger {tid!r} 'allow' must be a list of primitive "
+            "patterns like [\"gmail.*\"]"
+        )
     sch = t.get("schedule")
     if not isinstance(sch, dict):
         raise FridayError(f"watcher: trigger {tid!r} missing a 'schedule' object")
@@ -163,6 +172,20 @@ def _new_files(trigger: dict[str, Any], seen: set[str]) -> list[str]:
 # ---------------------------------------------------------------- execution
 
 
+def _allowed_prim(primitive: str, allowed: list[str]) -> bool:
+    """Trigger allowlist match: exact name, or a `mod.*` prefix pattern
+    (e.g. "gmail.*" matches gmail.list_unread / gmail.summarize). With no
+    allowlist every executor-resolvable primitive is permitted. Only step
+    PRIMITIVES are checked - L2 verify checks are read-only by
+    construction (Gate 3) and always run."""
+    for pat in allowed:
+        if pat == primitive:
+            return True
+        if pat.endswith(".*") and primitive.startswith(pat[:-1]):
+            return True
+    return False
+
+
 def _tasks_file() -> Path:
     return Path(os.environ.get("FRIDAY_TASKS_FILE", str(DEFAULT_TASKS_FILE)))
 
@@ -239,6 +262,28 @@ def _run_trigger(
     detail: dict[str, Any] = {"trigger": t_id, "status": "COMPLETED"}
     try:
         plan_dict = _make_plan(trigger, plan_cache, run_id)
+        allowed = trigger.get("allow")
+        if allowed:
+            forbidden = [
+                s.get("primitive") for s in plan_dict.get("steps", [])
+                if not _allowed_prim(s.get("primitive"), allowed)
+            ]
+            if forbidden:
+                # refuse BEFORE execution: a hallucinated side-effecting
+                # step must never act from an unattended trigger
+                plan_cache.pop(goal, None)
+                detail = {
+                    "trigger": t_id, "status": "REFUSED",
+                    "forbidden": forbidden, "allowed": allowed,
+                }
+                _record_task(f"watch:{t_id}", goal, False, detail)
+                emit_event(
+                    layer="WATCH", primitive="trigger", args={"id": t_id},
+                    result="FAILED", extra=detail,
+                )
+                if trigger.get("notify", True):
+                    _notify_outcome(t_id, False, detail)
+                return False, detail
         result = run_plan(plan_dict, run_id=run_id)
         ok = result.status == "COMPLETED"
         detail = {

@@ -241,5 +241,67 @@ class TestPlanCaching(EnvTestCase):
         self.assertEqual(m.call_count, 2)  # replanned on the next firing
 
 
+class TestAllowList(EnvTestCase):
+    """The optional per-trigger `allow` primitive allowlist: validated at
+    load time, and a plan containing a disallowed primitive is REFUSED
+    before execution - never acted on by an unattended trigger - recorded
+    honestly, and popped from the plan cache."""
+
+    def test_allow_must_be_a_list_of_strings(self):
+        for bad in ("gmail.*", ["gmail.*", 3], [""], ["  "], 42, {"a": 1}):
+            with self.assertRaises(FridayError, msg=f"allow={bad!r}"):
+                f = self.mktmp() / "w.json"
+                f.write_text(json.dumps({"triggers": [
+                    {"id": "a", "goal": "g", "schedule": {"type": "time", "at": "09:00"}, "allow": bad}
+                ]}), encoding="utf-8")
+                load_config(f)
+
+    def test_plan_with_disallowed_prim_is_refused_not_executed(self):
+        d = self.mktmp()
+        (d / "time").mkdir()
+        tasks = d / "tasks.jsonl"
+        self.set_env(FRIDAY_TASKS_FILE=str(tasks))
+        # a plan that would SEND a message - must never run from this trigger
+        plan = {"goal": "send something", "steps": [
+            {"primitive": "whatsapp.send_text", "args": {"text": "hi", "to": "1"},
+             "verify": {"check": "checks.message_sent",
+                         "args": {"platform": "whatsapp", "message_id": "wamid.x"}, "expect": True}},
+        ]}
+        t = {"id": "allow-x", "goal": "send something",
+             "schedule": {"type": "time", "at": "00:00"}, "notify": False,
+             "allow": ["gmail.*"]}
+        with mock.patch("friday.l4.planner.plan", return_value=plan) as m, \
+             mock.patch("friday.watcher.run_plan") as run:
+            cache: dict = {}
+            ok, detail = _run_trigger(t, cache)
+        self.assertFalse(ok)
+        self.assertEqual(detail["status"], "REFUSED")
+        self.assertEqual(detail["forbidden"], ["whatsapp.send_text"])
+        run.assert_not_called()       # refused before any execution
+        self.assertEqual(cache, {})   # refused plan popped, replanned next firing
+        recs = [json.loads(l) for l in open(tasks, encoding="utf-8") if l.strip()]
+        self.assertEqual(len(recs), 1)
+        self.assertFalse(recs[0]["gate6_passed"])  # honest failure, never deleted
+        self.assertEqual(json.loads(recs[0]["proof"])["status"], "REFUSED")
+
+    def test_allowed_exact_and_prefix_plan_executes(self):
+        d = self.mktmp()
+        (time_dir := d / "time").mkdir()
+        (time_dir / "alpha.txt").write_text("x", encoding="utf-8")
+        cfg = d / "w.json"
+        cfg.write_text(json.dumps({"triggers": [
+            {"id": "allow-ok", "plan": _plan(time_dir, "alpha"),
+             "schedule": {"type": "time", "at": "00:00"}, "notify": False,
+             "allow": ["files.*"]},
+        ]}), encoding="utf-8")
+        tasks = d / "tasks.jsonl"
+        self.set_env(FRIDAY_TASKS_FILE=str(tasks))
+        run_watcher(str(cfg), once=True)
+        recs = [json.loads(l) for l in open(tasks, encoding="utf-8") if l.strip()]
+        self.assertEqual(len(recs), 1)
+        self.assertTrue(recs[0]["gate6_passed"])  # files.find_file matches files.*
+        self.assertEqual(json.loads(recs[0]["proof"])["status"], "COMPLETED")
+
+
 if __name__ == "__main__":
     unittest.main()

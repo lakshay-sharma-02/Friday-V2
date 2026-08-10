@@ -1,131 +1,160 @@
-# Friday V8 master plan — STATUS: DONE
+# Friday — current state (handoff for planning the next phase)
 
-Status date: 2026-08-08.
+Status date: 2026-08-10.
 
-The V8 plan's only job was to prevent V1–V7's failure mode: an orchestration
-layer sitting on execution that was never verified. It defines completion by
-its own terms — every layer ships raw proof before the next layer starts —
-and by those terms the plan is **done**:
-
-- Every structural gate (G1–G6) shipped raw, captured output.
-- Thirteen real composite tasks are on record, each with a Gate-6-grade proof.
-- Every L1 primitive the executor can call has standalone bring-up proof.
-- The two remaining primitives are deferred **by the plan's own terms**, not
-  by omission (see below).
+Friday is a **layered desktop-automation agent** whose defining discipline is
+that every layer ships raw proof before the next layer starts — and that
+nothing an LLM plans is ever trusted without mechanical verification.
+The original V8 plan (gates G1–G6 + 13 composite tasks) is **done**; since
+then the core was hardened, a 217-test unit suite was added, a live
+end-to-end check now runs the real stack against real state, and the
+ambient watch loop has been wired into real gmail. This document is the
+single source of truth for what exists, what is proven, what is knowingly
+left out, and what the next plan could build.
 
 ---
 
-## 1. Gates (raw proof in `gates/`)
+## 1. Architecture (five layers + the watch loop)
 
-| Gate | Layer proven | Proof artifact |
-|------|--------------|----------------|
-| G1 | L1 primitives bring-up (window/media/browser/dev) | `GATE1_PROOF.md` |
-| G2 | L0 observability (one structured line per call) | `GATE2_PROOF.md` |
-| G3 | L2 verification (read-only checks, import discipline enforced) | `GATE3_PROOF.md` |
-| G4 | L3 execution (hardcoded plan, zero LLM) | `GATE4_PROOF.md` |
-| G5 | L4 planning (LLM goal → plan JSON, same executor) | `GATE5_PROOF.md` |
-| G6 | first composite task, full L0 trace | `GATE6_PROOF.md` |
-
-## 2. Composite tasks (13 on record)
-
-Counter: `var/logs/tasks.jsonl` — one line per run
-(`task_id, goal, gate6_passed, timestamp, proof`). Tasks 1–7 predate the
-counter and are backfilled there from their proof artifacts (`backfilled:
-true`); failures are recorded honestly — every failed iteration stays in
-the file (the first Task 8 attempt, two `retry-stress` runs, and Gate 6
-DoD runs `c`/`d` are all present with `gate6_passed: false`).
-
-Distinct tasks with a passing run: **13 composite tasks** (task1–task10
-plus task `gate6`, task `whatsapp-filesend` and task `gmail-summary`,
-2026-08-08). The file also
-holds non-task entries —
-`retry-stress` (a stress gate, not a task) — so raw distinct-id counts
-over the whole file run higher than the task count. Per the Gate 6
-prompt's own scheme, counting starts at `gate6` (pass 1) from here on;
-both schemes are visible in the same file.
-
-| # | Goal (abridged) | Proof |
-|---|-----------------|-------|
-| 1 | send the receipt pdf from downloads to WhatsApp | `TASK1_SEND_RECEIPT_PROOF.md` |
-| 2 | send a text to WhatsApp, Telegram and Discord | `TASK2_SEND_TEXT_PROOF.md` |
-| 3 | open example.com and verify 'Example Domain' | `TASK3_BROWSER_PROOF.md` |
-| 4 | DuckDuckGo search, report first result title | `TASK4_DDG_SEARCH_PROOF.md` |
-| 5 | play the test tone 1 min, verify it stops by itself | `TASK5_MEDIA_TIMER_PROOF.md` |
-| 6 | search DDG, click the first result, verify the page | `TASK6_BROWSER_CLICK_PROOF.md` |
-| 7 | log in to GitHub with stored credentials (log-safe) | `TASK7_BROWSER_LOGIN_PROOF.md` |
-| 8 | open → focus → move workspace → close (control group intact) | `TASK8_WINDOW_PROOF.md` |
-| 9 | play → pause → resume → stop, verified | `TASK9_MEDIA_PROOF.md` |
-| 10 | upload a file to a page, verify via page state | `TASK10_UPLOAD_PROOF.md` |
-| 11 | "pause whatever's playing, then close every window except my terminal" (real goal, unmodified pipeline) | `GATE6_DOD_PROOF.md` |
-| 12 | WhatsApp file-send re-prove on the Cloud API ("send the README.md file to my whatsapp") | `TASK_WHATSAPP_FILESEND_PROOF.md` |
-| 13 | Gmail unread-email summary ("find the most recent unread email from accounts.google.com and summarize it") | `TASK_GMAIL_SUMMARY_PROOF.md` |
-
-Task 12 closes Phase 2 Section 1: the historical "stages but doesn't send"
-symptom belonged to the **superseded web.whatsapp.com browser automation**
-(removed 2026-08-08; only the Cloud API CLI remains). The Cloud API path
-has zero recorded failures across its entire L0 history and was re-proven
-fresh — verification was the fresh wamid via `checks.message_sent`, not
-absence-of-exception. The 24-hour window does not apply (admin user).
-
-Task 13 (Phase 2 Section 2, first task) adds the **gmail** primitives
-(`list_unread` / `get_message` / `summarize`, OAuth2, `gmail.readonly`
-scope only — tokeninfo-confirmed) and its proof. Its three honest failed
-runs exposed and fixed three real gaps in the SHARED stack, each now
-covered generically (no per-goal code): (1) the executor's `$steps.N.result`
-resolver gained LIST-INDEX support (integer path segments); (2) it now
-accepts dot AND bracket ref syntax (`result.0` / `result[0]` /
-`result["key"]`) with 17 unit tests; (3) the planner prompt states gmail
-goals need ONLY `gmail.*` primitives, and the gmail harness refuses any
-plan containing browser/dev steps before execution (Gate-6-style
-interlock). The one-time Google OAuth setup is documented in
-`gates/GMAIL_SETUP.md` (incl. the testing-mode 7-day refresh-token
-expiry and the production publish that removes it).
-
-Supporting bring-ups: `BRINGUP_REMAINING_PROOF.md` (media pause/resume,
-browser upload_file, window focus/move/close_all — the last unproven
-primitives) and `MPV_LIFECYCLE_FIX_PROOF.md` (orphan-leak + zombie-reap
-defects fixed and re-proven). Anti-cheese and stress evidence:
-`GATE5_DOD_PROOF.md` (two goals through the unmodified L4 pipeline, incl.
-a never-seen goal) and `RETRY_STRESS_PROOF.md` (mpv lifecycle holds under
-repeated invocation).
-
-## 3. Deferred by design (not gaps)
-
-- **`window.shutdown`** — destructive: it ends the Hyprland session. It is
-  provable only as a deliberate last act on a clear desktop; the user has
-  chosen to leave it unproven, so the executor can never call it.
-- **`vision`** — the plan itself says "skip vision for now"; it is gated
-  off until every structured alternative (1–4) has failed for a target.
-
-## 4. Working discipline held
-
-- No per-goal code: every task composed the generic catalog + config facts
-  (`config/planner_facts.json`); no `if "gmail" in goal:` handlers exist.
-- Every executor-called primitive has standalone proof first.
-- Defects were fixed inside the gate they were found in (e.g. the GitHub
-  click-navigation fix, the mpv lifecycle fix, Task 8's reference-chaining
-  fix — all recorded in the run histories of their proof docs).
-
-## 5. What this unlocks
-
-Section 3's non-goals (self-improvement loop, capability-gap detection,
-ambient watch loop, cross-project synthesis, MCP servers) are gated behind
-"≥10 real tasks pass Gate-6-style proof" — that threshold is now **met**,
-so they are eligible to build. They remain earned, not obligated: nothing
-in this plan requires them.
-
-## How to verify
-
-```bash
-./.venv/bin/python - <<'PY'
-import json
-lines = [json.loads(l) for l in open("var/logs/tasks.jsonl", encoding="utf-8")]
-ids = []
-for l in lines:
-    if l["gate6_passed"] and l["task_id"] not in ids:
-        ids.append(l["task_id"])
-print(len(ids), ids)
-PY
+```
+L4  Planning     (LLM: goal -> plan JSON, schema-validated, $facts resolved)
+L3  Execution    (deterministic state machine, zero LLM, $steps refs, retries)
+L2  Verification (read-only state checks; the only thing a step may verify with)
+L1  Primitives   (window/media/browser/dev/files/gmail/notify/whatsapp/telegram/discord)
+L0  Observability (one structured JSON line per call; redaction + clip +
+                   per-primitive projection + size-based rotation)
+WATCH  friday/watcher.py   ambient loop: config triggers -> goals -> tasks.jsonl -> notify
 ```
 
-and re-run any gate/task runner in `gates/` to see the raw evidence again.
+- **L1** — every primitive carries a registered contract (pre/post/idempotency/
+  failure mode) in `friday/contracts.py`; L3 refuses to call anything without
+  one. Idempotency classes: `idempotent` / `at-most-once` / `commutative-safe`.
+- **L3** — `PENDING -> RUNNING -> {VERIFIED, FAILED}`, bounded retries with
+  contract-derived backoff, `$steps.N.result` refs (dot + bracket + list-index),
+  refuses `EXECUTOR_BLOCKED` primitives, rejects future-step refs before running.
+- **L4** — capability catalog auto-derived from the registry (can never drift
+  from what L3 resolves), zero goal-specific logic, `validate_plan` catches
+  malformed output before execution and feeds the reason back into a retry.
+- **L0** — `var/logs/friday.jsonl`; redaction (`<redacted>` for secrets and
+  mail bodies), clipping of huge values, per-primitive log projection
+  (`window.list_clients` compact, `gmail.list_unread` redacts sender/subject
+  while keeping message_id/date), size-based rotation past 10 MB keeping 3 backups.
+
+## 2. Hardened core (post-V8, all mechanically proven)
+
+| Rail | Mechanism | Proven by |
+|------|-----------|-----------|
+| `window.shutdown` unreachable | `EXECUTOR_BLOCKED` in contracts — hidden from the LLM catalog, rejected by `validate_plan`, refused by L3 | unit tests + gate proofs |
+| Arbitrary shell gated | `dev.run_shell` / `dev.run(allow_bypass_permissions=True)` raise unless `FRIDAY_ALLOW_DANGEROUS=1` (checked before claude runs) | `tests/test_dev.py` |
+| Protected windows | `close_window`/`close_all` refuse protected classes (`FRIDAY_PROTECTED_CLASSES`, default `kitty`) **before any dispatch** — no partial close | `tests/test_window.py` |
+| Per-trigger allowlist (NEW) | watcher triggers may carry `"allow": ["gmail.*"]`; any plan step whose primitive is not on the list is REFUSED before execution, recorded honestly, and popped from the plan cache | `tests/test_watcher.py` (28 tests) |
+
+## 3. Proof ledger (all raw output in `gates/`)
+
+Structural gates: `GATE1_PROOF` (L1 bring-up) … `GATE6_PROOF` (first
+composite task) plus `GATE5_DOD_PROOF` (anti-cheese: never-seen goal
+through the unmodified pipeline) and `GATE6_DOD_PROOF` (real spoken-style
+goal). Bring-ups: `BRINGUP_GMAIL_PROOF`, `BRINGUP_REMAINING_PROOF`,
+`MPV_LIFECYCLE_FIX_PROOF`, `RETRY_STRESS_PROOF`.
+
+**13 composite tasks**, each with a Gate-6-grade proof: receipt→WhatsApp,
+text→3 platforms, browser open/click/search, media timer + pause/resume,
+window compose, GitHub login (log-safe), file upload, WhatsApp file-send on
+the Cloud API, gmail unread-email summary, and the task-table in
+`gates/TASK*_PROOF.md` files.
+
+**Post-V8 artifacts (this phase):**
+
+| Artifact | What it proves |
+|----------|----------------|
+| `TESTS_PROOF.md` | 217-test dependency-free unit suite, all side-effect boundaries mocked (regenerated by `gates/test_suite.py`) |
+| `E2E_PROOF.md` | **Live** end-to-end on this machine: 4 goals (files/windows/media/gmail) planned by real LLM calls, executed by the unmodified executor, verified by real L2 checks against real state, traced in the real log, recorded in tasks.jsonl, desktop-notified. Read-only allowlist refused hallucinated side-effecting plans (a live run caught a `whatsapp.send_text`); probe sender redacted in the proof |
+| `WATCHER_PROOF.md` | Watch loop first proof: time + file triggers, deterministic plans, no LLM, recorded + notified |
+| `WATCHER_GMAIL_PROOF.md` | The **enabled** `morning-gmail-summary` trigger through the unmodified watcher against the live inbox: `$facts.gmail_sender`, `allow: ["gmail.*"]`, LLM plan → verified steps → real summary → tasks.jsonl → notify |
+
+## 4. Test suite
+
+`tests/` — 217 tests, stdlib `unittest`, zero dependencies, ~2.5 s. Covers
+the registry, observability (redaction/rotation/log_transform), executor
+(ref resolver incl. list-index + bracket syntax, retry policy, blocked
+primitives), planner (validate_plan, catalog, facts, `$facts` substitution),
+every L2 check, protected windows, the dev dangerous-gate, browser locator
+fallback chain + the credential-logging regression, media `_launch`/
+`_wait_socket`, gmail summarize flow + body-never-logged regression, and the
+watcher (config validation, time/file triggers, LLM plan caching, **allowlist
+refusal**, honest failure recording). Hermetic: `EnvTestCase` points
+`FRIDAY_LOG_FILE` at a per-test temp file, so the suite never writes into
+the real log.
+
+## 5. Task counter
+
+`var/logs/tasks.jsonl` — one honest JSON line per run (`task_id, goal,
+gate6_passed, timestamp, proof`); failures are never deleted. **21 distinct
+passing ids**: the 13 composite tasks, the `retry-stress` gate, and 7
+live-automation records (`watch:demo-time`, `watch:demo-file`, `e2e:files`,
+`e2e:media`, `e2e:windows`, `e2e:gmail`, `watch:morning-gmail-summary`).
+
+## 6. Known limits / honest caveats
+
+- **LLM plan variance**: plans come from a live LLM and occasionally
+  hallucinate — wrong window counts, extra side-effecting steps, even a
+  `whatsapp.send_text` in a gmail goal. Every such plan is caught
+  mechanically (L2 verify fails → ABORT; allowlist/allow refuse → REFUSED)
+  and recorded honestly. This is the design working, not a defect.
+- **Empty mailbox is a false verdict, never an error**: an absent unread
+  email from the configured sender makes `gmail_unread_exists` return False
+  and the goal honestly FAILs. The watcher's `morning-gmail-summary` fires
+  at 09:00 weekdays against `$facts.gmail_sender` (currently
+  `accounts.google.com`); change the sender in `config/planner_facts.json`
+  to one you reliably receive unread mail from.
+- **Mail privacy**: sender/subject are redacted in L0 and in committed
+  proofs; the gmail *summary* text (an LLM-generated artifact) is shown
+  truncated in proofs. `gmail.summarize` internally calls the LLM
+  (unlogged by design — the mail body never reaches the log).
+- **`summarize` costs money**: it is the one primitive that makes a live LLM
+  call per invocation (~$0.17 per the last run); the E2E and watcher both
+  call it once per run.
+- **Watch loop is not yet deployed**: the daemon (`--poll 30`) or cron
+  (`--once`) is not installed as a system service on this machine — the
+  wiring is proven, the deployment is a decision.
+
+## 7. Deferred by design (not gaps)
+
+- **`window.shutdown`** — destructive; mechanically blocked from every plan
+  path. A deliberate script may still call it directly.
+- **`vision`** — the plan itself said "skip vision for now"; gated off until
+  every structured alternative fails for a target.
+
+## 8. What the next plan could build (threshold met)
+
+The original plan's non-goals — self-improvement loop, capability-gap
+detection, ambient watch loop, cross-project synthesis, MCP servers — were
+gated behind "≥10 real tasks pass Gate-6-grade proof". That threshold is
+**met and exceeded** (13 tasks + 7 live-automation records), so these are
+eligible. Concrete candidates, roughly in dependency order:
+
+1. **Deploy the watch loop**: cron/systemd for `--once` at a fixed time, or
+   a `--poll` daemon; make the morning digest a real daily occurrence.
+2. **More ambient triggers**: other gmail senders, a daily planner-facts
+   report, download alerts (already in config, disabled), desktop-status
+   notifications on schedule.
+3. **Capability-gap detection**: when the executor ABORTs on a missing
+   capability, surface the gap to the planner/user instead of failing silently.
+4. **Self-improvement loop**: mine `tasks.jsonl` + L0 history to propose new
+   goals/triggers; measure drift between plan and reality.
+5. **Cross-project synthesis / MCP servers**: expose Friday's primitives as
+   an MCP tool server so other agents can drive the desktop through verified
+   primitives (the L0/L2 machinery is already the right boundary).
+
+## How to verify anything in this document
+
+```bash
+./.venv/bin/python gates/test_suite.py            # 217 tests -> TESTS_PROOF.md
+./.venv/bin/python -u gates/e2e_check.py          # live 4-goal check -> E2E_PROOF.md
+./.venv/bin/python -u gates/watcher_gmail_demo.py # live gmail trigger -> WATCHER_GMAIL_PROOF.md
+./.venv/bin/python gates/watcher_demo.py          # deterministic triggers -> WATCHER_PROOF.md
+./.venv/bin/python -m friday.watcher --once       # the real watcher, current config
+```
+
+Raw evidence: `var/logs/friday.jsonl` (L0), `var/logs/tasks.jsonl`
+(counter). All proof files are raw captured output, not summaries.

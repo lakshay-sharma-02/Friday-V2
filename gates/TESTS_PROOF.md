@@ -1,6 +1,6 @@
 # TESTS_PROOF — automated test suite for Friday
 
-Status date: 2026-08-10T03:53:24+00:00.
+Status date: 2026-08-10T04:05:52+00:00.
 
 The full unittest suite over every layer and feature: registry,
 observability (redaction / rotation / log_transform), the executor
@@ -12,7 +12,7 @@ never sends, launches, clicks or touches the compositor.
 
 ## Verdict: PASS
 
-Ran 214 tests: 214 passed, 0 failed, 0 errors.
+Ran 217 tests: 217 passed, 0 failed, 0 errors.
 
 ## Raw output
 
@@ -194,6 +194,9 @@ test_missing_binary (test_secrets.TestSecrets.test_missing_binary) ... ok
 test_nonzero_exit (test_secrets.TestSecrets.test_nonzero_exit) ... ok
 test_two_line_entry (test_secrets.TestSecrets.test_two_line_entry) ... ok
 test_unsupported_entry_shape (test_secrets.TestSecrets.test_unsupported_entry_shape) ... ok
+test_allow_must_be_a_list_of_strings (test_watcher.TestAllowList.test_allow_must_be_a_list_of_strings) ... ok
+test_allowed_exact_and_prefix_plan_executes (test_watcher.TestAllowList.test_allowed_exact_and_prefix_plan_executes) ... ok
+test_plan_with_disallowed_prim_is_refused_not_executed (test_watcher.TestAllowList.test_plan_with_disallowed_prim_is_refused_not_executed) ... ok
 test_bad_at (test_watcher.TestConfigValidation.test_bad_at) ... ok
 test_bad_json (test_watcher.TestConfigValidation.test_bad_json) ... ok
 test_bad_schedule_type (test_watcher.TestConfigValidation.test_bad_schedule_type) ... ok
@@ -239,7 +242,7 @@ test_bare_name_becomes_class (test_window.TestSelectorNormalization.test_bare_na
 test_explicit_prefix_passthrough (test_window.TestSelectorNormalization.test_explicit_prefix_passthrough) ... ok
 
 ----------------------------------------------------------------------
-Ran 214 tests in 2.679s
+Ran 217 tests in 2.658s
 
 OK
 ```

@@ -13,12 +13,14 @@ messages are sent, no windows are opened or closed, nothing plays):
   B. window: verify a kitty terminal is open (real compositor state)
   C. media:  pause any playing audio (mutates state ONLY if a player is
              running - pausing is the goal's stated intent)
-  D. gmail:  list the most recent unread email from a sender discovered
-             by a read-only pre-probe of the REAL inbox (OAuth via pass)
-             and report its sender/subject/date. Sender and subject are
+  D. gmail:  summarize the most recent unread email from a sender
+             discovered by a read-only pre-probe of the REAL inbox
+             (OAuth via pass). The full documented gmail shape runs
+             (list_unread -> get_message -> summarize); the summary text
+             is the human-verifiable deliverable. Sender/subject stay
              <redacted> in the L0 trace - mail metadata never lands in
-             plaintext, matching the module's log_transform. Set
-             E2E_GMAIL_SENDER=<email> to skip the probe and pin a sender.
+             plaintext; E2E_GMAIL_SENDER=<email> skips the probe and
+             pins a sender.
 
 Defense in depth: a plan whose primitives fall outside the read-only
 allowlist is REFUSED before execution and reported as a FAIL - an LLM that
@@ -33,10 +35,11 @@ not a broken check; rerun to get a fresh plan. The gmail goal's PASS needs
 (a) unread mail to still exist from the probed sender at verify time (an
 empty mailbox is an honest FALSE verdict, never an error - rerun later)
 and (b) the LLM to verify list_unread with checks.gmail_unread_exists.
-get_message is allowed (read-only); an over-planned summarize step is
-REFUSED (it is a paid, non-deterministic LLM sub-call - not part of this
-goal), so the gmail goal FAILs and needs a rerun, exactly like a windows
-flake.
+The gmail goal runs the full read-only shape - list_unread, get_message
+and summarize (summarize is allowed: paid and non-deterministic, but it
+makes NO state changes). If the LLM instead hallucinates a side-effecting
+primitive, the plan is REFUSED and the goal FAILs - rerun for a fresh
+plan, exactly like a windows flake.
 
 Privacy: the probe's discovered sender is masked as <redacted> in the
 proof transcript (the out() sink replaces it, mirroring list_unread's L0
@@ -86,13 +89,14 @@ ALLOWED_PRIMS = {
     "window.get_active_window",
     "media.pause",
     "media.is_playing",
-    # gmail is read-only end to end (gmail.readonly scope; both are
-    # idempotent). get_message is allowed so the common list_unread ->
-    # get_message plan shape executes; summarize is deliberately NOT
-    # allowed - it is a paid, non-deterministic LLM sub-call, and this
-    # goal is list_unread only (an over-planned summarize step is refused).
+    # gmail is read-only end to end (gmail.readonly scope; all three are
+    # idempotent). summarize internally invokes the LLM (dev._run_claude,
+    # unlogged by design) - paid and non-deterministic but makes NO state
+    # changes, so the full documented gmail shape is allowed in a live
+    # check.
     "gmail.list_unread",
     "gmail.get_message",
+    "gmail.summarize",
 }
 
 GOALS: list[tuple[str, str]] = [
@@ -296,7 +300,7 @@ def main() -> None:
         GOALS.append((
             "gmail",
             f"list the most recent unread email from {gmail_sender} "
-            f"and return its sender, subject and date (read-only)",
+            f"and return a short plain-text summary of it (read-only)",
         ))
     elif probe_failed:
         problems.append(f"gmail: pre-probe failed ({probe_failed}) - goal not run")

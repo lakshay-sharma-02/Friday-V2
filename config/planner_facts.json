@@ -11,7 +11,8 @@
   "recipients": {
     "whatsapp": "918396020807",
     "telegram": "8449939313",
-    "discord": "1535284689642983486"
+    "discord": "1535284689642983486",
+    "gmail_sender": "accounts.google.com"
   },
   "facts": [
     "firefox launches via window.open_app(\"firefox\").",
