@@ -1,6 +1,6 @@
 # TESTS_PROOF — automated test suite for Friday
 
-Status date: 2026-08-09T19:19:58+00:00.
+Status date: 2026-08-10T03:53:24+00:00.
 
 The full unittest suite over every layer and feature: registry,
 observability (redaction / rotation / log_transform), the executor
@@ -239,7 +239,7 @@ test_bare_name_becomes_class (test_window.TestSelectorNormalization.test_bare_na
 test_explicit_prefix_passthrough (test_window.TestSelectorNormalization.test_explicit_prefix_passthrough) ... ok
 
 ----------------------------------------------------------------------
-Ran 214 tests in 2.589s
+Ran 214 tests in 2.679s
 
 OK
 ```
