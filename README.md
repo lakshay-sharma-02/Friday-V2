@@ -16,12 +16,14 @@ structural gate G1–G6 shipped raw, captured output; **13 composite tasks**
 plus **7 live-automation records** (watch/e2e) are on record in
 `var/logs/tasks.jsonl`; every executor-callable L1 primitive has
 standalone bring-up proof; the core is hardened (blocked primitives,
-protected windows, dangerous-dev gate); a **217-test unit suite** covers
-every layer; and a **live end-to-end check** runs the real stack against
+protected windows, dangerous-dev gate); a **240-test unit suite** covers
+every layer; a **live end-to-end check** runs the real stack against
 this machine's real state — including a real gmail summary through the
-ambient watch loop. The two remaining primitives (`window.shutdown`,
-`vision`) are deferred **by the plan's own terms**, not by omission. Full
-completion record: `gates/PLAN_STATUS.md`.
+ambient watch loop — and a **capability-gap loop** turns every refused
+plan step into a human-reviewable proposed primitive (draft-only by
+design; nothing self-registers). The two remaining primitives
+(`window.shutdown`, `vision`) are deferred **by the plan's own terms**,
+not by omission. Full completion record: `gates/PLAN_STATUS.md`.
 
 ## Layout
 
@@ -46,7 +48,9 @@ friday/
     telegram.py     Telegram Bot API (send_text / send_document)
     discord.py      Discord Bot API (send_text / send_file)
   watcher.py        ambient watch loop (config/ triggers -> goals -> tasks.jsonl)
-tests/               dependency-free unittest suite (217 tests, all mocked)
+  capability_gaps.py structured refusal records (var/logs/capability_gaps.jsonl)
+  gap_triage.py     groups gaps, LLM-drafts proposed primitives (human-review only)
+tests/               dependency-free unittest suite (240 tests, all mocked)
   l2/
     checks.py       L2 verification: read-only checks (catalog below)
   l3/
@@ -209,9 +213,11 @@ and feature: the contract registry, observability (redaction, rotation,
 `log_transform`), the executor (ref resolver, retry policy, blocked
 primitives), the planner (validate_plan, catalog, facts), all L2 checks,
 window protected-classes, the dev dangerous-gate, gmail/notify/secrets,
-the watch loop (incl. the per-trigger primitive allowlist), and the
-browser locator chain. Every side-effect boundary is mocked — the suite
-never sends, launches, clicks, or touches the compositor.
+the watch loop (incl. the per-trigger primitive allowlist), the
+capability-gap recorder (executor + watcher refusal paths), the
+capability-gap triage drafter, and the browser locator chain. Every side-effect boundary
+is mocked — the suite never sends, launches, clicks, or touches the
+compositor.
 
 ```sh
 ./.venv/bin/python -m unittest discover -s tests -v   # run directly
@@ -258,6 +264,7 @@ counting starts at `gate6` from here on.
 | `WATCHER_PROOF.md` | Watch loop first proof: time + file triggers fire deterministic plans through the real watcher (no LLM, no side effects), recorded in tasks.jsonl, notified |
 | `WATCHER_GMAIL_PROOF.md` | The enabled `morning-gmail-summary` trigger runs a REAL gmail summary through the unmodified watcher (`$facts.gmail_sender`, `allow: ["gmail.*"]`, live LLM plan, verified) |
 | `E2E_PROOF.md` | Live end-to-end: 4 goals (files/windows/media/gmail) through the real stack with live LLM plans, allowlist refusal, redacted proof |
+| `CAPABILITY_GAP_PROOF.md` | Capability-gap loop: real refusal -> structured gap record -> live LLM triage draft (`gates/proposed_primitives/`); approval/registration deliberately pending (meta-engine gate is aspirational) |
 
 The master completion record with the full task table lives at
 `gates/PLAN_STATUS.md`.
@@ -357,6 +364,32 @@ refused with zero side effects). The probe sender is redacted as
 ```
 
 Live proof: `gates/E2E_PROOF.md` (4/4 goals PASS from live LLM plans).
+
+## Capability-gap loop (gap -> draft; approval pending by design)
+
+When a plan step is refused because its primitive is unknown, unregistered,
+blocked, or not on a trigger's allowlist, `friday/capability_gaps.py`
+writes one structured record to `var/logs/capability_gaps.jsonl`
+(source, goal_context, attempted_primitive, arg-SHAPE type tags — never
+values — and refusal_reason). `friday/gap_triage.py` groups unprocessed
+records by primitive and makes an LLM call to draft a proposal into
+`gates/proposed_primitives/<primitive>/` — `contract.json` (the real
+Contract schema), `impl.py`, `test.py`, `rationale.md` — each ending with
+`APPROVAL: PENDING`.
+
+**Nothing self-registers.** The meta-engine approval gate (AST-validation
++ sandboxed build + dual human approval) is aspirational, not implemented;
+until a human approves a draft and wires it through the real registration
+path (new `friday/l1/<module>.py` + `planner._L1_MODULES`), drafts are
+review-only artifacts. Bad LLM drafts (observed in a real run: a
+decorator-source string masquerading as a contract; an impl ignoring its
+own argument) compile yet are wrong — they are rejected at human review,
+never registered.
+
+```sh
+./.venv/bin/python -m friday.gap_triage            # draft unprocessed gaps
+./.venv/bin/python -u gates/capability_gap_demo.py  # live proof -> gates/CAPABILITY_GAP_PROOF.md
+```
 
 ## Gate 1 bring-up (historical runner)
 

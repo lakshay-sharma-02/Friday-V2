@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from friday.capability_gaps import record_gap
 from friday.errors import FridayError
 from friday.l1.notify import notify_send
 from friday.l3.executor import run_plan
@@ -272,6 +273,19 @@ def _run_trigger(
                 # refuse BEFORE execution: a hallucinated side-effecting
                 # step must never act from an unattended trigger
                 plan_cache.pop(goal, None)
+                # One capability-gap record per forbidden primitive, with
+                # that step's arg SHAPE (never values) - the triage loop
+                # treats each disallowed primitive as a proposal candidate.
+                for s in plan_dict.get("steps", []):
+                    if s.get("primitive") in forbidden:
+                        record_gap(
+                            source="watcher",
+                            trigger_id=t_id,
+                            attempted_primitive=s.get("primitive"),
+                            attempted_args=s.get("args") or {},
+                            goal_context=goal,
+                            refusal_reason=f"trigger allowlist {allowed}",
+                        )
                 detail = {
                     "trigger": t_id, "status": "REFUSED",
                     "forbidden": forbidden, "allowed": allowed,

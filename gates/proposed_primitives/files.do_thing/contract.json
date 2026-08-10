@@ -1,0 +1,8 @@
+{
+  "name": "files.do_thing",
+  "precondition": "name is a non-empty string representing the artifact identifier; recursive is a boolean indicating whether to search subdirectories",
+  "postcondition": "Returns a list of absolute file paths to the located artifact(s), empty if none found",
+  "idempotency": "idempotent",
+  "failure_mode": "FileNotFoundError if no matching artifact is found",
+  "returns": "list[str]: absolute path(s) to the located artifact(s)"
+}

@@ -24,6 +24,10 @@ L1  Primitives   (window/media/browser/dev/files/gmail/notify/whatsapp/telegram/
 L0  Observability (one structured JSON line per call; redaction + clip +
                    per-primitive projection + size-based rotation)
 WATCH  friday/watcher.py   ambient loop: config triggers -> goals -> tasks.jsonl -> notify
+GAPS   friday/capability_gaps.py + gap_triage.py
+                          refusal -> structured record (capability_gaps.jsonl)
+                          -> grouped -> LLM-drafted proposed primitive
+                          (gates/proposed_primitives/, human-review ONLY)
 ```
 
 - **L1** — every primitive carries a registered contract (pre/post/idempotency/
@@ -71,20 +75,24 @@ the Cloud API, gmail unread-email summary, and the task-table in
 | `E2E_PROOF.md` | **Live** end-to-end on this machine: 4 goals (files/windows/media/gmail) planned by real LLM calls, executed by the unmodified executor, verified by real L2 checks against real state, traced in the real log, recorded in tasks.jsonl, desktop-notified. Read-only allowlist refused hallucinated side-effecting plans (a live run caught a `whatsapp.send_text`); probe sender redacted in the proof |
 | `WATCHER_PROOF.md` | Watch loop first proof: time + file triggers, deterministic plans, no LLM, recorded + notified |
 | `WATCHER_GMAIL_PROOF.md` | The **enabled** `morning-gmail-summary` trigger through the unmodified watcher against the live inbox: `$facts.gmail_sender`, `allow: ["gmail.*"]`, LLM plan → verified steps → real summary → tasks.jsonl → notify |
+| `CAPABILITY_GAP_PROOF.md` | Capability-gap loop (gap → draft): a real L3 refusal records a structured gap, triage LLM-drafts a proposal (contract/impl/test/rationale), approval/registration deliberately pending |
 
 ## 4. Test suite
 
-`tests/` — 217 tests, stdlib `unittest`, zero dependencies, ~2.5 s. Covers
+`tests/` — 240 tests, stdlib `unittest`, zero dependencies, ~2.5 s. Covers
 the registry, observability (redaction/rotation/log_transform), executor
 (ref resolver incl. list-index + bracket syntax, retry policy, blocked
 primitives), planner (validate_plan, catalog, facts, `$facts` substitution),
 every L2 check, protected windows, the dev dangerous-gate, browser locator
 fallback chain + the credential-logging regression, media `_launch`/
-`_wait_socket`, gmail summarize flow + body-never-logged regression, and the
+`_wait_socket`, gmail summarize flow + body-never-logged regression, the
 watcher (config validation, time/file triggers, LLM plan caching, **allowlist
-refusal**, honest failure recording). Hermetic: `EnvTestCase` points
-`FRIDAY_LOG_FILE` at a per-test temp file, so the suite never writes into
-the real log.
+refusal**, honest failure recording), and the capability-gap loop (one record
+per unknown/blocked/allowlist-refused primitive; triage drafting, idempotent
+processed-tracking, compile-status honesty). Hermetic: `EnvTestCase` points
+`FRIDAY_LOG_FILE`, `FRIDAY_GAPS_FILE` and `FRIDAY_PROPOSALS_DIR` at per-test
+temp paths, so the suite never writes into the real log, gap file, or
+`gates/proposed_primitives/`.
 
 ## 5. Task counter
 
@@ -114,6 +122,18 @@ live-automation records (`watch:demo-time`, `watch:demo-file`, `e2e:files`,
 - **`summarize` costs money**: it is the one primitive that makes a live LLM
   call per invocation (~$0.17 per the last run); the E2E and watcher both
   call it once per run.
+- **Capability-gap drafts are unvalidated LLM output**: triage drafts are
+  only syntax-checked (`compile()`), never semantically or safely validated
+  — a real run produced a decorator-source string masquerading as a
+  contract and an impl that ignored its own argument. Such drafts compile
+  yet are wrong. They are rejected at HUMAN REVIEW; nothing in the gap loop
+  self-registers, so a bad draft changes nothing about the running agent.
+- **The meta-engine approval gate is ASPIRATIONAL, not implemented**: the
+  AST-validation + sandboxed-build + dual human-approval machinery described
+  in the plan does not exist in this repo (verified by search, 2026-08-10;
+  only PLAN_STATUS §8 mentions it as a future non-goal). No parallel
+  approval flow was built. Until the user decides how approval should work,
+  gap_triage stops at reviewable drafts.
 - **Watch loop is not yet deployed**: the daemon (`--poll 30`) or cron
   (`--once`) is not installed as a system service on this machine — the
   wiring is proven, the deployment is a decision.
@@ -133,6 +153,12 @@ gated behind "≥10 real tasks pass Gate-6-grade proof". That threshold is
 **met and exceeded** (13 tasks + 7 live-automation records), so these are
 eligible. Concrete candidates, roughly in dependency order:
 
+0. **Decide the capability-gap approval gate**: gap → draft is proven
+   (`CAPABILITY_GAP_PROOF.md`); approval → registration is the open
+   decision. The real registration path is known: new `friday/l1/<module>.py`
+   + add the module to `planner._L1_MODULES`. Options: build the
+   meta-engine gate for real, adopt the drafted proposals by hand, or stop
+   at drafts.
 1. **Deploy the watch loop**: cron/systemd for `--once` at a fixed time, or
    a `--poll` daemon; make the morning digest a real daily occurrence.
 2. **More ambient triggers**: other gmail senders, a daily planner-facts

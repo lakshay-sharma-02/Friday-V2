@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from friday.capability_gaps import record_gap
 from friday.contracts import EXECUTOR_BLOCKED, REGISTRY, Idempotency
 from friday.errors import FridayError
 from friday.observability import emit_event, set_run_id, set_step_id
@@ -393,11 +394,38 @@ def run_plan(plan: dict[str, Any], *, run_id: str | None = None) -> PlanResult:
             result="PENDING",
         )
 
+        set_step_id(str(step_id))
         try:
-            set_step_id(str(step_id))
             fn = _resolve_primitive(step.primitive)
+        except KeyError as exc:
+            # A step refused because its primitive is unknown, unregistered,
+            # or blocked is a CAPABILITY GAP - record it (best-effort) so
+            # the triage loop can propose a new L1 primitive for human
+            # review. The refusal itself aborts exactly as before.
+            record_gap(
+                source="executor",
+                goal_id=goal,
+                attempted_primitive=step.primitive,
+                attempted_args=step.args,
+                goal_context=goal,
+                refusal_reason=str(exc),
+            )
+            set_step_id(None)
+            result.steps.append(
+                StepResult(step_id=step_id, primitive=step.primitive, status="ABORTED", attempts=0, error=str(exc))
+            )
+            result.status = "ABORTED"
+            _step_emit(
+                step_id,
+                layer="L3", primitive=f"step.{step_id}",
+                result="ABORT", exception=str(exc), extra={"reason": "unresolvable step"},
+            )
+            raise FridayError(f"plan aborted at step {step_id}: {exc}") from exc
+        try:
             check_fn = _resolve_check(step.verify.check)
         except KeyError as exc:
+            # An unknown L2 CHECK is a plan bug (the check namespace is
+            # static), not a missing primitive - no capability-gap record.
             set_step_id(None)
             result.steps.append(
                 StepResult(step_id=step_id, primitive=step.primitive, status="ABORTED", attempts=0, error=str(exc))

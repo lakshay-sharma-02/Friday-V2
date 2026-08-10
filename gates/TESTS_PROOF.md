@@ -1,6 +1,6 @@
 # TESTS_PROOF — automated test suite for Friday
 
-Status date: 2026-08-10T04:05:52+00:00.
+Status date: 2026-08-10T04:49:45+00:00.
 
 The full unittest suite over every layer and feature: registry,
 observability (redaction / rotation / log_transform), the executor
@@ -12,7 +12,7 @@ never sends, launches, clicks or touches the compositor.
 
 ## Verdict: PASS
 
-Ran 217 tests: 217 passed, 0 failed, 0 errors.
+Ran 241 tests: 241 passed, 0 failed, 0 errors.
 
 ## Raw output
 
@@ -38,6 +38,23 @@ test_fill_field_actually_fills (test_browser.TestTypingAndSecretDiscipline.test_
 test_fill_field_is_silent (test_browser.TestTypingAndSecretDiscipline.test_fill_field_is_silent)
 The credential fill path emits NO line carrying the secret - the ... ok
 test_type_text_logs_its_text_argument (test_browser.TestTypingAndSecretDiscipline.test_type_text_logs_its_text_argument) ... ok
+test_args_shape_never_leaks_values (test_capability_gaps.TestExecutorGaps.test_args_shape_never_leaks_values)
+The recorded shape is type tags only - secrets never ride a gap. ... ok
+test_blocked_by_design_primitive_records_gap (test_capability_gaps.TestExecutorGaps.test_blocked_by_design_primitive_records_gap)
+EXECUTOR_BLOCKED (window.shutdown) is also recorded - honestly ... ok
+test_successful_step_produces_no_gap (test_capability_gaps.TestExecutorGaps.test_successful_step_produces_no_gap)
+(c) A normal successful run records nothing. ... ok
+test_unknown_module_primitive_also_records (test_capability_gaps.TestExecutorGaps.test_unknown_module_primitive_also_records)
+A primitive whose MODULE does not exist is the same class of gap. ... ok
+test_unknown_primitive_produces_one_gap_record (test_capability_gaps.TestExecutorGaps.test_unknown_primitive_produces_one_gap_record)
+(a) An unknown/unregistered primitive -> exactly ONE gap record ... ok
+test_group_by_primitive_dedupes_preserving_order (test_capability_gaps.TestProcessing.test_group_by_primitive_dedupes_preserving_order) ... ok
+test_mark_processed_is_idempotent (test_capability_gaps.TestProcessing.test_mark_processed_is_idempotent) ... ok
+test_record_never_raises_on_unwritable_file (test_capability_gaps.TestProcessing.test_record_never_raises_on_unwritable_file) ... ok
+test_allowlist_refusal_produces_gap_record (test_capability_gaps.TestWatcherGaps.test_allowlist_refusal_produces_gap_record)
+(b) A watcher allowlist refusal records a gap per forbidden ... ok
+test_allowlist_refusal_records_per_forbidden_primitive (test_capability_gaps.TestWatcherGaps.test_allowlist_refusal_records_per_forbidden_primitive) ... ok
+test_passing_trigger_produces_no_gap (test_capability_gaps.TestWatcherGaps.test_passing_trigger_produces_no_gap) ... ok
 test_browser_has_text (test_checks.TestBrowserChecks.test_browser_has_text) ... ok
 test_browser_has_text_no_page_is_false (test_checks.TestBrowserChecks.test_browser_has_text_no_page_is_false) ... ok
 test_browser_has_text_real_error_propagates (test_checks.TestBrowserChecks.test_browser_has_text_real_error_propagates) ... ok
@@ -89,6 +106,20 @@ test_successful_plan_completes (test_executor.TestRunPlan.test_successful_plan_c
 test_unknown_primitive_aborts (test_executor.TestRunPlan.test_unknown_primitive_aborts) ... ok
 test_verify_failure_exhausts_attempts (test_executor.TestRunPlan.test_verify_failure_exhausts_attempts) ... ok
 test_zero_verify_wait_rejected_before_execution (test_executor.TestRunPlan.test_zero_verify_wait_rejected_before_execution) ... ok
+test_llm_call_exception_leaves_group_unprocessed (test_gap_triage.TestDraftOne.test_llm_call_exception_leaves_group_unprocessed)
+A dead claude CLI must not kill the whole triage run - the group ... ok
+test_parses_llm_result (test_gap_triage.TestDraftOne.test_parses_llm_result) ... ok
+test_persistent_failure_returns_none (test_gap_triage.TestDraftOne.test_persistent_failure_returns_none) ... ok
+test_retries_once_then_succeeds (test_gap_triage.TestDraftOne.test_retries_once_then_succeeds) ... ok
+test_garbage_returns_none (test_gap_triage.TestExtractJson.test_garbage_returns_none) ... ok
+test_markdown_fenced_json (test_gap_triage.TestExtractJson.test_markdown_fenced_json) ... ok
+test_plain_json (test_gap_triage.TestExtractJson.test_plain_json) ... ok
+test_prose_then_object (test_gap_triage.TestExtractJson.test_prose_then_object) ... ok
+test_compiles_does_not_execute (test_gap_triage.TestHelpers.test_compiles_does_not_execute) ... ok
+test_proposal_dir_sanitizes (test_gap_triage.TestHelpers.test_proposal_dir_sanitizes) ... ok
+test_compile_failure_reported_honestly (test_gap_triage.TestTriage.test_compile_failure_reported_honestly) ... ok
+test_llm_failure_leaves_group_unprocessed (test_gap_triage.TestTriage.test_llm_failure_leaves_group_unprocessed) ... ok
+test_writes_artifacts_marks_processed_and_is_idempotent (test_gap_triage.TestTriage.test_writes_artifacts_marks_processed_and_is_idempotent) ... ok
 test_garbage_base64_returns_empty (test_gmail.TestBodyText.test_garbage_base64_returns_empty) ... ok
 test_multipart_prefers_text_plain (test_gmail.TestBodyText.test_multipart_prefers_text_plain) ... ok
 test_no_body_returns_empty (test_gmail.TestBodyText.test_no_body_returns_empty) ... ok
@@ -242,7 +273,7 @@ test_bare_name_becomes_class (test_window.TestSelectorNormalization.test_bare_na
 test_explicit_prefix_passthrough (test_window.TestSelectorNormalization.test_explicit_prefix_passthrough) ... ok
 
 ----------------------------------------------------------------------
-Ran 217 tests in 2.658s
+Ran 241 tests in 2.659s
 
 OK
 ```
