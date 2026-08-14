@@ -15,6 +15,7 @@ appear between plan and execution).
 
 from __future__ import annotations
 
+import fnmatch
 import os
 from pathlib import Path
 from typing import Any
@@ -100,3 +101,184 @@ def find_file(name: str, directory: str | None = None, recursive: bool = False) 
         "name": chosen.name,
         "matches": [str(m) for m in matches],
     }
+
+
+# ---- gate-registered files.find_file_exact (2026-08-10) ----
+@contract(
+    precondition="name is a non-empty string; directory (if given) exists.",
+    postcondition="Returns the absolute path of the first file (sorted) in "
+    "directory whose filename EXACTLY equals name (case-insensitive), or '' "
+    "when no file matches exactly. Read-only - nothing is created or modified.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="Returns '' when no exact match exists (an absent file is a "
+    "result, never an exception); PreconditionError for an empty name or a "
+    "missing directory.",
+    returns="str: absolute path of the exact match, or '' when none.",
+)
+def find_file_exact(name: str, directory: str | None = None) -> str:
+    """Find the file in `directory` whose filename EXACTLY equals `name`
+    (case-insensitive) and return its absolute path, or '' when no exact
+    match exists. Contrast find_file, which matches a substring and raises
+    when nothing matches - this is the exact-match probe."""
+    if not name or not name.strip():
+        raise PreconditionError("find_file_exact requires a non-empty 'name'")
+    base = _anchor(directory) if directory else PROJECT_ROOT
+    if not base.is_dir():
+        raise PreconditionError(f"find_file_exact: directory does not exist: {base}")
+    needle = name.strip().lower()
+    matches = sorted(
+        (p for p in base.iterdir() if p.is_file() and p.name.lower() == needle),
+        key=str,
+    )
+    return str(matches[0]) if matches else ""
+
+
+# ---- Phase C v1: bounded text reader (2026-08-11) ----
+@contract(
+    precondition="path is a non-empty string resolving to an existing file; "
+    "max_chars is a positive integer.",
+    postcondition="Returns the file's text content (UTF-8, invalid bytes "
+    "replaced) truncated to the first max_chars characters, plus the total "
+    "character count and whether it was truncated. Read-only - nothing is "
+    "created or modified.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PreconditionError when the path does not exist, is not a "
+    "file, or max_chars is not positive; a read error (permission) raises "
+    "PreconditionError naming the path.",
+    returns="dict: {path, chars, truncated, text}.",
+)
+def read_text(path: str, max_chars: int = 8000) -> dict[str, Any]:
+    """Read the first `max_chars` characters of a file's text content.
+
+    The bounded reader for cross-project digests: a planning-doc or
+    changelog can be huge, and the digest prompt must stay small - this
+    returns a truncated preview with a `truncated` flag so a plan can
+    verify (checks.text_nonempty on the result) without ever loading the
+    whole file into an LLM prompt. ~ expands; relative paths anchor at
+    the project root (same rule as find_file)."""
+    if not path or not path.strip():
+        raise PreconditionError("read_text requires a non-empty 'path'")
+    if max_chars < 1:
+        raise PreconditionError("read_text requires max_chars >= 1")
+    p = _anchor(path)  # same ~/relative anchoring rule as find_file
+    if not p.is_file():
+        raise PreconditionError(f"read_text: no such file: {p}")
+    try:
+        text = p.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise PreconditionError(f"read_text: cannot read {p}: {exc}") from exc
+    truncated = len(text) > max_chars
+    return {
+        "path": str(p),
+        "chars": len(text),
+        "truncated": truncated,
+        "text": text[:max_chars],
+    }
+
+
+# ---- Phase C v2.2: recency-based status-doc discovery (2026-08-11) ----
+# Status/planning-shaped filenames, matched case-insensitively. "*plan*"
+# is deliberately EXCLUDED (it matches e.g. TASK7_LOGIN_PLAN.md - a
+# recipe, not a status doc); PLAN_STATUS.md is caught by "*status*".
+STATUS_DOC_PATTERNS = ("*status*", "*roadmap*", "*devlog*", "*changelog*", "*future*", "*todo*")
+
+_EXCLUDE_DIRS = {".git", "node_modules", "target", ".venv", "__pycache__", "dist", "build", ".next", "var"}
+
+
+@contract(
+    precondition="repo_path is a non-empty string resolving to an existing "
+    "directory; patterns (if given) is a non-empty sequence of filename "
+    "glob patterns.",
+    postcondition="Returns the absolute path of the most recently modified "
+    "*.md file in repo_path (recursive, excluding build/vendored dirs) "
+    "whose filename matches one of the status/planning patterns - or, when "
+    "no status-shaped doc exists, the repo root README.md if present - or '' "
+    "when neither exists. Read-only - nothing is created or modified.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PreconditionError when repo_path does not exist or is not "
+    "a directory. An absent doc is a RESULT (''), never an exception - the "
+    "caller decides whether no status doc is acceptable.",
+    returns="str: absolute path of the chosen doc, or '' when none exists.",
+)
+def find_recent_doc(repo_path: str, patterns: list[str] | tuple[str, ...] | None = None) -> str:
+    """Find the most recently modified status/planning doc in a repo.
+
+    The digest's recency-based context gatherer (Phase C v2.2): instead of
+    always reading README.md (which can be create-next-app boilerplate),
+    find the status-shaped doc the user already maintains as a byproduct
+    of real work - PLAN_STATUS.md / ROADMAP.md / DEVLOG.md / docs/*roadmap*
+    and similar - and read THAT. Falls back to the repo-root README.md
+    only when nothing status-shaped exists ("an absent doc is a result" -
+    the fallback keeps the digest trigger from failing on a doc-less repo)."""
+    if not repo_path or not repo_path.strip():
+        raise PreconditionError("find_recent_doc requires a non-empty 'repo_path'")
+    base = _anchor(repo_path)
+    if not base.is_dir():
+        raise PreconditionError(f"find_recent_doc: repo directory does not exist: {base}")
+    pats = tuple(patterns) if patterns else STATUS_DOC_PATTERNS
+    if not pats:
+        raise PreconditionError("find_recent_doc requires at least one pattern")
+
+    best: Path | None = None
+    best_key: tuple[float, str] = (-1.0, "")
+    for dirpath, dirnames, files in os.walk(base, followlinks=False):
+        dirnames[:] = [d for d in dirnames if d not in _EXCLUDE_DIRS]
+        for fn in files:
+            if not fn.lower().endswith(".md"):
+                continue
+            # case-insensitive: PLAN_STATUS.md / DEVLOG.md / ROADMAP.md are
+            # conventionally uppercase, the patterns are lowercase
+            if not any(fnmatch.fnmatch(fn.lower(), pat.lower()) for pat in pats):
+                continue
+            p = Path(dirpath) / fn
+            try:
+                mtime = p.stat().st_mtime
+            except OSError:
+                continue
+            key = (mtime, str(p))  # deterministic tie-break on path
+            if key > best_key:
+                best, best_key = p, key
+    if best is not None:
+        return str(best)
+
+    # Fallback: repo-root README (any case).
+    for name in ("README.md", "readme.md", "Readme.md", "README.MD"):
+        r = base / name
+        if r.is_file():
+            return str(r)
+    return ""
+
+
+# ---- gate-registered files.write_text (2026-08-13) ----
+@contract(
+    precondition="path is a non-empty string; text is a str; the parent directory exists; append is a bool.",
+    postcondition="Creates or overwrites (or appends to) the file at path with "
+    "the given text encoded as UTF-8. Parent directories are NOT created. "
+    "Side-effect: writes to the filesystem.",
+    idempotency=Idempotency.COMMUTATIVE_SAFE,
+    failure_mode="PreconditionError when path is empty, parent directory does "
+    "not exist, or path is not a string; OSError propagated on disk-space "
+    "failure or read-only filesystem.",
+    returns="str: the absolute path of the written file.",
+)
+def write_text(path: str, text: str, *, append: bool = False) -> str:
+    """Write text content to the file at path, creating or replacing it.
+
+    The bounded writer counterpart to read_text: needed by the digest
+    trigger's "write the latest digest summary to a notes file" path,
+    which was previously refused because no write primitive was
+    registered. append=True opens in append mode (idempotency class
+    becomes commutative-safe: repeated appends are harmless if the
+    content already exists). ~ expands; relative paths anchor at the
+    project root (same rule as find_file/read_text). Returns the
+    absolute path so a plan step can reference it downstream."""
+    if not path or not path.strip():
+        raise PreconditionError("write_text requires a non-empty 'path'")
+    p = _anchor(path)
+    parent = p.parent
+    if not parent.is_dir():
+        raise PreconditionError(f"write_text: parent directory does not exist: {parent}")
+    mode = "a" if append else "w"
+    with p.open(mode, encoding="utf-8") as f:
+        f.write(text)
+    return str(p)

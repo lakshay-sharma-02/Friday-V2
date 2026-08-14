@@ -1,0 +1,8 @@
+{
+  "name": "files.write_text",
+  "precondition": "path is a non-empty string; text is a str; the parent directory exists; append is a bool.",
+  "postcondition": "Creates or overwrites (or appends to) the file at path with the given text encoded as UTF-8. Parent directories are NOT created. Side-effect: writes to the filesystem.",
+  "idempotency": "commutative-safe",
+  "failure_mode": "PreconditionError when path is empty, parent directory does not exist, or path is not a string; OSError propagated on disk-space failure or read-only filesystem.",
+  "returns": "str: the absolute path of the written file."
+}

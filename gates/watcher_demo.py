@@ -18,6 +18,7 @@ Run:  ./.venv/bin/python gates/watcher_demo.py
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import time
@@ -87,6 +88,10 @@ def main() -> int:
     }
     cfg = tmp / "watcher.json"
     cfg.write_text(json.dumps(config), encoding="utf-8")
+    # Hermetic vs the persisted fired-state: the demo must always fire its
+    # 00:00 time trigger regardless of what the real daemon did today, and
+    # must never write the real var/state/watcher_fired.json.
+    os.environ["FRIDAY_FIRED_FILE"] = str(tmp / "fired.json")
 
     print("\n[config] triggers loaded:")
     for t in load_config(str(cfg)):

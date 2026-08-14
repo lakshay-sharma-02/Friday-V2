@@ -14,6 +14,12 @@ import unittest
 from pathlib import Path
 
 # Every env var the suite cares about, so a test can restore the world.
+# FRIDAY_GAPS_FILE / FRIDAY_PROPOSALS_DIR / FRIDAY_L1_DIR were added after
+# a real leak: a watcher allowlist-refusal test (TestAllowList) recorded
+# allow-x gaps into the REAL var/logs/capability_gaps.jsonl because the
+# gap file was not isolated by default - 5 leaked records with timestamps
+# matching that test's runs (WATCHER_DEPLOY_PROOF.md documents the
+# incident). Default isolation below makes that class of leak impossible.
 ENV_KEYS = (
     "FRIDAY_LOG_FILE",
     "FRIDAY_LOG_MAX_BYTES",
@@ -24,6 +30,18 @@ ENV_KEYS = (
     "FRIDAY_FACTS_FILE",
     "FRIDAY_ALLOW_DANGEROUS",
     "FRIDAY_PROTECTED_CLASSES",
+    "FRIDAY_GAPS_FILE",
+    "FRIDAY_PROPOSALS_DIR",
+    "FRIDAY_L1_DIR",
+    "FRIDAY_FIRED_FILE",
+    "FRIDAY_LESSONS_FILE",
+    "FRIDAY_APPROVED_LESSONS",
+    "FRIDAY_PROPOSED_LESSONS_DIR",
+    "FRIDAY_WATCHER_CONFIG",
+    "FRIDAY_PROPOSED_TRIGGERS_DIR",
+    "FRIDAY_TRIAGE_MODEL",
+    "FRIDAY_TRIAGE_FALLBACK_MODELS",
+    "FRIDAY_MODEL",
 )
 
 
@@ -40,6 +58,27 @@ class EnvTestCase(unittest.TestCase):
         # FRIDAY_LOG_FILE explicitly, which overrides this.
         if "FRIDAY_LOG_FILE" not in os.environ:
             os.environ["FRIDAY_LOG_FILE"] = str(self.mktmp() / "friday_test.jsonl")
+        # Same hermetic-by-default rule for the capability-gap file: a test
+        # that exercises an allowlist/unknown-primitive refusal without
+        # explicitly pointing FRIDAY_GAPS_FILE at a temp file must NOT write
+        # into the real var/logs/capability_gaps.jsonl.
+        if "FRIDAY_GAPS_FILE" not in os.environ:
+            os.environ["FRIDAY_GAPS_FILE"] = str(self.mktmp() / "gaps_test.jsonl")
+        # And for the watcher's persisted fired-state: a run_watcher test
+        # that fires a time trigger must never touch the real
+        # var/state/watcher_fired.json.
+        if "FRIDAY_FIRED_FILE" not in os.environ:
+            os.environ["FRIDAY_FIRED_FILE"] = str(self.mktmp() / "fired_test.json")
+        # Same hermetic-by-default rule for the lessons loop: a test that
+        # records a lesson event (the gate, the planner, the digest
+        # attribution check all record) must not write into the real
+        # var/logs/lessons.jsonl, and a test that renders/injects must not
+        # pick up the real approved store (config/lessons.json) - both are
+        # pointed at temp files unless a test sets them explicitly.
+        if "FRIDAY_LESSONS_FILE" not in os.environ:
+            os.environ["FRIDAY_LESSONS_FILE"] = str(self.mktmp() / "lessons_test.jsonl")
+        if "FRIDAY_APPROVED_LESSONS" not in os.environ:
+            os.environ["FRIDAY_APPROVED_LESSONS"] = str(self.mktmp() / "lessons_approved_test.json")
 
     def tearDown(self) -> None:
         for k, v in self._env_saved.items():

@@ -107,6 +107,28 @@ class TestCatalog(EnvTestCase):
         cat = planner.build_catalog()
         self.assertNotIn("window.shutdown", cat)
 
+    def test_discovery_finds_new_module_files(self):
+        """REGRESSION (2026-08-13, found live by cycle 2): the default base
+        path used parents[1] of friday/l4/planner.py - which is the friday
+        PACKAGE dir - so it resolved to <root>/friday/friday/l1 (a
+        nonexistent dir). The glob silently returned nothing and discovery
+        ALWAYS fell back to the hardcoded tuple: a primitive registered
+        into a NEW module file (calendar.list_upcoming, the loop's first
+        new-module registration) was never discovered and never became
+        planable. The default base must be the REAL friday/l1, and every
+        committed module file there must be discovered."""
+        mods = planner._discover_l1_modules()
+        self.assertIn("calendar", mods, "new-module registrations must be discovered")
+        self.assertIn("files", mods)
+        self.assertIn("git", mods)
+        self.assertIn("window", mods)
+
+    def test_discovery_honors_friday_l1_dir_override(self):
+        d = self.mktmp()
+        (d / "zebra.py").write_text("", encoding="utf-8")
+        self.set_env(FRIDAY_L1_DIR=str(d))
+        self.assertEqual(planner._discover_l1_modules(), ["zebra"])
+
 
 class TestFacts(EnvTestCase):
     def test_defaults_when_no_file(self):

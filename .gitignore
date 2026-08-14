@@ -4,3 +4,6 @@ logs/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# agent session worktree (nested git repo) - never commit
+.claude/

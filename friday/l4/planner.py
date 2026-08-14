@@ -37,6 +37,7 @@ from typing import Any
 
 from friday.contracts import EXECUTOR_BLOCKED, REGISTRY
 from friday.errors import FridayError
+from friday.lessons import record_lesson_event, render_known_mistakes
 from friday.observability import emit_event, set_run_id
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -220,7 +221,10 @@ def _has_unresolved_facts_ref(value: Any) -> bool:
 
 
 # Every L1 module, imported so the contract registry is fully populated.
-_L1_MODULES = ("window", "media", "browser", "dev", "files", "whatsapp", "telegram", "discord", "gmail", "notify")
+# The tuple is the FALLBACK; _discover_l1_modules() prefers scanning the
+# friday/l1/ directory so a primitive registered through the capability-gap
+# gate becomes planable WITHOUT editing this list.
+_L1_MODULES = ("window", "media", "browser", "dev", "digestcheck", "files", "git", "whatsapp", "telegram", "discord", "gmail", "notify")
 
 DEFAULT_ATTEMPTS = 3
 DEFAULT_TIMEOUT_S = 300
@@ -229,10 +233,34 @@ DEFAULT_TIMEOUT_S = 300
 # -------------------------------------------------------------- registry
 
 
+def _discover_l1_modules() -> list[str]:
+    """Every module name in friday/l1/ (FRIDAY_L1_DIR overrides the
+    directory - the capability-gap gate's tests point it at a temp dir).
+    Falls back to _L1_MODULES when the scan fails."""
+    # parents[2] of friday/l4/planner.py is the PROJECT ROOT. REGRESSION
+    # (2026-08-13, found live by cycle 2): parents[1] is the friday PACKAGE
+    # dir itself, so the default base was <root>/friday/friday/l1
+    # (nonexistent) - the glob silently returned nothing and discovery
+    # ALWAYS fell back to the hardcoded tuple. New module files (e.g.
+    # friday/l1/calendar.py, the loop's first new-module registration)
+    # were never discovered and never became planable.
+    base = Path(
+        os.environ.get(
+            "FRIDAY_L1_DIR",
+            str(Path(__file__).resolve().parents[2] / "friday" / "l1"),
+        )
+    )
+    try:
+        names = sorted(p.stem for p in base.glob("*.py") if p.stem != "__init__")
+    except OSError:
+        names = []
+    return names or list(_L1_MODULES)
+
+
 def _ensure_registry() -> None:
     """Import every L1 module so REGISTRY is complete. Importing has no
     side effects beyond registering contracts - nothing sends or launches."""
-    for name in _L1_MODULES:
+    for name in _discover_l1_modules():
         importlib.import_module(f"friday.l1.{name}")
 
 
@@ -324,6 +352,10 @@ def build_prompt(
         f"- {name}: {value}" for name, value in sorted(project.recipients.items())
     ) or "  (none configured - senders default to the credential recipient)"
     facts_rendered = "\n".join(f"- {f}" for f in project.facts) or "  (none configured)"
+    # the bounded, human-approved KNOWN MISTAKES block for planning (""
+    # when none approved) - approved lessons shape the next plan, they
+    # never gate it
+    lessons_block = render_known_mistakes("planner")
     retry_note = (
         f"\nYOUR PREVIOUS PLAN WAS REJECTED with this error:\n    {last_error}\n"
         "Fix the plan so it passes the schema and rules above.\n"
@@ -547,6 +579,7 @@ FRAMEWORK NOTES (always on):
 
 {catalog}
 
+{lessons_block}
 GOAL: {goal}
 {retry_note}
 Output the plan JSON now."""
@@ -720,27 +753,42 @@ def plan(
             )
         except FridayError as exc:
             last_error = f"LLM call failed: {exc}"
+            # every failed attempt is a lesson event (best-effort) - the
+            # lessons loop generalizes planner failure classes over time
+            record_lesson_event(category="planner_llm_error", source="planner", detail=last_error, goal_id=goal[:80])
             emit_event(layer="L4", primitive="plan.attempt", args={"attempt": i}, result="FAILED", exception=last_error)
             continue
         if env.get("is_error"):
             last_error = f"LLM reported an error: {str(env.get('result'))[:200]}"
+            record_lesson_event(category="planner_llm_error", source="planner", detail=last_error, goal_id=goal[:80])
             emit_event(layer="L4", primitive="plan.attempt", args={"attempt": i}, result="FAILED", exception=last_error)
             continue
         text = env.get("result") or ""
         parsed = _extract_json(text)
         if parsed is None:
             last_error = "LLM output was not parseable JSON"
+            record_lesson_event(category="planner_unparseable", source="planner", detail=last_error, goal_id=goal[:80])
             emit_event(layer="L4", primitive="plan.attempt", args={"attempt": i}, result="FAILED", exception=last_error)
             continue
         try:
             parsed = _substitute_facts_refs(parsed, project)
         except FridayError as exc:
             last_error = f"plan references an unknown facts name: {exc}"
+            record_lesson_event(category="planner_facts_ref", source="planner", detail=last_error, goal_id=goal[:80])
             emit_event(layer="L4", primitive="plan.attempt", args={"attempt": i}, result="FAILED", exception=last_error)
             continue
         ok, err = validate_plan(parsed)
         if not ok:
             last_error = f"plan failed schema validation: {err}"
+            # classify the failure: an invented primitive is a different
+            # lesson than a structural schema slip
+            if "unknown or unregistered primitive" in err:
+                lesson = "planner_unknown_primitive"
+            elif "blocked from execution" in err:
+                lesson = "planner_blocked_primitive"
+            else:
+                lesson = "planner_schema"
+            record_lesson_event(category=lesson, source="planner", detail=last_error, goal_id=goal[:80])
             emit_event(layer="L4", primitive="plan.attempt", args={"attempt": i}, result="FAILED", exception=last_error)
             continue
         emit_event(

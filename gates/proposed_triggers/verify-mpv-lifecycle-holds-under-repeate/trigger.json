@@ -1,0 +1,18 @@
+{
+  "id": "verify-mpv-lifecycle-holds-under-repeate",
+  "goal": "verify mpv lifecycle holds under repeated invocation",
+  "schedule": {
+    "type": "time",
+    "at": "09:00",
+    "days": [
+      "mon",
+      "tue",
+      "wed",
+      "thu",
+      "fri"
+    ]
+  },
+  "allow": [],
+  "notify": true,
+  "enabled": false
+}

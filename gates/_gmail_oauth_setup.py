@@ -1,18 +1,34 @@
 #!/usr/bin/env python
-"""ONE-TIME Gmail OAuth setup (Phase 2 Task #10 prerequisite).
+"""ONE-TIME Gmail OAuth setup (Phase 2 Task #10 prerequisite) - and the
+SEND-SCOPE UPGRADE for gmail.send_document (2026-08-11).
 
-Runs the installed-app OAuth consent flow for the Gmail API (scope
-gmail.readonly ONLY - this integration is read-only by design), exchanges
-the authorization code for tokens, and stores the three values that
-friday/l1/gmail.py needs into pass at `friday/gmail`:
+Runs the installed-app OAuth consent flow for the Gmail API and stores the
+values that friday/l1/gmail.py needs into pass at `friday/gmail`:
 
     {"client_id": ..., "client_secret": ..., "refresh_token": ...}
+
+Default scope: gmail.readonly ONLY (the historical bring-up behavior - this
+integration was read-only by design). To ENABLE SENDING, re-run with the
+SEND scope ADDED - scopes are fixed at consent time, so a readonly token
+can never send (403 at send time):
+
+  ./.venv/bin/python -u gates/_gmail_oauth_setup.py \\
+      /path/to/credentials.json \\
+      --scope "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send"
+
+MUST keep the readonly scope too: the refresh token is SHARED by every
+gmail primitive, and the morning summary + digest read mail. The new token
+replaces the readonly-only one in pass; nothing else changes.
+
+Optionally store the default send recipient (used when a plan omits `to`):
+
+  GMAIL_DEFAULT_TO=you@example.com ./.venv/bin/python -u gates/_gmail_oauth_setup.py ...
 
 Prerequisites (done once in the browser, steps you must complete first):
   1. console.cloud.google.com -> create a project (or pick one).
   2. APIs & Services -> Library -> "Gmail API" -> Enable.
   3. APIs & Services -> OAuth consent screen -> External -> add YOUR email
-     as a test user. (Scopes are requested at runtime: gmail.readonly.)
+     as a test user. (Scopes are requested at runtime.)
   4. APIs & Services -> Credentials -> Create credentials -> OAuth client
      ID -> Application type: Desktop app -> Create -> Download JSON.
 
@@ -29,6 +45,7 @@ The client_secret is NEVER printed. The refresh_token is printed once
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -48,9 +65,29 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 PORTS = [8765, 8766, 8767, 8080]
 
 
-def load_client_credentials() -> tuple[str, str]:
-    if len(sys.argv) > 1:
-        raw = json.loads(Path(sys.argv[1]).read_text())
+def _parse_scope(argv: list[str]) -> tuple[str, list[str]]:
+    """Pull an optional '--scope <space-separated scopes>' off argv and
+    return (scope, remaining_argv). Default: the readonly scope (historical
+    behavior). GMAIL_SCOPE env also overrides the default."""
+    scope = os.environ.get("GMAIL_SCOPE", "https://www.googleapis.com/auth/gmail.readonly")
+    rest: list[str] = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--scope":
+            if i + 1 >= len(argv):
+                print("usage: --scope '<space-separated OAuth scopes>'", flush=True)
+                sys.exit(2)
+            scope = argv[i + 1]
+            i += 2
+            continue
+        rest.append(argv[i])
+        i += 1
+    return scope, rest
+
+
+def load_client_credentials(argv: list[str]) -> tuple[str, str]:
+    if argv:
+        raw = json.loads(Path(argv[0]).read_text())
         inst = raw.get("installed") or raw.get("web") or raw
         return inst["client_id"], inst["client_secret"]
     import os
@@ -109,12 +146,18 @@ def exchange(client_id: str, client_secret: str, code: str, redirect_uri: str) -
     return resp.json()
 
 
-def store_in_pass(client_id: str, client_secret: str, refresh_token: str) -> None:
-    entry = json.dumps({
+def store_in_pass(
+    client_id: str, client_secret: str, refresh_token: str,
+    default_to: str | None = None,
+) -> None:
+    data: dict[str, str] = {
         "client_id": client_id,
         "client_secret": client_secret,
         "refresh_token": refresh_token,
-    })
+    }
+    if default_to:
+        data["default_to"] = default_to
+    entry = json.dumps(data)
     try:
         subprocess.run(
             ["pass", "insert", "-m", "friday/gmail"],
@@ -129,7 +172,10 @@ def store_in_pass(client_id: str, client_secret: str, refresh_token: str) -> Non
 
 
 def main() -> None:
-    client_id, client_secret = load_client_credentials()
+    scope, argv = _parse_scope(sys.argv[1:])
+    sys.argv = [sys.argv[0]] + argv  # credentials path sees the remaining args
+    client_id, client_secret = load_client_credentials(argv)
+    default_to = os.environ.get("GMAIL_DEFAULT_TO")
 
     port = next(p for p in PORTS if not _port_in_use(p))
     redirect_uri = f"http://localhost:{port}/"
@@ -137,16 +183,19 @@ def main() -> None:
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "scope": SCOPE,
+        "scope": scope,
         "access_type": "offline",
         "prompt": "consent",
     }
     auth_url = f"{AUTH_URL}?{urlencode(params)}"
     print("=" * 72)
-    print("GMAIL ONE-TIME OAUTH SETUP - read-only scope only (gmail.readonly)")
+    scope_kind = "SEND-CAPABLE (readonly + send)" if "gmail.send" in scope else "read-only (gmail.readonly)"
+    print(f"GMAIL ONE-TIME OAUTH SETUP - {scope_kind}")
     print("=" * 72)
-    print(f"scope       : {SCOPE}")
+    print(f"scope       : {scope}")
     print(f"redirect    : {redirect_uri}")
+    if default_to:
+        print(f"default_to  : {default_to} (stored in pass)")
     print("opening the consent screen in your browser - approve it once...")
     webbrowser.open(auth_url)
 
@@ -163,7 +212,7 @@ def main() -> None:
         sys.exit(1)
     print(f"OK: access token obtained (expires in {tokens.get('expires_in')}s); "
           f"refresh token obtained: {refresh_token[:12]}...", flush=True)
-    store_in_pass(client_id, client_secret, refresh_token)
+    store_in_pass(client_id, client_secret, refresh_token, default_to)
     print("SETUP: DONE - friday/l1/gmail.py will now authenticate automatically "
           "(GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET/GMAIL_REFRESH_TOKEN env vars "
           "override the pass entry).", flush=True)

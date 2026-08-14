@@ -137,7 +137,42 @@ prefix once for your records. If the network dies mid-flow (a local
 server on port 8765 must receive the redirect), just re-run the same
 command — it picks a free port if 8765 is busy.
 
-## Part 7 — What keeps this working (and what breaks it)
+## Part 6.5 — Upgrade to SENDING (gmail.send scope, one-time re-consent)
+
+Status date: 2026-08-11. The refresh token stored in Part 6 was minted
+for `gmail.readonly` ONLY. Google fixes scopes at consent time — a
+readonly token can NEVER send (the API returns 403), and there is no way
+short of a fresh consent to add the send scope to an existing token.
+
+To enable `gmail.send_document` (the capability-gap loop's first
+side-effecting primitive, hand-built and human-signed), re-run the SAME
+flow with the send scope ADDED. Two rules:
+
+1. **KEEP `gmail.readonly` in the scope string.** The refresh token is
+   SHARED by every gmail primitive. If the new consent drops readonly,
+   the morning summary, the digest and every read primitive start 403ing
+   — a silent regression that would not look like anything this session
+   touched.
+2. **Tick BOTH checkboxes on the consent screen** (readonly + send).
+
+```sh
+cd '/home/lakshay/Projects/Friday V2'
+GMAIL_DEFAULT_TO=you@example.com ./.venv/bin/python -u gates/_gmail_oauth_setup.py \
+    /path/to/credentials.json \
+    --scope "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send"
+```
+
+- The new token REPLACES the readonly-only token in pass at `friday/gmail`.
+- `GMAIL_DEFAULT_TO` (optional) is stored as `default_to` in the same pass
+  entry — the default recipient when a plan omits `to` (the same
+  convention as whatsapp's `default_phone`).
+- Verify afterwards: `pass show friday/gmail` (three keys, plus
+  `default_to` if you set it).
+
+Do NOT create a new OAuth client for sending — the same desktop client
+serves both scopes. Do NOT run this with the readonly scope missing.
+
+## Part 7 — What keeps working (and what breaks it)
 
 - Access tokens are refreshed automatically from the refresh token by
   `friday/l1/gmail.py` — nothing to do.

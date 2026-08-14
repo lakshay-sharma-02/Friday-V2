@@ -1,0 +1,8 @@
+{
+  "name": "friday.l1.files.write_notes",
+  "precondition": "path is a non-empty string resolving to a file within the allowed notes directory; text is a non-empty string",
+  "postcondition": "Writes text to the specified path, overwriting any existing content. Returns a confirmation string.",
+  "idempotency": "at-most-once",
+  "failure_mode": "PreconditionError if the path does not exist or is not writable, or if the directory is not in the allowed notes directory",
+  "returns": "str: absolute path of the written file"
+}

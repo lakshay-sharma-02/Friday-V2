@@ -29,4 +29,17 @@ class PreconditionError(FridayError):
 
 
 class PrimitiveTimeout(FridayError):
-    """A primitive exceeded its allowed time budget."""
+    """A primitive exceeded its allowed time budget.
+
+    `state` documents what is known about the world left behind on partial
+    failure, per the primitive's contract - the same contract as
+    PrimitiveError. REGRESSION (2026-08-13, found LIVE by the triage repair
+    loop): this class inherited FridayError's bare Exception init, so every
+    raise site passing `state=` (dev.py claude timeout, window.py hyprctl
+    timeout) crashed with "PrimitiveTimeout() takes no keyword arguments"
+    instead of raising the intended timeout - a timeout surfaced as a
+    confusing TypeError that hid the real cause."""
+
+    def __init__(self, message: str, *, state: str | None = None):
+        super().__init__(message)
+        self.state = state

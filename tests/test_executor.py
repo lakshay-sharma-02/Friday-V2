@@ -180,6 +180,36 @@ class TestRunPlan(EnvTestCase):
         with self.assertRaises(FridayError):
             run_plan({"goal": "x", "steps": []})
 
+    def test_verified_by_world_with_raised_primitive_has_none_result(self):
+        """Regression: a step whose primitive raises on every attempt but
+        whose verify passes from the WORLD's state (no self-ref) is
+        VERIFIED with result=None - it must never crash with an unbound
+        return_value NameError (the StepResult.result field is None,
+        honest: no return value was produced)."""
+        d = self.mktmp()
+        (d / "already_there.txt").write_text("x", encoding="utf-8")
+        # files.find_file('missing', d) raises PreconditionError every
+        # attempt, but checks.file_exists on an unrelated existing path
+        # passes immediately - verify does not reference the step's own
+        # result, so the executor can VERIFY a failed primitive.
+        plan = {
+            "goal": "x",
+            "steps": [{
+                "primitive": "files.find_file",
+                "args": {"name": "missing", "directory": str(d)},
+                "verify": {"check": "checks.file_exists",
+                            "args": {"path": str(d / "already_there.txt")},
+                            "expect": True},
+                "verify_wait_s": 0.1, "backoff_s": 0.05,
+            }],
+        }
+        result = run_plan(plan)
+        self.assertEqual(result.status, "COMPLETED")
+        sr = result.steps[0]
+        self.assertEqual(sr.status, "VERIFIED")
+        self.assertIsNone(sr.result)  # no return value was ever produced
+        self.assertIsNotNone(sr.error)  # the primitive failure is still recorded
+
 
 if __name__ == "__main__":
     unittest.main()

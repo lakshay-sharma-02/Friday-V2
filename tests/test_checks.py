@@ -37,6 +37,19 @@ class TestPureChecks(EnvTestCase):
     def test_message_sent_unknown_platform(self):
         self.assertFalse(checks.message_sent("myspace", "123"))
 
+    def test_list_nonempty(self):
+        self.assertTrue(checks.list_nonempty([1, 2]))
+        self.assertFalse(checks.list_nonempty([]))
+        self.assertFalse(checks.list_nonempty("not a list"))
+        self.assertFalse(checks.list_nonempty(None))
+
+    def test_text_nonempty(self):
+        self.assertTrue(checks.text_nonempty("digest text"))
+        self.assertFalse(checks.text_nonempty(""))
+        self.assertFalse(checks.text_nonempty("   \n"))
+        self.assertFalse(checks.text_nonempty(123))
+        self.assertFalse(checks.text_nonempty(None))
+
 
 class TestWindowChecks(EnvTestCase):
     CLIENTS = [

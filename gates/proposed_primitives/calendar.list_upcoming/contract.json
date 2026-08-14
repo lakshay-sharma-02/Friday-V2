@@ -1,0 +1,8 @@
+{
+  "name": "calendar.list_upcoming",
+  "precondition": "days is a positive integer (default 7); if using a calendar API, credentials must be configured (GOOGLE_CALENDAR_TOKEN env var or pass entry at friday/calendar).",
+  "postcondition": "Returns structural metadata of events starting within the next 'days' days from now. Makes NO state changes - events are only read. Sorted by start time, soonest first.",
+  "idempotency": "idempotent",
+  "failure_mode": "PrimitiveError on API/auth failure or network error - DISTINCT from 'no upcoming events', which returns an empty list. PreconditionError for invalid days parameter (non-positive or non-integer).",
+  "returns": "list[dict]: [{event_id, summary, start_time, end_time, location, attendees_count}] most recent first. Each dict contains ISO 8601 datetime strings for start_time and end_time."
+}

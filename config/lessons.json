@@ -1,0 +1,55 @@
+{
+  "_docs": "The human-approved lessons store - the lessons loop's injection source (friday/lessons.py). Each entry {category, targets, statement} is a KNOWN MISTAKE block rendered into the triage/planner/digest prompts. Editing this file IS the human gate: a lesson becomes active the moment it is added here, and pruned by removing it. Categories must match friday/lessons.py CATEGORIES; targets are from [triage, planner, digest]; the statement is your reviewed wording - rewrite it in your own words before adding, a wrong lesson injected everywhere is worse than none. 'human-seed' entries are the verified findings earned during Phase B/C that seeded this loop on 2026-08-11.",
+  "lessons": [
+    {
+      "category": "draft_confabulation",
+      "targets": ["triage"],
+      "statement": "Never claim a primitive, mechanism, or capability exists unless it is actually present in the gathered context. A refusal means the capability does NOT exist here - not that it exists and is blocked. If a boundary cannot be satisfied, report the constraint instead of fabricating a route around it (observed: a gmail-send draft asserted 'the existing gmail.send_document is disallowed' when no such primitive existed at all).",
+      "source": "human-seed",
+      "approved_at": "2026-08-11",
+      "examples": [
+        "2026-08-11: gmail.send_document draft invented the existence of the very primitive it was supposed to create, then proposed a renamed wrapper around the phantom"
+      ]
+    },
+    {
+      "category": "draft_dead_arg",
+      "targets": ["triage"],
+      "statement": "Every declared parameter of the drafted function must be used in its body - never hardcode a value while ignoring an argument; the gate rejects dead arguments mechanically (observed: a find-file draft that ignored its own 'name' argument).",
+      "source": "human-seed",
+      "approved_at": "2026-08-11",
+      "examples": [
+        "2026-08-10: files.do_thing draft hardcoded a filename while ignoring its 'name' argument - caught by human review, now rejected by AST"
+      ]
+    },
+    {
+      "category": "draft_wrapper_dodge",
+      "targets": ["triage"],
+      "statement": "Never route around a capability boundary by renaming an existing primitive under a new name - that is a dodge, not a capability. If the gap is an allowlist refusal of a primitive that ALREADY EXISTS, say so explicitly: the real fix may be the trigger's allowlist, not a new primitive.",
+      "source": "human-seed",
+      "approved_at": "2026-08-11",
+      "examples": [
+        "2026-08-11: gmail.send_document draft proposed a new-named wrapper to 'stay within allowlist constraints' around a phantom primitive"
+      ]
+    },
+    {
+      "category": "draft_schema",
+      "targets": ["triage"],
+      "statement": "The contract must be a plain JSON object with the real Contract fields and a '<module>.<fn>' name (exactly one dot) - never the @contract(...) decorator source as the contract (observed: 'friday.l1.gmail.send_receipt' rejected at schema).",
+      "source": "human-seed",
+      "approved_at": "2026-08-11",
+      "examples": [
+        "2026-08-11: gmail.send_document draft emitted a contract name with three dots and a decorator-source contract in an earlier draft"
+      ]
+    },
+    {
+      "category": "digest_misattribution",
+      "targets": ["digest"],
+      "statement": "Never attribute a mechanism or pattern to a repo unless it appears in that repo's OWN gathered content - misattribution is a fabrication (observed: Vivaha's Cloudflare-Worker pattern described as Friday's) and is flagged mechanically; absent confirmation, say it cannot be confirmed.",
+      "source": "human-seed",
+      "approved_at": "2026-08-11",
+      "examples": [
+        "2026-08-11: weekly digest attributed Vivaha's Cloudflare-Worker image-moderation pattern to Friday as if Friday had it"
+      ]
+    }
+  ]
+}

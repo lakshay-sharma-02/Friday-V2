@@ -1,31 +1,40 @@
-import unittest
+"""Unit tests for the gate-registered files.find_file_exact primitive.
+Hermetic: pure filesystem operations on temp dirs, no network/compositor."""
+
+from __future__ import annotations
+
 import tempfile
-import os
-from files import do_thing
+import unittest
+from pathlib import Path
 
-class TestDoThing(unittest.TestCase):
-    def test_basic(self):
-        with tempfile.TemporaryDirectory() as td:
-            os.chdir(td)
-            with open('target.txt', 'w') as f:
-                f.write('data')
-            result = do_thing('target.txt')
-            self.assertIn(os.path.abspath('target.txt'), result)
+from friday.errors import PreconditionError
+from friday.l1.files import find_file_exact
 
-    def test_recursive(self):
-        with tempfile.TemporaryDirectory() as td:
-            os.chdir(td)
-            os.makedirs('subdir')
-            with open('subdir/nested.txt', 'w') as f:
-                f.write('data')
-            result = do_thing('nested.txt', recursive=True)
-            self.assertIn(os.path.abspath('subdir/nested.txt'), result)
 
-    def test_not_found(self):
-        with tempfile.TemporaryDirectory() as td:
-            os.chdir(td)
-            result = do_thing('nonexistent.txt')
-            self.assertEqual(result, [])
+class TestFindFileExact(unittest.TestCase):
+    def _dir(self) -> Path:
+        d = Path(tempfile.mkdtemp(prefix="friday_ffe_"))
+        (d / "report.pdf").write_text("x", encoding="utf-8")
+        (d / "report2.pdf").write_text("x", encoding="utf-8")
+        return d
 
-if __name__ == '__main__':
+    def test_exact_name_match_case_insensitive(self):
+        d = self._dir()
+        self.assertEqual(find_file_exact("REPORT.PDF", str(d)), str(d / "report.pdf"))
+
+    def test_substring_is_not_a_match(self):
+        d = self._dir()
+        # find_file would match this; find_file_exact must NOT
+        self.assertEqual(find_file_exact("report", str(d)), "")
+
+    def test_no_exact_match_returns_empty(self):
+        d = self._dir()
+        self.assertEqual(find_file_exact("missing.pdf", str(d)), "")
+
+    def test_empty_name_raises(self):
+        with self.assertRaises(PreconditionError):
+            find_file_exact("", str(self._dir()))
+
+
+if __name__ == "__main__":
     unittest.main()

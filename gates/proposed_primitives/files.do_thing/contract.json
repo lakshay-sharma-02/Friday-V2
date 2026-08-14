@@ -1,8 +1,8 @@
 {
-  "name": "files.do_thing",
-  "precondition": "name is a non-empty string representing the artifact identifier; recursive is a boolean indicating whether to search subdirectories",
-  "postcondition": "Returns a list of absolute file paths to the located artifact(s), empty if none found",
+  "name": "files.find_file_exact",
+  "precondition": "name is a non-empty string; directory (if given) exists.",
+  "postcondition": "Returns the absolute path of the first file (sorted) in directory whose filename EXACTLY equals name (case-insensitive), or '' when no file matches exactly. Read-only - nothing is created or modified.",
   "idempotency": "idempotent",
-  "failure_mode": "FileNotFoundError if no matching artifact is found",
-  "returns": "list[str]: absolute path(s) to the located artifact(s)"
+  "failure_mode": "Returns '' when no exact match exists (an absent file is a result, never an exception); PreconditionError for an empty name or a missing directory.",
+  "returns": "str: absolute path of the exact match, or '' when none."
 }

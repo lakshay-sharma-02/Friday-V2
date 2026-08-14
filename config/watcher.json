@@ -1,18 +1,379 @@
 {
-  "_docs": "AMBIENT WATCH LOOP triggers - edit to opt in, no code changes needed.\n\nEach trigger has:\n  id        - unique name (appears in var/logs/tasks.jsonl as watch:<id>)\n  goal      - the goal string, planned through L4 (one LLM call per distinct\n              goal per daemon run, then cached) OR\n  plan      - an inline deterministic plan dict (no LLM; must be fully\n              resolved - no $facts refs)\n  schedule  - {\"type\": \"time\", \"at\": \"HH:MM\", \"days\": [\"mon\"...]} fires once\n              per day after the time; {\"type\": \"file\", \"directory\": ...,\n              \"name\": <substring>, \"recursive\": bool} fires once per new\n              matching file\n  enabled   - false means the trigger is inert; set true to activate\n  notify    - send a desktop notification when the trigger finishes (default true)\n  allow     - OPTIONAL primitive allowlist: a list of exact names or 'mod.*'\n              patterns. If present, any plan step whose primitive is NOT on\n              the list is REFUSED before execution (recorded as REFUSED,\n              never executed) - for unattended triggers whose LLM plan must\n              be constrained, e.g. \"allow\": [\"gmail.*\"] (L2 verify checks\n              are read-only and always permitted).\n\nThe gmail trigger below is ENABLED (wired in): its goal references\n$facts.gmail_sender, so the sender is edited in config/planner_facts.json,\nnot in the trigger. An empty mailbox for that sender is an honest FAIL\n(never an error) - if you do not reliably receive unread mail from\naccounts.google.com, change gmail_sender in planner_facts.json.\n\nSafety is inherited from the core: the executor refuses blocked primitives,\nwindow close never touches protected classes, and dev.run_shell needs\nFRIDAY_ALLOW_DANGEROUS=1. Triggers run strictly one at a time.\n\nRun once (for cron / testing):  ./.venv/bin/python -m friday.watcher --once\nRun as a daemon:               ./.venv/bin/python -m friday.watcher --poll 30\n",
+  "_docs": "AMBIENT WATCH LOOP triggers - edit to opt in, no code changes needed.\n\nEach trigger has:\n  id        - unique name (appears in var/logs/tasks.jsonl as watch:<id>)\n  goal      - the goal string, planned through L4 (one LLM call per distinct\n              goal per daemon run, then cached) OR\n  plan      - an inline deterministic plan dict (no LLM; must be fully\n              resolved - no $facts refs)\n  schedule  - {\"type\": \"time\", \"at\": \"HH:MM\", \"days\": [\"mon\"...]} fires once\n              per day after the time; {\"type\": \"file\", \"directory\": ...,\n              \"name\": <substring>, \"recursive\": bool} fires once per new\n              matching file\n  enabled   - false means the trigger is inert; set true to activate\n  notify    - send a desktop notification when the trigger finishes (default true)\n  allow     - OPTIONAL primitive allowlist: a list of exact names or 'mod.*'\n              patterns. If present, any plan step whose primitive is NOT on\n              the list is REFUSED before execution (recorded as REFUSED,\n              never executed) - for unattended triggers whose LLM plan must\n              be constrained, e.g. \"allow\": [\"gmail.*\"] (L2 verify checks\n              are read-only and always permitted).\n\nThe gmail trigger below is ENABLED (wired in): its goal references\n$facts.gmail_sender, so the sender is edited in config/planner_facts.json,\nnot in the trigger. An empty mailbox for that sender is an honest FAIL\n(never an error) - if you do not reliably receive unread mail from\naccounts.google.com, change gmail_sender in planner_facts.json.\nThe weekly-cross-project-digest trigger is ENABLED (Phase C v2.2): a DETERMINISTIC plan (no L4 LLM call) that gathers git.log from Friday + vivaha + Aether, discovers each repo's most recently modified status/planning doc (files.find_recent_doc: PLAN_STATUS/ROADMAP/DEVLOG/STATUS/TODO/CHANGELOG shapes, README fallback - no hand-maintained note), reads those docs, then calls dev.digest - the ONE live full-tier LLM call (~$0.17/run), once per week on Sundays at 10:00. Repo paths are hardcoded here (deterministic plans must be fully resolved); edit them if the repos move. Its allow list is exactly the gather/synthesize/verify/deliver primitives (git.log, files.find_recent_doc, files.read_text, dev.digest, digestcheck.verify_attribution, notify.notify_send), so the plan can never reach for anything side-effecting. The digest text is delivered to the desktop as the final notify.notify_send step's body. The plan now discovers each repo's status doc by RECENCY (files.find_recent_doc, no hand-maintained note) and runs digestcheck.verify_attribution on the digest before delivery - the v2.1 provenance-confabulation fix, made mechanical (verdict in PHASE_C_V2_PROOF.md). Agent-Reach is deliberately NOT included (third-party, not Lakshay's); Psyche Space and ChangelogAI are excluded pending a separate decision. The `sunday-digest-reminder` trigger is ENABLED (Sundays 10:05, 5 minutes after the digest): a one-step deterministic notify-only plan (allow [\"notify.notify_send\"], notify:false so it does not double-ping) that nudges Lakshay to log his weekly verdict in gates/DIGEST_TRACKING.md - the human judgment the digest's mechanical checks cannot render.\nThe two `ambient-gap-probe-*` triggers (11:00 and 11:05 daily, enabled) are the DELIBERATE ambient volume source for the self-improvement loop: each is a silent (notify:false), allowlisted deterministic probe whose single step is a genuinely UNBUILT primitive (calendar.list_upcoming, gmail.send_document). The allowlist refuses the step BEFORE any execution - nothing ever runs, zero side effects - and REFUSED is terminal-for-the-day, so each probe records exactly ONE real capability-gap record per day for triage to group and LLM-draft (the first real ambient proposals, exercising volume + draft quality).The gap\ncount in the daemon.alive heartbeat now rises ~2/day - that rise is the intended signal,\nnot noise; consume via gap_triage + the approval gate, never by weakening the allowlist.\nLIFECYCLE: once a probe's primitive is approved and registered, RETIRE the probe (disable\nit or repoint it at the next unbuilt surface) - its daily refusal of a now-solved\nprimitive is noise (gap_triage consumes such gaps without drafting, but the file still\ngrows). Approving the email-send probe's proposal also expands Friday's gmail surface\nRETIRED 2026-08-11: gmail.send_document was hand-built, gated, human-signed and registered (the loop's first side-effecting primitive), so ambient-gap-probe-email-send is now DISABLED per this lifecycle. The morning-gmail-summary allowlist was TIGHTENED from 'gmail.*' to the three read-only primitives (gmail.list_unread / gmail.get_message / gmail.summarize) so the LLM-planned morning trigger can never reach the send primitive. The calendar probe remains enabled (calendar.list_upcoming is still unbuilt).\nADDED 2026-08-13: ambient-gap-probe-file-write - a THIRD deliberate probe (daily 00:05) whose\nsingle step is files.write_text (a WRITE-capable files.* primitive - genuinely unbuilt, the files\nmodule is read-only today: find_file/find_file_exact/find_recent_doc/read_text). It is the one\nprobe whose class (files.*) HAS a real build-verify stage - the gate's documented READ-family\nlimit means a write-primitive draft is expected to be rejected there ('deliberate and visible in\nthe report'). FIRST RUN 2026-08-13: the LLM draft was caught EARLIER, at contract-schema stage\n(4-segment name 'friday.l1.files.write_notes', invalid decorator syntax, primitive renamed to\nwrite_notes) - never reached AST/sandbox/build-verify. Its rejected-draft dir is COMPLETE, so\ntriage now consumes daily files.write_text gaps WITHOUT re-drafting (tombstone behavior): if the\nprobe stays enabled it adds one consumed gap/day - decide explicitly whether to keep it as\nambient volume, retire it, or hand-correct the draft and re-run the gate. Its allowlist refuses\nthe step before any execution (zero side effects), notify:false, REFUSED is terminal-for-the-day\n- exactly one gap record per day, same lifecycle as the calendar probe: retire this probe if\nfiles.write_text is ever approved and registered.\nfrom read-only to side-effecting - a deliberate trust decision.  Safety is inherited from the core: the executor refuses blocked primitives,\nwindow close never touches protected classes, and dev.run_shell needs\nFRIDAY_ALLOW_DANGEROUS=1. Triggers run strictly one at a time.\n\nRun once (for cron / testing):  ./.venv/bin/python -m friday.watcher --once\nRun as a daemon:               ./.venv/bin/python -m friday.watcher --poll 30\n\nRETIRED 2026-08-13: ambient-gap-probe-file-write DISABLED - files.write_text was approved and registered through the FULL self-improvement loop (refusal -> gap -> self-checked LLM draft -> automated gate AST/sandbox/write-family-build-verify -> human review -> register). The probe's job is done; any remaining files.write_text gaps are consumed as SOLVED by triage. Lifecycle precedent: email-send probe.\nRETIRED 2026-08-13: ambient-gap-probe-calendar DISABLED - calendar.list_upcoming was registered through the loop's second complete cycle (self-checked LLM draft, automated gate with build-verify honestly NOT APPLICABLE for the calendar class, human-signed) with ZERO hand-correction. Note: it needs calendar OAuth creds (pass friday/calendar or GOOGLE_CALENDAR_TOKEN) to return real events; without them it returns [] and the probe's original goal fails verification honestly.",
   "triggers": [
+    {
+      "id": "weekly-cross-project-digest",
+      "goal": "produce a weekly cross-project digest: summarize recent git activity and current priorities across Friday, vivaha and Aether, with 1-2 concrete cross-project suggestions tied to each repo's actual priorities",
+      "plan": {
+        "goal": "produce a weekly cross-project digest: summarize recent git activity and current priorities across Friday, vivaha and Aether, with 1-2 concrete cross-project suggestions tied to each repo's actual priorities",
+        "steps": [
+          {
+            "primitive": "git.log",
+            "args": {
+              "repo_path": "/home/lakshay/Projects/Friday V2",
+              "count": 10
+            },
+            "verify": {
+              "check": "checks.list_nonempty",
+              "args": {
+                "value": "$steps.1.result"
+              },
+              "expect": true
+            }
+          },
+          {
+            "primitive": "git.log",
+            "args": {
+              "repo_path": "/home/lakshay/Projects/vivaha",
+              "count": 10
+            },
+            "verify": {
+              "check": "checks.list_nonempty",
+              "args": {
+                "value": "$steps.2.result"
+              },
+              "expect": true
+            }
+          },
+          {
+            "primitive": "git.log",
+            "args": {
+              "repo_path": "/home/lakshay/Projects/Aether",
+              "count": 10
+            },
+            "verify": {
+              "check": "checks.list_nonempty",
+              "args": {
+                "value": "$steps.3.result"
+              },
+              "expect": true
+            }
+          },
+          {
+            "primitive": "files.find_recent_doc",
+            "args": {
+              "repo_path": "/home/lakshay/Projects/Friday V2"
+            },
+            "verify": {
+              "check": "checks.file_exists",
+              "args": {
+                "path": "$steps.4.result"
+              },
+              "expect": true
+            }
+          },
+          {
+            "primitive": "files.find_recent_doc",
+            "args": {
+              "repo_path": "/home/lakshay/Projects/vivaha"
+            },
+            "verify": {
+              "check": "checks.file_exists",
+              "args": {
+                "path": "$steps.5.result"
+              },
+              "expect": true
+            }
+          },
+          {
+            "primitive": "files.find_recent_doc",
+            "args": {
+              "repo_path": "/home/lakshay/Projects/Aether"
+            },
+            "verify": {
+              "check": "checks.file_exists",
+              "args": {
+                "path": "$steps.6.result"
+              },
+              "expect": true
+            }
+          },
+          {
+            "primitive": "files.read_text",
+            "args": {
+              "path": "$steps.4.result",
+              "max_chars": 10000
+            },
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {
+                "value": "$steps.7.result.text"
+              },
+              "expect": true
+            }
+          },
+          {
+            "primitive": "files.read_text",
+            "args": {
+              "path": "$steps.5.result",
+              "max_chars": 6000
+            },
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {
+                "value": "$steps.8.result.text"
+              },
+              "expect": true
+            }
+          },
+          {
+            "primitive": "files.read_text",
+            "args": {
+              "path": "$steps.6.result",
+              "max_chars": 6000
+            },
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {
+                "value": "$steps.9.result.text"
+              },
+              "expect": true
+            }
+          },
+          {
+            "primitive": "dev.digest",
+            "args": {
+              "context": {
+                "friday git log": "$steps.1.result",
+                "vivaha git log": "$steps.2.result",
+                "aether git log": "$steps.3.result",
+                "friday status doc": "$steps.7.result.text",
+                "vivaha status doc": "$steps.8.result.text",
+                "aether status doc": "$steps.9.result.text"
+              }
+            },
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {
+                "value": "$steps.10.result"
+              },
+              "expect": true
+            }
+          },
+          {
+            "primitive": "digestcheck.verify_attribution",
+            "args": {
+              "digest": "$steps.10.result",
+              "context": {
+                "friday": [
+                  "$steps.1.result",
+                  "$steps.7.result.text"
+                ],
+                "vivaha": [
+                  "$steps.2.result",
+                  "$steps.8.result.text"
+                ],
+                "aether": [
+                  "$steps.3.result",
+                  "$steps.9.result.text"
+                ]
+              }
+            },
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {
+                "value": "$steps.11.result"
+              },
+              "expect": true
+            }
+          },
+          {
+            "primitive": "notify.notify_send",
+            "args": {
+              "title": "Friday: weekly cross-project digest",
+              "body": "$steps.11.result"
+            },
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {
+                "value": "$steps.12.result.body"
+              },
+              "expect": true
+            }
+          }
+        ]
+      },
+      "schedule": {
+        "type": "time",
+        "at": "10:00",
+        "days": [
+          "sun"
+        ]
+      },
+      "enabled": true,
+      "notify": true,
+      "allow": [
+        "dev.digest",
+        "digestcheck.verify_attribution",
+        "files.find_recent_doc",
+        "files.read_text",
+        "git.log",
+        "notify.notify_send"
+      ]
+    },
+    {
+      "id": "sunday-digest-reminder",
+      "goal": "remind Lakshay to log his weekly digest verdict in gates/DIGEST_TRACKING.md",
+      "plan": {
+        "goal": "remind Lakshay to log his weekly digest verdict in gates/DIGEST_TRACKING.md",
+        "steps": [
+          {
+            "primitive": "notify.notify_send",
+            "args": {
+              "title": "Friday: digest tracker",
+              "body": "Sunday is digest day - log your verdict in gates/DIGEST_TRACKING.md (one line per suggestion: acted / ignored / wrong repo / wrong mechanism / wrong layer)."
+            },
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {
+                "value": "$steps.1.result.body"
+              },
+              "expect": true
+            }
+          }
+        ]
+      },
+      "schedule": {
+        "type": "time",
+        "at": "10:05",
+        "days": [
+          "sun"
+        ]
+      },
+      "enabled": true,
+      "notify": false,
+      "allow": [
+        "notify.notify_send"
+      ]
+    },
+    {
+      "id": "ambient-gap-probe-calendar",
+      "goal": "show me my upcoming calendar events for the week",
+      "plan": {
+        "goal": "show me my upcoming calendar events for the week",
+        "steps": [
+          {
+            "primitive": "calendar.list_upcoming",
+            "args": {
+              "days": 7
+            },
+            "verify": {
+              "check": "checks.list_nonempty",
+              "args": {
+                "value": "$steps.1.result"
+              },
+              "expect": true
+            }
+          }
+        ]
+      },
+      "schedule": {
+        "type": "time",
+        "at": "11:00"
+      },
+      "enabled": false,
+      "notify": false,
+      "allow": [
+        "notify.notify_send"
+      ],
+      "_retired": "2026-08-13: calendar.list_upcoming registered through the loop's SECOND complete cycle (LLM-drafted, ZERO hand-correction, full automated gate, human-signed). Probe disabled - lifecycle precedent."
+    },
+    {
+      "id": "ambient-gap-probe-email-send",
+      "goal": "email the newest receipt pdf to myself",
+      "plan": {
+        "goal": "email the newest receipt pdf to myself",
+        "steps": [
+          {
+            "primitive": "gmail.send_document",
+            "args": {
+              "path": "/tmp/placeholder.pdf",
+              "to": "you@example.com"
+            },
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {
+                "value": "$steps.1.result"
+              },
+              "expect": true
+            }
+          }
+        ]
+      },
+      "schedule": {
+        "type": "time",
+        "at": "11:05"
+      },
+      "enabled": false,
+      "notify": false,
+      "allow": [
+        "notify.notify_send"
+      ]
+    },
+    {
+      "id": "ambient-gap-probe-file-write",
+      "goal": "write the latest digest summary to a notes file",
+      "plan": {
+        "goal": "write the latest digest summary to a notes file",
+        "steps": [
+          {
+            "primitive": "files.write_text",
+            "args": {
+              "path": "/tmp/friday_notes.md",
+              "text": "placeholder"
+            },
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {
+                "value": "$steps.1.result"
+              },
+              "expect": true
+            }
+          }
+        ]
+      },
+      "schedule": {
+        "type": "time",
+        "at": "00:05"
+      },
+      "enabled": false,
+      "notify": false,
+      "allow": [
+        "notify.notify_send"
+      ],
+      "_retired": "2026-08-13: files.write_text approved + registered through the full loop; probe disabled (email-send lifecycle precedent). The gap it generated is now SOLVED - triage consumes any straggler without drafting."
+    },
     {
       "id": "morning-gmail-summary",
       "goal": "find the most recent unread email from $facts.gmail_sender and summarize it in at most 5 plain sentences",
-      "schedule": { "type": "time", "at": "09:00", "days": ["mon", "tue", "wed", "thu", "fri"] },
+      "schedule": {
+        "type": "time",
+        "at": "09:00",
+        "days": [
+          "mon",
+          "tue",
+          "wed",
+          "thu",
+          "fri"
+        ]
+      },
       "enabled": true,
       "notify": true,
-      "allow": ["gmail.*"]
+      "allow": [
+        "gmail.list_unread",
+        "gmail.get_message",
+        "gmail.summarize"
+      ]
     },
     {
       "id": "new-download-alert",
       "goal": "send the newest pdf in my downloads to my whatsapp",
-      "schedule": { "type": "file", "directory": "~/Downloads", "name": ".pdf", "recursive": false },
+      "schedule": {
+        "type": "file",
+        "directory": "~/Downloads",
+        "name": ".pdf",
+        "recursive": false
+      },
       "enabled": false,
       "notify": true
     }

@@ -1,0 +1,40 @@
+# Friday ambient watch loop - persistent user service.
+#
+# Runs the watcher daemon (--poll 30) with a daemon.alive heartbeat every
+# 60s (FRIDAY_HEARTBEAT_S), restarts on failure, starts at login
+# (default.target). It REPLACES the legacy friday-watch.timer/oneshot
+# pair (July 2026) which ran `python -m friday.cli watch --run-once` - an
+# entry point that no longer exists - and was failing every 2 minutes.
+#
+# Install:  cp deploy/friday-watcher.service ~/.config/systemd/user/
+#           systemctl --user daemon-reload
+#           systemctl --user enable --now friday-watcher.service
+# See deploy/RUNBOOK.md for day-2 operations.
+
+[Unit]
+Description=Friday ambient watch loop (persistent daemon + heartbeat)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/lakshay/Projects/Friday V2
+# Quoted because the repo path contains a space.
+ExecStart="/home/lakshay/Projects/Friday V2/.venv/bin/python" -m friday.watcher --poll 30
+# daemon.alive heartbeat interval (seconds) - the liveness signal that
+# lands in var/logs/friday.jsonl (see RUNBOOK).
+Environment=FRIDAY_HEARTBEAT_S=60
+# The watcher's LLM substrate is the `claude` CLI - it must be findable,
+# and HOME must be the real home so claude reads ~/.claude/settings.json
+# (which routes models through the local proxy) and gpg finds the pass
+# store that gmail's OAuth refresh token lives in.
+Environment=PATH=/home/lakshay/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=/home/lakshay
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+# The watcher handles SIGINT as a clean stop (STOP event in the L0 log).
+KillSignal=SIGINT
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

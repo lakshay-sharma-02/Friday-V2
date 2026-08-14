@@ -1,0 +1,9 @@
+{
+  "name": "gmail.send_document",
+  "precondition": "OAuth credentials are configured and the refresh token carries the gmail.send scope (a 403 at send time means the token was minted before this scope - re-consent with gates/_gmail_oauth_setup.py --scope); to is a non-empty email address; file_path exists and is readable.",
+  "postcondition": "The file is emailed as an attachment to `to` from the authenticated account; the returned message id is the Gmail API's proof of acceptance. No other state changes - nothing is read, moved or deleted.",
+  "idempotency": "at-most-once",
+  "failure_mode": "PreconditionError for a missing file or an empty recipient; PrimitiveError with the API error detail on non-2xx. If the HTTP response is lost, the message may still have been sent - verify before retrying.",
+  "returns": "dict: {message_id, thread_id, to, filename}.",
+  "log_transform": "_log_redact_send_meta"
+}

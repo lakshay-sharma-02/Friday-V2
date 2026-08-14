@@ -1,0 +1,18 @@
+{
+  "id": "pause-whatever-s-playing-then-close-ever",
+  "goal": "pause whatever's playing, then close every window except my terminal",
+  "schedule": {
+    "type": "time",
+    "at": "09:00",
+    "days": [
+      "mon",
+      "tue",
+      "wed",
+      "thu",
+      "fri"
+    ]
+  },
+  "allow": [],
+  "notify": true,
+  "enabled": false
+}

@@ -8,9 +8,10 @@ import base64
 import json
 import unittest
 from contextlib import contextmanager
+from pathlib import Path
 from unittest import mock
 
-from friday.errors import PrimitiveError
+from friday.errors import PreconditionError, PrimitiveError
 from friday.l1 import dev, gmail
 from friday.l1.gmail import _header, _log_redact_mail_meta
 from tests.helpers import EnvTestCase
@@ -128,6 +129,98 @@ class TestSummarizeFlow(EnvTestCase):
         prims = [json.loads(l)["primitive"] for l in dump.splitlines() if l.strip()]
         self.assertEqual(prims.count("gmail.summarize"), 1)
         self.assertNotIn("dev.run", " ".join(prims))  # the internal _run_claude is unlogged
+
+
+class TestSendDocument(EnvTestCase):
+    """gmail.send_document (gate-registered 2026-08-11): the capability-gap
+    loop's first SIDE-EFFECTING primitive, hand-built and human-signed.
+    Hermetic: the Gmail API POST and the token refresh are mocked; the MIME
+    assembly is real (a temp file is attached and the raw message is decoded
+    back and asserted on). The RECIPIENT must never reach the L0 result line
+    (mail-metadata redaction, same discipline as list_unread's log_transform)
+    while message_id stays visible for tracing."""
+
+    def _pdf(self) -> Path:
+        d = self.mktmp(prefix="friday_send_")
+        p = d / "receipt.pdf"
+        p.write_bytes(b"%PDF-1.4 fake content for the hermetic test")
+        return p
+
+    @staticmethod
+    def _resp(status: int = 200, body: dict | None = None) -> mock.Mock:
+        r = mock.Mock(status_code=status, text="mock API error body")
+        r.json.return_value = body or {"id": "msg-1", "threadId": "th-1"}
+        return r
+
+    def test_sends_attachment_and_returns_meta(self):
+        pdf = self._pdf()
+        with mock.patch("friday.l1.gmail._access_token", return_value="tok"), \
+             mock.patch("friday.l1.gmail.requests.post", return_value=self._resp()) as post:
+            out = gmail.send_document(
+                str(pdf), to="me@example.com", subject="Receipt", body="hi"
+            )
+        self.assertEqual(out["message_id"], "msg-1")
+        self.assertEqual(out["thread_id"], "th-1")
+        self.assertEqual(out["to"], "me@example.com")
+        self.assertEqual(out["filename"], "receipt.pdf")
+        url = post.call_args.args[0]
+        kwargs = post.call_args.kwargs
+        self.assertTrue(url.endswith("/users/me/messages/send"), url)
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer tok")
+        decoded = base64.urlsafe_b64decode(kwargs["json"]["raw"] + "===").decode("utf-8")
+        self.assertIn("receipt.pdf", decoded)
+        self.assertIn("Subject: Receipt", decoded)
+
+    def test_recipient_redacted_from_l0_result_line(self):
+        """The RECIPIENT is mail metadata - the result line in
+        var/logs/friday.jsonl must show <redacted>, never the address;
+        message_id stays visible so the trace identifies the send."""
+        log = self.mktmp() / "log.jsonl"
+        self.set_env(FRIDAY_LOG_FILE=str(log))
+        with mock.patch("friday.l1.gmail._access_token", return_value="tok"), \
+             mock.patch("friday.l1.gmail.requests.post", return_value=self._resp()):
+            gmail.send_document(str(self._pdf()), to="me@example.com")
+        lines = [json.loads(l) for l in open(log, encoding="utf-8").read().splitlines() if l.strip()]
+        send_line = [l for l in lines if l["primitive"] == "gmail.send_document"][-1]
+        self.assertEqual(send_line["result"]["to"], "<redacted>")
+        self.assertEqual(send_line["result"]["message_id"], "msg-1")
+        self.assertNotIn("me@example.com", json.dumps(send_line["result"]))
+
+    def test_missing_file_raises_precondition(self):
+        with mock.patch("friday.l1.gmail._access_token", return_value="tok"):
+            with self.assertRaises(PreconditionError):
+                gmail.send_document("/no/such/file.pdf", to="me@example.com")
+
+    def test_empty_to_raises(self):
+        """An empty `to` must raise BEFORE any network call. `_default_to`
+        is also patched: a real pass `default_to` entry (stored during the
+        2026-08-11 re-consent) would otherwise resolve the empty string to
+        a real recipient and the send would proceed to an unmocked HTTP
+        POST - this test must stay hermetic against live pass state."""
+        with mock.patch("friday.l1.gmail._access_token", return_value="tok"), \
+             mock.patch("friday.l1.gmail._default_to", return_value=None):
+            with self.assertRaises(PreconditionError):
+                gmail.send_document(str(self._pdf()), to="")
+
+    def test_default_recipient_env(self):
+        with mock.patch.dict("os.environ", {"GMAIL_DEFAULT_TO": "self@example.com"}), \
+             mock.patch("friday.l1.gmail._access_token", return_value="tok"), \
+             mock.patch("friday.l1.gmail.requests.post", return_value=self._resp()):
+            out = gmail.send_document(str(self._pdf()))
+        self.assertEqual(out["to"], "self@example.com")
+
+    def test_api_error_surfaces_primitive_error(self):
+        with mock.patch("friday.l1.gmail._access_token", return_value="tok"), \
+             mock.patch("friday.l1.gmail.requests.post", return_value=self._resp(403)):
+            with self.assertRaises(PrimitiveError) as ctx:
+                gmail.send_document(str(self._pdf()), to="me@example.com")
+        self.assertIn("403", str(ctx.exception))
+
+    def test_registered_in_registry_as_at_most_once(self):
+        from friday.contracts import REGISTRY
+
+        c = REGISTRY["gmail.send_document"]
+        self.assertEqual(c.idempotency.value, "at-most-once")
 
 
 if __name__ == "__main__":

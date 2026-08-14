@@ -13,8 +13,12 @@ weekdays).
 
 The run is the full ambient stack: L4 LLM plan -> L3 executor -> real L2
 gmail checks -> var/logs/tasks.jsonl `watch:morning-gmail-summary` ->
-desktop notification. The trigger carries "allow": ["gmail.*"] - any
-hallucinated side-effecting step would be REFUSED before execution.
+desktop notification. The trigger is the committed morning-gmail-summary
+trigger, loaded VERBATIM from config/watcher.json (only the schedule is
+moved to 00:00) - allowlist included: the read-only list
+(gmail.list_unread / gmail.get_message / gmail.summarize) - so any
+hallucinated step reaching for a send-capable primitive would be REFUSED
+before execution.
 
 Privacy: the discovered sender is redacted and the summary preview
 truncated in the proof, mirroring list_unread's L0 log_transform.
@@ -35,22 +39,28 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "gates"))
 
-from friday.watcher import load_config, run_watcher  # noqa: E402
+from friday.watcher import DEFAULT_CONFIG, load_config, run_watcher  # noqa: E402
 from e2e_check import _probe_unread_sender  # noqa: E402
 
 TASK_ID = "watch:morning-gmail-summary"
 PROOF = "gates/WATCHER_GMAIL_PROOF.md"
 
-# The committed trigger, verbatim except schedule -> 00:00 (always due).
-TRIGGER = {
-    "id": "morning-gmail-summary",
-    "goal": "find the most recent unread email from $facts.gmail_sender "
-            "and summarize it in at most 5 plain sentences",
-    "schedule": {"type": "time", "at": "00:00"},
-    "enabled": True,
-    "notify": True,
-    "allow": ["gmail.*"],
-}
+def _committed_trigger() -> dict:
+    """The committed morning-gmail-summary trigger, VERBATIM from
+    config/watcher.json - only the schedule is overridden to 00:00 so the
+    proof runs at any time of day (the committed trigger keeps 09:00
+    weekdays). Loading the real trigger instead of a hardcoded copy means
+    the demo can never drift from the config - including the allowlist,
+    tightened from 'gmail.*' to the three read-only primitives on
+    2026-08-11 (when gmail.send_document registered) so the unattended
+    trigger can never reach a send-capable primitive."""
+    morning = next(
+        t for t in load_config(DEFAULT_CONFIG)
+        if t["id"] == "morning-gmail-summary"
+    )
+    morning = dict(morning)
+    morning["schedule"] = {"type": "time", "at": "00:00"}
+    return morning
 
 
 def _tasks_records() -> list[dict]:
@@ -98,8 +108,12 @@ def main() -> int:
         "recipients": {"gmail_sender": sender},
     }), encoding="utf-8")
     cfg = tmp / "watcher.json"
-    cfg.write_text(json.dumps({"_docs": "temp watcher config", "triggers": [TRIGGER]}), encoding="utf-8")
+    cfg.write_text(json.dumps({"_docs": "temp watcher config", "triggers": [_committed_trigger()]}), encoding="utf-8")
     os.environ["FRIDAY_FACTS_FILE"] = str(facts)
+    # Hermetic vs the persisted fired-state: the demo must always fire its
+    # 00:00 trigger regardless of what the real daemon did today, and must
+    # never write the real var/state/watcher_fired.json.
+    os.environ["FRIDAY_FIRED_FILE"] = str(tmp / "fired.json")
 
     print("\n[config] triggers loaded:")
     for t in load_config(str(cfg)):
@@ -138,9 +152,12 @@ def main() -> int:
         "  config/planner_facts.json, not in the trigger. This run pointed",
         "  `$FRIDAY_FACTS_FILE` at a temp facts file whose sender was discovered by",
         "  a read-only pre-probe of the inbox (a sender with unread mail right now).",
-        "- The trigger carries `\"allow\": [\"gmail.*\"]` - a hallucinated",
-        "  side-effecting step would have been REFUSED before execution, never acted",
-        "  on by an unattended trigger.",
+        "- The trigger is the COMMITTED morning-gmail-summary trigger, loaded",
+        "  verbatim from config/watcher.json (schedule -> 00:00) - allowlist",
+        "  included: gmail.list_unread / gmail.get_message / gmail.summarize",
+        "  (the read-only tightening of 2026-08-11). A hallucinated step reaching",
+        "  for a send-capable primitive (e.g. gmail.send_document) would be",
+        "  REFUSED before execution, never acted on by an unattended trigger.",
         "- The goal was LLM-planned (L4), executed by the unmodified executor (L3),",
         "  verified by real L2 gmail checks, recorded in var/logs/tasks.jsonl as",
         "  `watch:morning-gmail-summary`, and pinged to the desktop (notify_send).",

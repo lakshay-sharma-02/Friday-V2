@@ -162,6 +162,25 @@ def file_exists(path: str) -> bool:
 
 
 @observe(layer="L2")
+def list_nonempty(value: list) -> bool:
+    """Claim: 'a step result is a non-empty list'. Pure shape check for
+    gather primitives (git.log returns a list) - the honest minimal
+    verification that a read-only gather produced something to build on.
+    Import discipline unaffected: pure function, no primitive imports."""
+    return isinstance(value, list) and len(value) > 0
+
+
+@observe(layer="L2")
+def text_nonempty(value: str) -> bool:
+    """Claim: 'a step result is a non-empty string'. Pure shape check for
+    read/text/synthesis primitives (files.read_text / dev.digest return
+    text) - proves the deliverable was actually produced without
+    claiming anything about its quality (there is no honest check for
+    that; the digest's content is a human-reviewable artifact)."""
+    return isinstance(value, str) and bool(value.strip())
+
+
+@observe(layer="L2")
 def whatsapp_identity_ok() -> bool:
     """Claim: 'the whatsapp credentials resolve to a real account'.
     Read-only API identity check. Auth/network failures propagate as

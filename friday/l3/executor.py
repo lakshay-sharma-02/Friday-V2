@@ -83,6 +83,7 @@ class StepResult:
     attempts: int
     verify_actual: Any = None
     error: str | None = None
+    result: Any = None  # the primitive's return value (None when ABORTED)
 
 
 @dataclass
@@ -443,6 +444,13 @@ def run_plan(plan: dict[str, Any], *, run_id: str | None = None) -> PlanResult:
         step_status = "FAILED"
         verify_actual: Any = None
         error: str | None = None
+        # The primitive's return value. Bound on a successful attempt; stays
+        # None when every attempt raised yet a non-self-referencing verify
+        # still passed (e.g. window.open_app raising because the app was
+        # already open while checks.window_has_class passes) - the step is
+        # VERIFIED by the world's state, and the StepResult.result is None
+        # (honest: no return value was produced). Never an unbound NameError.
+        return_value: Any = None
 
         while attempts < max_attempts:
             attempts += 1
@@ -545,7 +553,7 @@ def run_plan(plan: dict[str, Any], *, run_id: str | None = None) -> PlanResult:
             raise FridayError(f"plan aborted at step {step_id}: {msg}")
 
         result.steps.append(
-            StepResult(step_id=step_id, primitive=step.primitive, status=step_status, attempts=attempts, verify_actual=verify_actual, error=error)
+            StepResult(step_id=step_id, primitive=step.primitive, status=step_status, attempts=attempts, verify_actual=verify_actual, error=error, result=return_value)
         )
 
     emit_event(layer="L3", primitive="plan", result="COMPLETED", extra={"steps": len(result.steps)})
