@@ -10,8 +10,12 @@ automatically. The gate runs in two stages:
          idempotency/failure_mode/returns + optional redact_result/
          log_transform),
       b. impl.py is AST-checked: imports limited to what the shipped L1
-         primitives actually import, no exec/eval/subprocess/os-system
-         calls, the contracted function defined, no dead arguments,
+         primitives actually import, no exec/eval/os-system calls and no
+         subprocess.* beyond the read-only bounded pattern shipped
+         primitives use (subprocess.run([...], capture_output=True,
+         timeout=...) - the carve-out that lets a read-family primitive
+         like clipboard.read_text shell out to wl-paste/xclip), the
+         contracted function defined, no dead arguments,
       c. the proposal's own test.py runs in an isolated subprocess
          (temp HOME, no credentials, timeout) against the DRAFT impl.
   A failure at any automated step is written into rationale.md and the

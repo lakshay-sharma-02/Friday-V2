@@ -150,8 +150,12 @@ CATEGORIES: dict[str, dict[str, Any]] = {
         "targets": ("triage",),
         "statement": (
             "The drafted impl must import only from the L1 allowlist and never call "
-            "exec/eval/subprocess/os-system - arbitrary execution is rejected at AST "
-            "before any review."
+            "exec/eval/os-system, and any subprocess.* call must be the read-only "
+            "bounded pattern shipped primitives use (subprocess.run with a literal "
+            "list command, capture_output=True and a timeout - the form that lets "
+            "a read-family primitive like clipboard.read_text shell out to "
+            "wl-paste/xclip); arbitrary execution is rejected at AST before any "
+            "review."
         ),
     },
     "draft_test_fail": {

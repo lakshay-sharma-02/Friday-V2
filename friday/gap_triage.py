@@ -57,7 +57,11 @@ THIS MODULE ONLY DRAFTS. Nothing is registered and no generated code is
 ever executed here. The approval gate is a separate concern
 (friday/register_proposal.py + friday/automated_gate.py): a draft is
 first checked by the AUTOMATED gate (AST checks - derived import
-allowlist, no exec/eval/subprocess/os-system calls, contracted function
+allowlist, no exec/eval/os-system calls and no subprocess.* beyond the
+read-only bounded pattern shipped primitives use (subprocess.run([...],
+capture_output=True, timeout=...) - required for read-family primitives
+like clipboard.read_text that must shell out to wl-paste/xclip),
+contracted function
 defined, no dead arguments - plus a sandboxed run of the draft's own
 test.py in an isolated subprocess), and only a proposal that passes then
 reaches the human signature (APPROVED.md). Sandboxed-BUILD isolation and
@@ -135,6 +139,15 @@ CONVENTIONS:
   @contract(...) using the exact schema above. First docstring line is a
   one-sentence summary; document behavior and side effects. Import only
   stdlib + what the module needs. Prefer "idempotent" for reads.
+- EXTERNAL TOOL CALLS: the ONLY allowed subprocess shape is
+  subprocess.run([<literal string list>], capture_output=True,
+  timeout=<int>) - exactly that, and ONLY for reading from an external
+  tool (e.g. clipboard: subprocess.run(["wl-paste"], capture_output=True,
+  timeout=5)). Never subprocess.check_output, never Popen/call/
+  check_call, never shell=True, never a string or variable command, and
+  never without capture_output=True AND a timeout. A clipboard read on
+  Linux MUST shell out (wl-paste on Wayland, xclip/xsel on X11) - that
+  is the legitimate use; everything else is rejected.
 - "test": stdlib unittest, HERMETIC - no network, no compositor, no
   notifications, no real subprocess. Use tests.helpers.EnvTestCase when env
   vars are involved; mock every external boundary (subprocess, socket,

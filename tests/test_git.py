@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import subprocess
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from friday.contracts import REGISTRY, Idempotency
@@ -41,10 +42,16 @@ def _make_repo(base: Path, commits: list[tuple[str, str]]) -> Path:
 class TestGitLog(EnvTestCase):
     def setUp(self):
         super().setUp()
+        # Commit dates are RELATIVE to now so `days=` filtering is
+        # deterministic on any calendar day: a fixed date would straddle
+        # the `--since N days ago` boundary as real time moves past it
+        # (observed flake: 'middle fix' at 2026-07-20 flips in/out of a
+        # 25-day window on 2026-08-14, the exact 25-day anniversary).
+        now = datetime.now(timezone.utc)
         self.repo = _make_repo(self.mktmp(), [
-            ("oldest work", "2026-07-01T10:00:00"),
-            ("middle fix", "2026-07-20T10:00:00"),
-            ("newest feature", "2026-08-01T10:00:00"),
+            ("oldest work", (now - timedelta(days=40)).isoformat()),
+            ("middle fix", (now - timedelta(days=20)).isoformat()),
+            ("newest feature", (now - timedelta(days=5)).isoformat()),
         ])
 
     def test_log_returns_entries_newest_first(self):
@@ -52,7 +59,6 @@ class TestGitLog(EnvTestCase):
         self.assertEqual([r["subject"] for r in rows],
                          ["newest feature", "middle fix", "oldest work"])
         first = rows[0]
-        self.assertEqual(first["date"], "2026-08-01")
         self.assertEqual(first["author"], "Tester")
         self.assertTrue(len(first["commit"]) >= 7)  # short hash
 
@@ -61,10 +67,12 @@ class TestGitLog(EnvTestCase):
         self.assertEqual([r["subject"] for r in rows], ["newest feature", "middle fix"])
 
     def test_log_days_filters(self):
-        rows = git_log(str(self.repo), count=10, days=25)  # since ~2026-07-17
+        rows = git_log(str(self.repo), count=10, days=25)  # 25d window: newest + middle
         self.assertEqual([r["subject"] for r in rows], ["newest feature", "middle fix"])
-        all_rows = git_log(str(self.repo), count=10, days=100)
+        all_rows = git_log(str(self.repo), count=10, days=100)  # 100d: all three
         self.assertEqual(len(all_rows), 3)
+        old_rows = git_log(str(self.repo), count=10, days=7)  # 7d: only newest
+        self.assertEqual([r["subject"] for r in old_rows], ["newest feature"])
 
     def test_log_empty_repo_returns_empty_list(self):
         empty = self.mktmp() / "empty"

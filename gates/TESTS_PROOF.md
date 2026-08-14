@@ -1,6 +1,6 @@
 # TESTS_PROOF — automated test suite for Friday
 
-Status date: 2026-08-14T03:59:57+00:00.
+Status date: 2026-08-14T04:40:10+00:00.
 
 The full unittest suite over every layer and feature: registry,
 observability (redaction / rotation / log_transform), the executor
@@ -12,7 +12,7 @@ never sends, launches, clicks or touches the compositor.
 
 ## Verdict: PASS
 
-Ran 466 tests: 466 passed, 0 failed, 0 errors.
+Ran 474 tests: 474 passed, 0 failed, 0 errors.
 
 ## Raw output
 
@@ -37,8 +37,16 @@ test_dead_arg_surfaces (test_automated_gate.TestCombinedAst.test_dead_arg_surfac
 test_subprocess_call_surfaces_even_with_allowed_import (test_automated_gate.TestCombinedAst.test_subprocess_call_surfaces_even_with_allowed_import) ... ok
 test_missing_function_flagged (test_automated_gate.TestContractFunction.test_missing_function_flagged) ... ok
 test_present_function_clean (test_automated_gate.TestContractFunction.test_present_function_clean) ... ok
+test_bounded_run_with_text_and_extra_kwargs_allowed (test_automated_gate.TestDangerChecks.test_bounded_run_with_text_and_extra_kwargs_allowed) ... ok
+test_check_output_and_popen_still_rejected (test_automated_gate.TestDangerChecks.test_check_output_and_popen_still_rejected) ... ok
 test_clean_impl_no_danger (test_automated_gate.TestDangerChecks.test_clean_impl_no_danger) ... ok
 test_dangerous_calls_rejected (test_automated_gate.TestDangerChecks.test_dangerous_calls_rejected) ... ok
+test_read_only_bounded_subprocess_run_allowed (test_automated_gate.TestDangerChecks.test_read_only_bounded_subprocess_run_allowed) ... ok
+test_run_with_shell_true_rejected (test_automated_gate.TestDangerChecks.test_run_with_shell_true_rejected) ... ok
+test_run_with_string_command_rejected (test_automated_gate.TestDangerChecks.test_run_with_string_command_rejected) ... ok
+test_run_with_variable_command_rejected (test_automated_gate.TestDangerChecks.test_run_with_variable_command_rejected) ... ok
+test_run_without_capture_output_rejected (test_automated_gate.TestDangerChecks.test_run_without_capture_output_rejected) ... ok
+test_run_without_timeout_rejected (test_automated_gate.TestDangerChecks.test_run_without_timeout_rejected) ... ok
 test_ignored_argument_flagged (test_automated_gate.TestDeadArgs.test_ignored_argument_flagged) ... ok
 test_used_arguments_clean (test_automated_gate.TestDeadArgs.test_used_arguments_clean) ... ok
 test_credentials_and_overrides_stripped (test_automated_gate.TestEnvSanitization.test_credentials_and_overrides_stripped) ... ok
@@ -561,7 +569,7 @@ test_bare_name_becomes_class (test_window.TestSelectorNormalization.test_bare_na
 test_explicit_prefix_passthrough (test_window.TestSelectorNormalization.test_explicit_prefix_passthrough) ... ok
 
 ----------------------------------------------------------------------
-Ran 466 tests in 7.788s
+Ran 474 tests in 7.570s
 
 OK
 ```

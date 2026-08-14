@@ -527,7 +527,11 @@ two-stage approval gate (`friday/register_proposal.py`):
 1. **Automated stage** (`friday/automated_gate.py`), before any human
    involvement: contract schema → impl compiles → **AST checks** (imports
    limited to what shipped L1 primitives actually import, no
-   exec/eval/subprocess/os-system calls, the contracted function defined,
+   exec/eval/os-system calls and no subprocess.* beyond the read-only
+   bounded pattern shipped primitives use (`subprocess.run([...],
+   capture_output=True, timeout=...)` — the carve-out that lets a
+   read-family primitive like `clipboard.read_text` shell out to
+   `wl-paste`/`xclip`), the contracted function defined,
    no dead arguments, and no file writes escaping the sandbox —
    absolute/`..`/`~` write targets are rejected in impl.py AND test.py) →
    the proposal's own `test.py` is danger- and fs-scope-checked and runs

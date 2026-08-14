@@ -3,7 +3,9 @@
   "lessons": [
     {
       "category": "draft_confabulation",
-      "targets": ["triage"],
+      "targets": [
+        "triage"
+      ],
       "statement": "Never claim a primitive, mechanism, or capability exists unless it is actually present in the gathered context. A refusal means the capability does NOT exist here - not that it exists and is blocked. If a boundary cannot be satisfied, report the constraint instead of fabricating a route around it (observed: a gmail-send draft asserted 'the existing gmail.send_document is disallowed' when no such primitive existed at all).",
       "source": "human-seed",
       "approved_at": "2026-08-11",
@@ -13,7 +15,9 @@
     },
     {
       "category": "draft_dead_arg",
-      "targets": ["triage"],
+      "targets": [
+        "triage"
+      ],
       "statement": "Every declared parameter of the drafted function must be used in its body - never hardcode a value while ignoring an argument; the gate rejects dead arguments mechanically (observed: a find-file draft that ignored its own 'name' argument).",
       "source": "human-seed",
       "approved_at": "2026-08-11",
@@ -23,7 +27,9 @@
     },
     {
       "category": "draft_wrapper_dodge",
-      "targets": ["triage"],
+      "targets": [
+        "triage"
+      ],
       "statement": "Never route around a capability boundary by renaming an existing primitive under a new name - that is a dodge, not a capability. If the gap is an allowlist refusal of a primitive that ALREADY EXISTS, say so explicitly: the real fix may be the trigger's allowlist, not a new primitive.",
       "source": "human-seed",
       "approved_at": "2026-08-11",
@@ -33,7 +39,9 @@
     },
     {
       "category": "draft_schema",
-      "targets": ["triage"],
+      "targets": [
+        "triage"
+      ],
       "statement": "The contract must be a plain JSON object with the real Contract fields and a '<module>.<fn>' name (exactly one dot) - never the @contract(...) decorator source as the contract (observed: 'friday.l1.gmail.send_receipt' rejected at schema).",
       "source": "human-seed",
       "approved_at": "2026-08-11",
@@ -43,12 +51,26 @@
     },
     {
       "category": "digest_misattribution",
-      "targets": ["digest"],
+      "targets": [
+        "digest"
+      ],
       "statement": "Never attribute a mechanism or pattern to a repo unless it appears in that repo's OWN gathered content - misattribution is a fabrication (observed: Vivaha's Cloudflare-Worker pattern described as Friday's) and is flagged mechanically; absent confirmation, say it cannot be confirmed.",
       "source": "human-seed",
       "approved_at": "2026-08-11",
       "examples": [
         "2026-08-11: weekly digest attributed Vivaha's Cloudflare-Worker image-moderation pattern to Friday as if Friday had it"
+      ]
+    },
+    {
+      "category": "draft_ast",
+      "targets": [
+        "triage"
+      ],
+      "statement": "The drafted impl may shell out to an external tool ONLY via subprocess.run([<literal string list>], capture_output=True, timeout=<int>) - never subprocess.check_output, Popen, call, check_call, shell=True, a string/variable command, or a call without capture_output=True AND a timeout; the one legitimate use is reading from a tool (e.g. clipboard.read_text must run wl-paste on Wayland or xclip on X11). tkinter is NOT an allowed import - the clipboard carve-out is subprocess.run, nothing else.",
+      "source": "human-seed",
+      "approved_at": "2026-08-14",
+      "examples": [
+        "2026-08-14: clipboard.read_text drafts rejected 3x - check_output (banned), unsafe subprocess.run, and a tkinter import that is not on the L1 allowlist"
       ]
     }
   ]

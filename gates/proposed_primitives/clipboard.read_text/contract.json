@@ -1,0 +1,10 @@
+{
+  "name": "clipboard.read_text",
+  "precondition": "A Wayland or X11 session is active and the clipboard tool (wl-paste or xclip) is available.",
+  "postcondition": "Returns the current clipboard text as a string; makes no state changes.",
+  "idempotency": "idempotent",
+  "failure_mode": "PrimitiveError if clipboard tool not found or cannot read.",
+  "returns": "str: the clipboard contents.",
+  "redact_result": false,
+  "log_transform": "_log_redact_clipboard_meta"
+}

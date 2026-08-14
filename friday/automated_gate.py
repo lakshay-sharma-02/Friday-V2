@@ -7,7 +7,14 @@ The gap loop's earlier round proved the mechanism with a manual-only gate
   AST checks (friday/automated_gate.py, this file)
     - imports:      only modules the shipped L1 primitives actually import
                     (derived below), plus a small documented stdlib set
-    - danger calls: exec/eval/compile/__import__, any subprocess.* call,
+    - danger calls: exec/eval/compile/__import__, any subprocess.* call
+                    EXCEPT the read-only bounded pattern the shipped
+                    primitives use for external reads
+                    (subprocess.run([...], capture_output=True,
+                    timeout=...) - see _is_safe_subprocess_run; without
+                    this carve-out a genuine read-family primitive like
+                    clipboard.read_text could never be drafted, because
+                    reading the Linux clipboard REQUIRES wl-paste/xclip),
                     os.system/os.popen/os.spawn*/os.exec*/os.fork, pty.spawn
                     (mirrors what the shipped executor gates already treat
                     as dangerous - there was NO reusable danger list, so
@@ -302,8 +309,60 @@ def check_fs_scope(source: str) -> list[str]:
     return issues
 
 
+def _is_safe_subprocess_run(node: ast.Call) -> bool:
+    """True ONLY for the read-only, bounded, statically-visible subprocess
+    pattern the shipped L1 primitives use for external reads (git.log,
+    notify_send, _hyprctl): `subprocess.run([...], capture_output=True,
+    timeout=...)`. The carve-out exists because a genuine read-family
+    primitive like clipboard.read_text CANNOT exist on Linux without
+    shelling out to wl-paste/xclip - the blanket 'any subprocess.* call'
+    rule (which also rejects the shipped pattern) made the primitive
+    undraftable. Everything else under subprocess.* stays rejected.
+    Safety conditions (each is structural, not semantic):
+      - the call target is exactly subprocess.run (not check_output,
+        Popen, call, check_call, run with shell=True, ...)
+      - the command is a list/tuple LITERAL of string constants - the
+        whole command is visible in the draft source; a variable or a
+        shell string hides what runs and is rejected
+      - shell is absent or explicitly False
+      - capture_output=True (output is captured, never inherited)
+      - a timeout is present (bounded, never unbounded)
+    A wrong-but-clean command (e.g. a destructive binary in the list) is
+    still a HUMAN-review concern - the gate catches the structural
+    escape (shell/string/variable/unbounded), exactly as documented for
+    the write-family limits."""
+    fn = node.func
+    if not (isinstance(fn, ast.Attribute) and _dotted_name(fn) == "subprocess.run"):
+        return False
+    if not node.args:
+        return False
+    cmd = node.args[0]
+    if not isinstance(cmd, (ast.List, ast.Tuple)):
+        return False
+    if not all(
+        isinstance(e, ast.Constant) and isinstance(e.value, str) for e in cmd.elts
+    ):
+        return False
+    capture_ok = False
+    timeout_ok = False
+    for kw in node.keywords:
+        if kw.arg == "shell":
+            if not (isinstance(kw.value, ast.Constant) and kw.value.value is False):
+                return False
+        elif kw.arg == "capture_output":
+            capture_ok = (
+                isinstance(kw.value, ast.Constant) and kw.value.value is True
+            )
+        elif kw.arg == "timeout":
+            timeout_ok = True
+    return capture_ok and timeout_ok
+
+
 def check_danger(source: str) -> list[str]:
-    """Any exec/eval/subprocess/os-system style call is rejected outright."""
+    """Any exec/eval/os.system-style call is rejected outright, and any
+    subprocess.* call EXCEPT the read-only bounded pattern shipped
+    primitives use (`subprocess.run([...], capture_output=True,
+    timeout=...)` - see _is_safe_subprocess_run)."""
     issues: list[str] = []
     try:
         tree = ast.parse(source)
@@ -317,7 +376,9 @@ def check_danger(source: str) -> list[str]:
             issues.append(f"calls {fn.id}() - arbitrary-execution builtin")
         elif isinstance(fn, ast.Attribute):
             dotted = _dotted_name(fn)
-            if dotted in _DANGER_ATTRS or dotted.startswith("subprocess."):
+            if dotted in _DANGER_ATTRS:
+                issues.append(f"calls {dotted}() - dangerous/arbitrary execution")
+            elif dotted.startswith("subprocess.") and not _is_safe_subprocess_run(node):
                 issues.append(f"calls {dotted}() - dangerous/arbitrary execution")
     return issues
 

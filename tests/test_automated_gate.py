@@ -92,6 +92,78 @@ class TestDangerChecks(EnvTestCase):
     def test_clean_impl_no_danger(self):
         self.assertEqual(check_danger(CLEAN_IMPL), [])
 
+    # The read-only bounded subprocess carve-out (2026-08-14): a genuine
+    # read-family primitive like clipboard.read_text MUST shell out to
+    # wl-paste/xclip on Linux, and shipped primitives (git.log, notify)
+    # use exactly this pattern - so the gate allows it while still
+    # rejecting every other subprocess.* shape.
+    def test_read_only_bounded_subprocess_run_allowed(self):
+        src = (
+            "import subprocess\n"
+            "def read_text() -> str:\n"
+            '    p = subprocess.run(["wl-paste"], capture_output=True, timeout=5)\n'
+            "    return p.stdout.decode()\n"
+        )
+        self.assertEqual(check_danger(src), [], src)
+
+    def test_bounded_run_with_text_and_extra_kwargs_allowed(self):
+        src = (
+            "import subprocess\n"
+            "def read_text() -> str:\n"
+            '    p = subprocess.run(["xclip", "-o"], capture_output=True, timeout=10, text=True)\n'
+            "    return p.stdout\n"
+        )
+        self.assertEqual(check_danger(src), [], src)
+
+    def test_run_without_capture_output_rejected(self):
+        src = (
+            "import subprocess\n"
+            "def f():\n"
+            '    subprocess.run(["ls"])\n'
+        )
+        self.assertTrue(check_danger(src), src)
+
+    def test_run_without_timeout_rejected(self):
+        src = (
+            "import subprocess\n"
+            "def f():\n"
+            '    subprocess.run(["ls"], capture_output=True)\n'
+        )
+        self.assertTrue(check_danger(src), src)
+
+    def test_run_with_shell_true_rejected(self):
+        src = (
+            "import subprocess\n"
+            "def f():\n"
+            '    subprocess.run(["ls"], capture_output=True, timeout=5, shell=True)\n'
+        )
+        self.assertTrue(check_danger(src), src)
+
+    def test_run_with_string_command_rejected(self):
+        src = (
+            "import subprocess\n"
+            "def f():\n"
+            '    subprocess.run("ls -la", capture_output=True, timeout=5)\n'
+        )
+        self.assertTrue(check_danger(src), src)
+
+    def test_run_with_variable_command_rejected(self):
+        src = (
+            "import subprocess\n"
+            "def f(cmd):\n"
+            "    subprocess.run(cmd, capture_output=True, timeout=5)\n"
+        )
+        self.assertTrue(check_danger(src), src)
+
+    def test_check_output_and_popen_still_rejected(self):
+        for src in (
+            "import subprocess\ndef f():\n    subprocess.check_output([\"wl-paste\"])\n",
+            "import subprocess\ndef f():\n    subprocess.Popen([\"wl-paste\"], capture_output=True)\n",
+            "import subprocess\ndef f():\n    subprocess.call([\"ls\"])\n",
+            "import subprocess\ndef f():\n    subprocess.check_call([\"ls\"])\n",
+        ):
+            self.assertTrue(check_danger(src), f"not flagged: {src!r}")
+
 
 class TestDeadArgs(EnvTestCase):
     def test_ignored_argument_flagged(self):

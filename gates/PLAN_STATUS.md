@@ -90,7 +90,7 @@ GOALS  friday/goal_proposals.py  recurring FAILED goals (tasks.jsonl,
 | Protected windows | `close_window`/`close_all` refuse protected classes (`FRIDAY_PROTECTED_CLASSES`, default `kitty`) **before any dispatch** — no partial close | `tests/test_window.py` |
 | Per-trigger allowlist (NEW) | watcher triggers may carry `"allow": ["gmail.*"]`; any plan step whose primitive is not on the list is REFUSED before execution, recorded honestly, and popped from the plan cache | `tests/test_watcher.py` (47 tests) |
 | Persistent deployment + heartbeat (NEW) | `friday-watcher.service` (systemd user unit, source `deploy/`): starts at login, restarts on failure, `daemon.alive` heartbeat every `FRIDAY_HEARTBEAT_S` (60 s) carrying uptime + last trigger + live capability-gap count; replaces the July timer pair that ran a now-nonexistent `friday.cli` and failed every 2 minutes | `gates/WATCHER_DEPLOY_PROOF.md`, `deploy/RUNBOOK.md`, heartbeat tests in `tests/test_watcher.py` |
-| Draft impls gated before review (NEW) | capability-gap proposals pass an automated gate before any human signature: AST checks (imports limited to the derived L1 allowlist, no exec/eval/subprocess/os-system, contracted function defined, no dead arguments) + the proposal's own test run in an isolated subprocess (temp HOME, no credentials, timeout) against the DRAFT impl | `tests/test_automated_gate.py`, `tests/test_register_proposal.py` |
+| Draft impls gated before review (NEW) | capability-gap proposals pass an automated gate before any human signature: AST checks (imports limited to the derived L1 allowlist, no exec/eval/os-system calls and no subprocess.* beyond the read-only bounded pattern shipped primitives use (subprocess.run([...], capture_output=True, timeout=...)), contracted function defined, no dead arguments) + the proposal's own test run in an isolated subprocess (temp HOME, no credentials, timeout) against the DRAFT impl | `tests/test_automated_gate.py`, `tests/test_register_proposal.py` |
 
 ## 3. Proof ledger (all raw output in `gates/`)
 
@@ -290,7 +290,7 @@ live-automation records (`watch:demo-time`, `watch:demo-file`, `e2e:files`,
   candidate.
 - **The automated gate is real, the meta-engine is PARTIAL**: proposals
   now pass AST validation (import allowlist derived from shipped L1
-  primitives, no exec/eval/subprocess/os-system calls, contracted
+  primitives, no exec/eval/os-system calls and no subprocess.* beyond the read-only bounded pattern (subprocess.run([...], capture_output=True, timeout=...)), contracted
   function defined, no dead arguments) and a sandboxed test run (temp
   HOME, no credential env vars, timeout, DRAFT impl injected) BEFORE a
   human signs APPROVED.md; one primitive (`files.find_file_exact`) is
