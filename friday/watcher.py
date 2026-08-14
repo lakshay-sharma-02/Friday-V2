@@ -32,7 +32,7 @@ from friday.capability_gaps import record_gap
 from friday.errors import FridayError
 from friday.l1.notify import notify_send
 from friday.l3.executor import run_plan
-from friday.observability import emit_event
+from friday.observability import emit_event, reset_run_id
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = PROJECT_ROOT / "config" / "watcher.json"
@@ -488,6 +488,12 @@ def run_watcher(
                     due = bool(_new_files(t, seen))
                 if due:
                     ok, detail = _run_trigger(t, plan_cache)
+                    # The trigger run scoped the observability run_id to
+                    # itself; restore the process-default so daemon.alive
+                    # heartbeats (and any other ambient line) are NOT
+                    # misattributed to this run for the rest of the
+                    # process lifetime (the run_id leak).
+                    reset_run_id()
                     last_attempts[t["id"]] = time.monotonic()
                     last_trigger_id = t["id"]
                     last_trigger_at = datetime.now(timezone.utc).isoformat(timespec="seconds")

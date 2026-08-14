@@ -24,6 +24,17 @@ ExecStart="/home/lakshay/Projects/Friday V2/.venv/bin/python" -m friday.watcher 
 # daemon.alive heartbeat interval (seconds) - the liveness signal that
 # lands in var/logs/friday.jsonl (see RUNBOOK).
 Environment=FRIDAY_HEARTBEAT_S=60
+# FRIDAY_MODEL: the WHOLE-AGENT emergency escape hatch (friday/l1/dev.py).
+# Every LLM consumer (planner, triage, digest, summarize) flows through
+# _run_claude, which checks FRIDAY_MODEL BEFORE the per-consumer model arg.
+# The default alias ('opus') routes through the local router to a free
+# provider model that can be DEGRADED for hours ('DEGRADED function cannot
+# be invoked' - observed live on 2026-08-13, when morning-gmail-summary
+# failed 10x in a row with claude rc=1/300s timeouts). Pinning a full
+# model id here repoints EVERY call at a working model. This value is the
+# one used to recover from that incident; edit to flip the whole agent at
+# once, or delete the line to fall back to the default alias.
+Environment=FRIDAY_MODEL=oc/laguna-s-2.1-free
 # The watcher's LLM substrate is the `claude` CLI - it must be findable,
 # and HOME must be the real home so claude reads ~/.claude/settings.json
 # (which routes models through the local proxy) and gpg finds the pass

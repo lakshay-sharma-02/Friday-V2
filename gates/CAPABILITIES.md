@@ -1,6 +1,6 @@
 # CAPABILITIES - what Friday can do (generated from the live registry)
 
-Status date: 2026-08-13.
+Status date: 2026-08-14.
 
 **This document is GENERATED from the running code, not hand-maintained** -
 regenerate it after any primitive/check/trigger change:
@@ -177,6 +177,7 @@ never sees them and L3 refuses them:
 | id | enabled | schedule | notify | allow |
 |---|---|---|---|---|
 | `ambient-gap-probe-calendar` | false | time 11:00 [daily] | false | notify.notify_send |
+| `ambient-gap-probe-clipboard` | true | time 11:00 [daily] | false | notify.notify_send |
 | `ambient-gap-probe-email-send` | false | time 11:05 [daily] | false | notify.notify_send |
 | `ambient-gap-probe-file-write` | false | time 00:05 [daily] | false | notify.notify_send |
 | `morning-gmail-summary` | true | time 09:00 [mon,tue,wed,thu,fri] | true | gmail.list_unread, gmail.get_message, gmail.summarize |

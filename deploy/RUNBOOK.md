@@ -62,6 +62,29 @@ systemctl --user restart friday-watcher.service
 Stopping sends SIGINT, which the watcher handles as a clean stop (a `STOP`
 event is written to the L0 log).
 
+### LLM provider degraded (the morning trigger keeps failing)
+
+The watcher's LLM calls (plan + gmail.summarize) go through the local
+router's default model alias, which can be DEGRADED for hours (observed
+2026-08-13: `morning-gmail-summary` failed 10x in a row with `claude
+rc=1` / 300s timeouts before the provider recovered). The escape hatch is
+`FRIDAY_MODEL` in the unit file: a full model id that overrides EVERY
+LLM consumer (planner, triage, digest, summarize), not just the watcher.
+
+```sh
+# 1. edit deploy/friday-watcher.service -> Environment=FRIDAY_MODEL=<working model id>
+# 2. reinstall + restart (below)
+# 3. confirm the next trigger run uses the new model:
+#    grep '"primitive": "dev.run"' var/logs/friday.jsonl | tail -2
+```
+
+The default value pinned in the unit (`oc/laguna-s-2.1-free`) is the one
+that recovered from the Aug-13 incident. Delete the `Environment=` line
+entirely to fall back to the default alias. Failures are retried the same
+day (`RETRY_BACKOFF_S`, 600s) but a dead provider keeps failing until it
+recovers or the model is flipped - the heartbeat's `capability_gaps` and
+the `planner_llm_error` lesson events are the tell.
+
 ### Turn it off entirely (undo the deployment)
 
 ```sh
@@ -83,6 +106,12 @@ ls -1 gates/proposed_primitives/ 2>/dev/null
 ```
 
 ### Reinstall after a unit-file change
+
+```sh
+cp deploy/friday-watcher.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user restart friday-watcher.service
+```
 
 ```sh
 cp deploy/friday-watcher.service ~/.config/systemd/user/

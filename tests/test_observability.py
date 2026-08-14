@@ -38,6 +38,41 @@ class TestRedaction(EnvTestCase):
         self.assertEqual(bound["a"], 1)
 
 
+class TestRunIdLifecycle(EnvTestCase):
+    """run_id scoping: a logical run owns its id, and reset_run_id()
+    restores the process default so ambient lines (daemon.alive
+    heartbeats) never inherit a finished run's id - the run_id leak."""
+
+    def test_reset_restores_process_default(self):
+        default_before = obs._run_id()
+        obs.set_run_id("watch-morning-gmail-summary-20260814T090705")
+        self.assertEqual(obs._run_id(), "watch-morning-gmail-summary-20260814T090705")
+        obs.reset_run_id()
+        self.assertEqual(obs._run_id(), default_before)
+
+    def test_set_run_id_none_generates_fresh(self):
+        before = obs._run_id()
+        obs.set_run_id(None)
+        self.assertNotEqual(obs._run_id(), before)
+        self.assertEqual(len(obs._run_id()), 12)  # uuid4().hex[:12]
+
+    def test_emitted_lines_use_reset_run_id(self):
+        d = self.mktmp()
+        log = d / "log.jsonl"
+        self.set_env(FRIDAY_LOG_FILE=str(log))
+
+        obs.set_run_id("watch-some-trigger-20260814T000000")
+        obs.emit_event(layer="WATCH", primitive="trigger", result="DONE")
+        obs.reset_run_id()
+        obs.emit_event(layer="WATCH", primitive="daemon.alive", result="ALIVE")
+
+        lines = [json.loads(l) for l in open(log, encoding="utf-8") if l.strip()]
+        self.assertEqual(lines[0]["run_id"], "watch-some-trigger-20260814T000000")
+        # The heartbeat line must NOT inherit the trigger's run_id.
+        self.assertNotEqual(lines[1]["run_id"], "watch-some-trigger-20260814T000000")
+        self.assertEqual(lines[1]["run_id"], obs._run_id())
+
+
 class TestObserveWrapper(EnvTestCase):
     def _last_line(self, path) -> dict:
         lines = [l for l in open(path, encoding="utf-8") if l.strip()]

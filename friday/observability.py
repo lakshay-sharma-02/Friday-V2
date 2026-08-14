@@ -51,6 +51,12 @@ _log_lock = threading.Lock()
 # a process-frozen id would make every goal's lines share one id, which is
 # exactly the correlation failure run_id exists to prevent.
 _RUN_ID: str = os.environ.get("FRIDAY_RUN_ID") or uuid.uuid4().hex[:12]
+# The process-default run id (captured at import) - what lines emitted
+# OUTSIDE any logical run (daemon.alive heartbeats, watcher START/STOP,
+# startup errors) should carry. set_run_id() temporarily replaces _RUN_ID
+# for one plan execution; reset_run_id() restores this so ambient lines
+# never inherit a finished run's id.
+_DEFAULT_RUN_ID: str = _RUN_ID
 
 # Current logical step within a run. L3 sets this before invoking a primitive
 # or check so every line emitted for that step carries the same step_id -
@@ -74,6 +80,17 @@ def set_run_id(run_id: str) -> None:
     global _RUN_ID
     with _log_lock:
         _RUN_ID = run_id or uuid.uuid4().hex[:12]
+
+
+def reset_run_id() -> None:
+    """Restore the process-default run id (thread-safe). Called by the
+    watcher after each trigger run finishes, so daemon.alive heartbeats
+    and other ambient lines are NOT attributed to the last trigger's run
+    (the run_id leak: every heartbeat after a trigger run carried that
+    run's id for the whole process lifetime, corrupting run correlation)."""
+    global _RUN_ID
+    with _log_lock:
+        _RUN_ID = _DEFAULT_RUN_ID
 
 # Keys whose values are never written to the log, even in args/results.
 # 'pass' is deliberately absent - it would over-match harmless keys like
