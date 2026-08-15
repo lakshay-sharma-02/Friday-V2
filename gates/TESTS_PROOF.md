@@ -1,6 +1,6 @@
 # TESTS_PROOF — automated test suite for Friday
 
-Status date: 2026-08-15T04:53:05+00:00.
+Status date: 2026-08-15T05:31:23+00:00.
 
 The full unittest suite over every layer and feature: registry,
 observability (redaction / rotation / log_transform), the executor
@@ -12,7 +12,7 @@ never sends, launches, clicks or touches the compositor.
 
 ## Verdict: PASS
 
-Ran 515 tests: 515 passed, 0 failed, 0 errors.
+Ran 535 tests: 535 passed, 0 failed, 0 errors.
 
 ## Raw output
 
@@ -52,6 +52,13 @@ The second clipboard defect: contract declares ... ok
 test_missing_function_flagged (test_automated_gate.TestContractFunction.test_missing_function_flagged) ... ok
 test_present_function_clean (test_automated_gate.TestContractFunction.test_present_function_clean) ... ok
 test_bounded_run_with_text_and_extra_kwargs_allowed (test_automated_gate.TestDangerChecks.test_bounded_run_with_text_and_extra_kwargs_allowed) ... ok
+test_capture_shape_literal_path_allowed (test_automated_gate.TestDangerChecks.test_capture_shape_literal_path_allowed) ... ok
+test_capture_shape_runtime_args_allowed (test_automated_gate.TestDangerChecks.test_capture_shape_runtime_args_allowed) ... ok
+test_capture_shape_unknown_tool_rejected (test_automated_gate.TestDangerChecks.test_capture_shape_unknown_tool_rejected)
+The CAPTURE shape's whole point is the TOOL is allowlisted: a ... ok
+test_capture_shape_variable_first_element_rejected (test_automated_gate.TestDangerChecks.test_capture_shape_variable_first_element_rejected)
+A non-literal first element (a variable tool name) hides what ... ok
+test_capture_shape_without_timeout_rejected (test_automated_gate.TestDangerChecks.test_capture_shape_without_timeout_rejected) ... ok
 test_check_output_and_popen_still_rejected (test_automated_gate.TestDangerChecks.test_check_output_and_popen_still_rejected) ... ok
 test_clean_impl_no_danger (test_automated_gate.TestDangerChecks.test_clean_impl_no_danger) ... ok
 test_dangerous_calls_rejected (test_automated_gate.TestDangerChecks.test_dangerous_calls_rejected) ... ok
@@ -549,6 +556,23 @@ test_decorator_rejects_private_function_names (test_registry.TestRegistry.test_d
 test_known_primitives_registered (test_registry.TestRegistry.test_known_primitives_registered) ... ok
 test_read_only_primitives_are_idempotent (test_registry.TestRegistry.test_read_only_primitives_are_idempotent) ... ok
 test_registry_keys_are_module_qualified (test_registry.TestRegistry.test_registry_keys_are_module_qualified) ... ok
+test_registered_in_registry (test_screenshot.TestContract.test_registered_in_registry) ... ok
+test_default_path_when_omitted (test_screenshot.TestFullCapture.test_default_path_when_omitted) ... ok
+test_full_uses_literal_grim_argv (test_screenshot.TestFullCapture.test_full_uses_literal_grim_argv) ... ok
+test_grim_failure_raises (test_screenshot.TestFullCapture.test_grim_failure_raises) ... ok
+test_grim_timeout_raises_primitive_timeout (test_screenshot.TestFullCapture.test_grim_timeout_raises_primitive_timeout) ... ok
+test_missing_output_dir_rejected (test_screenshot.TestFullCapture.test_missing_output_dir_rejected) ... ok
+test_relative_output_path_rejected (test_screenshot.TestFullCapture.test_relative_output_path_rejected) ... ok
+test_capture_shape_requires_timeout (test_screenshot.TestGateCaptureShape.test_capture_shape_requires_timeout) ... ok
+test_literal_tool_with_runtime_args_allowed (test_screenshot.TestGateCaptureShape.test_literal_tool_with_runtime_args_allowed) ... ok
+test_non_allowlisted_tool_rejected (test_screenshot.TestGateCaptureShape.test_non_allowlisted_tool_rejected)
+bash/python/rm with runtime args is the shell-escape the gate ... ok
+test_variable_first_element_rejected (test_screenshot.TestGateCaptureShape.test_variable_first_element_rejected) ... ok
+test_active_window_phrasing_maps_to_active (test_screenshot.TestWindowCapture.test_active_window_phrasing_maps_to_active)
+The LLM says 'active window' (the goal phrasing) - the impl must ... ok
+test_missing_selector_raises_precondition (test_screenshot.TestWindowCapture.test_missing_selector_raises_precondition) ... ok
+test_no_active_window_raises_precondition (test_screenshot.TestWindowCapture.test_no_active_window_raises_precondition) ... ok
+test_selector_passes_geometry (test_screenshot.TestWindowCapture.test_selector_passes_geometry) ... ok
 test_json_entry (test_secrets.TestSecrets.test_json_entry) ... ok
 test_missing_binary (test_secrets.TestSecrets.test_missing_binary) ... ok
 test_nonzero_exit (test_secrets.TestSecrets.test_nonzero_exit) ... ok
@@ -635,7 +659,7 @@ test_bare_name_becomes_class (test_window.TestSelectorNormalization.test_bare_na
 test_explicit_prefix_passthrough (test_window.TestSelectorNormalization.test_explicit_prefix_passthrough) ... ok
 
 ----------------------------------------------------------------------
-Ran 515 tests in 17.249s
+Ran 535 tests in 19.970s
 
 OK
 ```

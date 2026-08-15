@@ -15,7 +15,7 @@ registered primitives -> L0 structured logs. An ambient watcher daemon fires
 triggers on schedule with per-trigger primitive allowlists, and a closed
 capability-gap loop lets human-approved new primitives register themselves.
 
-## L1 primitives (57 registered)
+## L1 primitives (58 registered)
 
 Retry semantics come from each contract's idempotency class: `idempotent` = safe
 to blind-retry (read-only); `at-most-once` = never blindly retried (side effect);
@@ -148,6 +148,12 @@ to blind-retry (read-only); `at-most-once` = never blindly retried (side effect)
 | `clipboard.read_text() -> 'str'` | `idempotent` | str: the clipboard contents ('' when empty). | PrimitiveError when the clipboard tool is missing or fails to read - DISTINCT from a… |
 | `clipboard.write_text(text: 'str') -> 'str'` | `idempotent` | str: the text that was written to the clipboard (echoed back to the c… | PrimitiveError when the clipboard tool is missing or fails to write - DISTINCT from … |
 
+### `screenshot`
+
+| primitive | idempotency | returns | failure mode |
+|---|---|---|---|
+| `screenshot.capture(target: 'str' = 'full', output_path: 'str' = '/tmp/friday_screenshot.png') -> 'str'` | `idempotent` | str: the absolute path of the saved PNG. | PrimitiveError/PrimitiveTimeout when grim fails or times out; PreconditionError when… |
+
 ## L2 verification checks (17)
 
 Every check is side-effect-free: it reads current real-world state and returns
@@ -206,7 +212,7 @@ checks + sandboxed test run + build-verify where applicable) filters it before
 a human signature; on approval the primitive registers into L1 and the planner
 auto-discovers it - the originally-refused goal then re-runs and must pass.
 
-Gate-registered primitives (10):
+Gate-registered primitives (11):
 
 - `calendar.add_event`
 - `calendar.list_upcoming`
@@ -218,6 +224,7 @@ Gate-registered primitives (10):
 - `gmail.send_document`
 - `media.get_playing_title`
 - `media.get_volume`
+- `screenshot.capture`
 
 ## Ambient learning (lessons + goal proposals)
 

@@ -168,6 +168,13 @@ ALLOWED_IMPORTS = frozenset(
     _OBSERVED_STDLIB | _OBSERVED_THIRD_PARTY | _EXTRA_SAFE_STDLIB | {"friday"}
 )
 
+# Tools a CAPTURE-shape subprocess.run may invoke as its literal first
+# element, with runtime args. Screenshot/capture binaries only - each is a
+# known tool whose args are DATA (geometry, output path), never code that
+# can be made to execute (unlike a shell or interpreter). Add a tool here
+# deliberately, with the same reasoning as the import allowlist.
+_CAPTURE_TOOLS = frozenset({"grim", "slurp", "import"})
+
 # Danger calls mirroring what the shipped gates already treat as dangerous
 # (dev.run_shell / dev.run(allow_bypass_permissions=True) behind
 # FRIDAY_ALLOW_DANGEROUS=1, EXECUTOR_BLOCKED primitives): arbitrary
@@ -355,18 +362,33 @@ def _is_safe_subprocess_run(node: ast.Call) -> bool:
         that inherits the child's pipe fds, so capture_output=True blocks
         EOF forever (the run only ends via its own timeout and every write
         fails) - discarding output is the only shape that completes.
+      - CAPTURE shape: subprocess.run([<literal tool from the
+        _CAPTURE_TOOLS allowlist>, ...], capture_output=True, timeout=...)
+        - the TOOL BINARY is a literal string constant restricted to a
+        small allowlist of known screenshot/capture tools (grim/slurp/
+        import - none can be made to run arbitrary code via args), while
+        the remaining argv elements may be RUNTIME values (geometry,
+        output path). REQUIRED for a screenshot primitive: window-targeted
+        capture inherently needs runtime geometry from hyprctl - a fully
+        literal command cannot express it, and without this shape a
+        genuine screenshot primitive could never be drafted (added
+        2026-08-15, same class of extension as the WRITE shape).
 
     The carve-out exists because genuine clipboard primitives CANNOT exist
-    on Linux without shelling out to wl-paste/xclip/wl-copy - the blanket
+    on Linux without shelling out to wl-paste/xclip/wl-copy, and genuine
+    screenshot primitives cannot exist without grim - the blanket
     'any subprocess.* call' rule (which also rejects the shipped pattern)
     made them undraftable. Everything else under subprocess.* stays
     rejected.
     Safety conditions (each is structural, not semantic):
       - the call target is exactly subprocess.run (not check_output,
         Popen, call, check_call, run with shell=True, ...)
-      - the command is a list/tuple LITERAL of string constants - the
-        whole command is visible in the draft source; a variable or a
-        shell string hides what runs and is rejected
+      - the command is a list/tuple LITERAL whose first element is a
+        string constant - the whole command is visible in the draft source
+        for the READ/WRITE shapes; for the CAPTURE shape the TOOL is a
+        literal constant from the small allowlist (the args are runtime
+        data for a known, non-code tool). A variable command or a shell
+        string hides what runs and is rejected
       - shell is absent or explicitly False
       - EITHER capture_output=True (read) OR BOTH stdout=subprocess.DEVNULL
         and stderr=subprocess.DEVNULL (write) - never both (subprocess
@@ -385,10 +407,20 @@ def _is_safe_subprocess_run(node: ast.Call) -> bool:
     cmd = node.args[0]
     if not isinstance(cmd, (ast.List, ast.Tuple)):
         return False
-    if not all(
+    all_literal = all(
         isinstance(e, ast.Constant) and isinstance(e.value, str) for e in cmd.elts
-    ):
-        return False
+    )
+    if not all_literal:
+        # CAPTURE shape: the first element must be a literal tool binary
+        # from the small allowlist; the rest may be runtime args. A
+        # non-literal first element (or a tool outside the allowlist)
+        # still hides what runs and is rejected.
+        if not cmd.elts:
+            return False
+        first = cmd.elts[0]
+        if not (isinstance(first, ast.Constant) and isinstance(first.value, str)
+                and first.value in _CAPTURE_TOOLS):
+            return False
     capture_ok = False
     stdout_devnull = False
     stderr_devnull = False

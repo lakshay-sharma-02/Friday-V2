@@ -1,0 +1,8 @@
+{
+  "name": "screenshot.capture",
+  "precondition": "A Wayland session with grim installed; target is 'full', 'active', or a window selector (class/title/address); output_path is an absolute path whose parent exists.",
+  "postcondition": "Saves a PNG of the requested screen region to output_path and returns its absolute path. Makes NO state changes except creating the screenshot file.",
+  "idempotency": "idempotent",
+  "failure_mode": "PrimitiveError/PrimitiveTimeout when grim fails or times out; PreconditionError when the window selector matches nothing or output_path is invalid. A successful capture ALWAYS writes the file.",
+  "returns": "str: the absolute path of the saved PNG."
+}

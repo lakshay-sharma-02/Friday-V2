@@ -240,6 +240,63 @@ class TestDangerChecks(EnvTestCase):
         )
         self.assertTrue(check_danger(src), src)
 
+    # The CAPTURE shape (2026-08-15): a screenshot primitive MUST shell
+    # out to grim with a runtime output path (and runtime geometry for a
+    # window-targeted capture) - a fully-literal command cannot express
+    # that, so the gate admits a bounded shape where the TOOL BINARY is a
+    # literal string from the small _CAPTURE_TOOLS allowlist and the rest
+    # of the argv may be runtime values. Everything else stays rejected.
+    def test_capture_shape_runtime_args_allowed(self):
+        src = (
+            "import subprocess\n"
+            "def capture(geometry: str, out: str) -> str:\n"
+            '    p = subprocess.run(["grim", "-g", geometry, out], capture_output=True, timeout=10)\n'
+            "    return out\n"
+        )
+        self.assertEqual(check_danger(src), [], src)
+
+    def test_capture_shape_literal_path_allowed(self):
+        src = (
+            "import subprocess\n"
+            "def capture(out: str) -> str:\n"
+            '    p = subprocess.run(["grim", out], capture_output=True, timeout=10)\n'
+            "    return out\n"
+        )
+        self.assertEqual(check_danger(src), [], src)
+
+    def test_capture_shape_unknown_tool_rejected(self):
+        """The CAPTURE shape's whole point is the TOOL is allowlisted: a
+        literal non-allowlisted binary (bash/python/rm...) with runtime
+        args must stay rejected - that is the shell-escape the gate exists
+        to block."""
+        src = (
+            "import subprocess\n"
+            "def f(cmd: str) -> str:\n"
+            '    p = subprocess.run(["bash", "-c", cmd], capture_output=True, timeout=10)\n'
+            "    return p.stdout\n"
+        )
+        self.assertTrue(check_danger(src), src)
+
+    def test_capture_shape_variable_first_element_rejected(self):
+        """A non-literal first element (a variable tool name) hides what
+        runs - the CAPTURE shape requires a literal, allowlisted binary."""
+        src = (
+            "import subprocess\n"
+            "def f(tool: str, out: str) -> str:\n"
+            '    p = subprocess.run([tool, "-g", "0,0 10x10", out], capture_output=True, timeout=10)\n'
+            "    return out\n"
+        )
+        self.assertTrue(check_danger(src), src)
+
+    def test_capture_shape_without_timeout_rejected(self):
+        src = (
+            "import subprocess\n"
+            "def capture(out: str) -> str:\n"
+            '    p = subprocess.run(["grim", out], capture_output=True)\n'
+            "    return out\n"
+        )
+        self.assertTrue(check_danger(src), src)
+
 
 class TestDeadArgs(EnvTestCase):
     def test_ignored_argument_flagged(self):
