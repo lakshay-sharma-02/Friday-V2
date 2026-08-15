@@ -136,18 +136,37 @@ REAL EXEMPLAR (gmail.list_unread, shipped code - match this shape):
 
 CONVENTIONS:
 - "impl": a single public function for friday/l1/<module>.py, decorated with
-  @contract(...) using the exact schema above. First docstring line is a
-  one-sentence summary; document behavior and side effects. Import only
+  @contract(...) using the exact schema above - the @contract decorator is
+  MANDATORY (without it the primitive never enters the REGISTRY and the
+  executor keeps refusing it, even after registration). First docstring line
+  is a one-sentence summary; document behavior and side effects. Import only
   stdlib + what the module needs. Prefer "idempotent" for reads.
-- EXTERNAL TOOL CALLS: the ONLY allowed subprocess shape is
-  subprocess.run([<literal string list>], capture_output=True,
-  timeout=<int>) - exactly that, and ONLY for reading from an external
-  tool (e.g. clipboard: subprocess.run(["wl-paste"], capture_output=True,
-  timeout=5)). Never subprocess.check_output, never Popen/call/
-  check_call, never shell=True, never a string or variable command, and
-  never without capture_output=True AND a timeout. A clipboard read on
-  Linux MUST shell out (wl-paste on Wayland, xclip/xsel on X11) - that
-  is the legitimate use; everything else is rejected.
+- CONSISTENCY: implement EXACTLY what your contract claims. If the contract
+  names a log_transform function, define that function in the impl (an
+  undefined one is a NameError at import). If the contract says a tool has
+  fallbacks (e.g. "wl-paste or xclip"), implement ALL of them. Raise
+  FridayError-family exceptions (friday.errors: PrimitiveError /
+  PreconditionError) for failures - never bare builtins like RuntimeError that
+  the contract does not declare.
+- EXTERNAL TOOL CALLS: the ONLY allowed subprocess shapes are
+  subprocess.run with a literal string-list command and a timeout:
+  - READ shape (tool output is CAPTURED): subprocess.run([<literal list>],
+    capture_output=True, timeout=<int>) - e.g. clipboard read:
+    subprocess.run(["wl-paste"], capture_output=True, timeout=5).
+  - WRITE shape (tool output is DISCARDED): subprocess.run([<literal
+    list>], input=<str>, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    timeout=<int>) - e.g. clipboard write: subprocess.run(["wl-copy"],
+    input=text, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    timeout=5). REQUIRED for tools that fork a daemon (wl-copy/xclip):
+    with capture_output the daemon inherits the pipe fds and the call
+    blocks EOF forever, failing every write by its own timeout (observed
+    live 2026-08-14 on clipboard.write_text).
+  Never subprocess.check_output, never Popen/call/check_call, never
+  shell=True, never a string or variable command, and never without a
+  timeout. Choose READ for reading tools, WRITE for writing tools - never
+  mix capture_output with stdout/stderr=DEVNULL. A clipboard primitive on
+  Linux MUST shell out (wl-paste/wl-copy on Wayland, xclip/xsel on X11) -
+  that is the legitimate use; everything else is rejected.
 - "test": stdlib unittest, HERMETIC - no network, no compositor, no
   notifications, no real subprocess. Use tests.helpers.EnvTestCase when env
   vars are involved; mock every external boundary (subprocess, socket,
@@ -232,10 +251,16 @@ def _self_check(primitive: str, draft: dict[str, Any]) -> list[str]:
     defect the schema check alone cannot name: the contract name must
     EXACTLY equal the attempted primitive (a draft that renames
     files.write_text to write_notes would pass schema yet never solve the
-    gap). Returns a list of defect strings ([] = structurally clean).
-    Never executes the draft - pure static checks, so the module's
-    'drafts only, never executes generated code' discipline is kept."""
-    from friday.automated_gate import check_impl_ast
+    gap). The contract-aware checks (contract decorator present,
+    log_transform defined, no undeclared bare-builtin raises) and the
+    test.py danger/fs-scope AST checks run here too, so the clipboard-2026-08-14
+    defect class (a self-check-clean draft that was missing @contract, referenced
+    an undefined log_transform, raised bare RuntimeError, and whose test used
+    subprocess.CompletedProcess) is repaired at TRIAGE time, not at human review.
+    Returns a list of defect strings ([] = structurally clean). Never
+    executes the draft - pure static checks, so the module's 'drafts only,
+    never executes generated code' discipline is kept."""
+    from friday.automated_gate import check_danger, check_fs_scope, check_impl_ast
     from friday.register_proposal import validate_contract, validate_impl
 
     issues: list[str] = []
@@ -258,10 +283,19 @@ def _self_check(primitive: str, draft: dict[str, Any]) -> list[str]:
     if not ok:
         issues.append(f"impl: {err}")
         return issues
-    for issue in check_impl_ast(draft.get("impl", ""), fn_name):
+    for issue in check_impl_ast(draft.get("impl", ""), fn_name, contract):
         issues.append(f"impl AST: {issue}")
-    if not _compiles(draft.get("test", "")):
+    test_src = draft.get("test", "")
+    if not _compiles(test_src):
         issues.append("test: the drafted test.py does not compile")
+    else:
+        # the gate AST-checks test.py before executing it (the sandbox never
+        # runs an AST-rejected test); the self-check mirrors that so the LLM
+        # repairs its test at draft time instead of burning gate rounds on it
+        # (observed live: 3 consecutive test.py AST rejects on the clipboard
+        # draft - subprocess.CompletedProcess -> __import__ -> TimeoutExpired)
+        for issue in check_danger(test_src) + check_fs_scope(test_src):
+            issues.append(f"test AST: {issue}")
     return issues
 
 

@@ -1,0 +1,9 @@
+{
+  "name": "calendar.add_event",
+  "precondition": "OAuth credentials are configured and the refresh token carries the calendar.events scope (run gates/_calendar_oauth_setup.py --scope 'calendar.readonly calendar.events'); summary is a non-empty string; start and end are valid RFC 3339 datetime strings with end after start.",
+  "postcondition": "Creates an event on the primary calendar with the given summary, start time, and end time; returns structural metadata of the created event.",
+  "idempotency": "at-most-once",
+  "failure_mode": "PreconditionError for invalid parameters (empty summary, invalid datetime, end not after start); PrimitiveError on auth/API failure.",
+  "returns": "dict: {event_id, summary, start_time, end_time, status}.",
+  "redact_result": false
+}

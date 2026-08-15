@@ -20,10 +20,19 @@ from friday.gap_triage import (
 )
 from tests.helpers import EnvTestCase
 
+# The real L1 convention (2026-08-14): a draft impl MUST carry the @contract
+# decorator - the gate and the triage self-check both reject an undecorated
+# impl (it would never enter REGISTRY). Every fixture models that convention.
+CONTRACT_PREFIX = (
+    "from friday.contracts import Idempotency, contract\n"
+    "@contract(precondition=\"p\", postcondition=\"q\",\n"
+    "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"bool\")\n"
+)
+
 DRAFT = {
     "contract": {"name": "files.do_thing", "precondition": "p", "postcondition": "q",
                  "idempotency": "idempotent", "failure_mode": "f", "returns": "bool"},
-    "impl": "def do_thing() -> bool:\n    \"\"\"Do the thing.\"\"\"\n    return True\n",
+    "impl": CONTRACT_PREFIX + "def do_thing() -> bool:\n    \"\"\"Do the thing.\"\"\"\n    return True\n",
     "test": "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n",
     "rationale": "Driven by: a real refused goal.",
 }
@@ -228,7 +237,7 @@ class TestNormalizeName(EnvTestCase):
             "contract": {"name": "friday.l1.files.write_text", "precondition": "p",
                          "postcondition": "q", "idempotency": "idempotent",
                          "failure_mode": "f", "returns": "str"},
-            "impl": "def write_text(path: str, text: str) -> str:\n    # Write.\n    open(path, 'w', encoding='utf-8').write(text)\n    return path\n",
+            "impl": CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"') + "def write_text(path: str, text: str) -> str:\n    # Write.\n    open(path, 'w', encoding='utf-8').write(text)\n    return path\n",
             "test": "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n",
             "rationale": "r",
         }
@@ -318,7 +327,7 @@ class TestSelfCheck(EnvTestCase):
         repaired = {
             "contract": {"name": "files.write_text", "precondition": "p", "postcondition": "q",
                          "idempotency": "idempotent", "failure_mode": "f", "returns": "str"},
-            "impl": "def write_text(path: str, text: str) -> str:\n    # Write the text to the path.\n    open(path, 'w', encoding='utf-8').write(text)\n    return path\n",
+            "impl": CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"') + "def write_text(path: str, text: str) -> str:\n    # Write the text to the path.\n    open(path, 'w', encoding='utf-8').write(text)\n    return path\n",
             "test": "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n",
             "rationale": "r",
         }
@@ -355,6 +364,65 @@ class TestSelfCheck(EnvTestCase):
                    test="def broken(:")
         issues = _self_check("files.write_text", bad)
         self.assertTrue(any("test.py does not compile" in i for i in issues), issues)
+
+    def test_test_py_danger_ast_rejected(self):
+        """The gate AST-checks test.py before executing it (the sandbox never
+        runs an AST-rejected test); the self-check now mirrors that so the LLM
+        repairs its test at draft time. Observed live 2026-08-14: the clipboard
+        draft's test was rejected at the gate THREE times in a row
+        (subprocess.CompletedProcess -> __import__ -> TimeoutExpired) because
+        the self-check only compiled it."""
+        bad = dict(self._broken_contract(name="files.write_text"),
+                   impl=CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"') +
+                        "def write_text(path: str, text: str) -> str:\n    # Write.\n    return path\n",
+                   test="import os\nos.system('true')\n")
+        issues = _self_check("files.write_text", bad)
+        self.assertTrue(any("test AST" in i and "os.system" in i for i in issues), issues)
+
+    def test_test_py_subprocess_mock_constructor_rejected(self):
+        """The exact clipboard test defect: building a mock via
+        subprocess.CompletedProcess(...) is rejected by the gate's test.py
+        danger check - and now by the triage self-check, so the LLM repairs it
+        before the draft is ever written."""
+        bad = dict(self._broken_contract(name="files.write_text"),
+                   impl=CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"') +
+                        "def write_text(path: str, text: str) -> str:\n    # Write.\n    return path\n",
+                   test="import subprocess\nsubprocess.CompletedProcess([])\n")
+        issues = _self_check("files.write_text", bad)
+        self.assertTrue(any("test AST" in i and "subprocess.CompletedProcess" in i for i in issues), issues)
+
+    def test_missing_contract_decorator_rejected_at_triage(self):
+        """The clipboard round's first defect is now repaired at TRIAGE: an
+        impl without the @contract decorator would never enter REGISTRY - the
+        self-check feeds that back to the LLM instead of writing a dead draft."""
+        bad = dict(self._broken_contract(name="files.write_text"),
+                   impl="def write_text(path: str, text: str) -> str:\n    # Write.\n    return path\n")
+        issues = _self_check("files.write_text", bad)
+        self.assertTrue(any("not decorated with @contract" in i for i in issues), issues)
+
+    def test_undefined_log_transform_rejected_at_triage(self):
+        """A contract naming a log_transform the impl never defines is a
+        NameError at import - caught at triage, before the draft is written."""
+        c = {"name": "files.write_text", "precondition": "p", "postcondition": "q",
+             "idempotency": "idempotent", "failure_mode": "f", "returns": "str",
+             "log_transform": "_log_redact_meta"}
+        bad = dict(self._broken_contract(name="files.write_text"), contract=c,
+                   impl=CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"') +
+                        "def write_text(path: str, text: str) -> str:\n    # Write.\n    return path\n")
+        issues = _self_check("files.write_text", bad)
+        self.assertTrue(any("log_transform" in i and "never defines" in i for i in issues), issues)
+
+    def test_bare_builtin_raise_rejected_at_triage(self):
+        """A draft raising bare RuntimeError against a contract declaring
+        PrimitiveError is repaired at triage, not at human review."""
+        c = {"name": "files.write_text", "precondition": "p", "postcondition": "q",
+             "idempotency": "idempotent", "failure_mode": "PrimitiveError when the write fails.", "returns": "str"}
+        bad = dict(self._broken_contract(name="files.write_text"), contract=c,
+                   impl=CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"') +
+                        "def write_text(path: str, text: str) -> str:\n"
+                        "    raise RuntimeError('boom')\n")
+        issues = _self_check("files.write_text", bad)
+        self.assertTrue(any("raises builtin RuntimeError" in i for i in issues), issues)
 
 
 class TestTriage(EnvTestCase):

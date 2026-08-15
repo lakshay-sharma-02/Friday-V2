@@ -1,6 +1,6 @@
 # CAPABILITIES - what Friday can do (generated from the live registry)
 
-Status date: 2026-08-14.
+Status date: 2026-08-15.
 
 **This document is GENERATED from the running code, not hand-maintained** -
 regenerate it after any primitive/check/trigger change:
@@ -15,7 +15,7 @@ registered primitives -> L0 structured logs. An ambient watcher daemon fires
 triggers on schedule with per-trigger primitive allowlists, and a closed
 capability-gap loop lets human-approved new primitives register themselves.
 
-## L1 primitives (51 registered)
+## L1 primitives (57 registered)
 
 Retry semantics come from each contract's idempotency class: `idempotent` = safe
 to blind-retry (read-only); `at-most-once` = never blindly retried (side effect);
@@ -38,6 +38,8 @@ to blind-retry (read-only); `at-most-once` = never blindly retried (side effect)
 
 | primitive | idempotency | returns | failure mode |
 |---|---|---|---|
+| `media.get_playing_title() -> 'str | None'` | `idempotent` | str | None - the current media title (mpv 'media-title' property), or… | Never raises: a missing or unreachable mpv player is reported as None, not an error.… |
+| `media.get_volume() -> 'int | None'` | `idempotent` | int | None - the current volume in the 0-100 range, or None when no p… | Never raises: a missing or unreachable mpv player is reported as None, not an error.… |
 | `media.is_playing() -> 'bool'` | `idempotent` | bool | Never raises: no player -> False. |
 | `media.pause() -> 'None'` | `commutative-safe` | None | No-op when no player is running. |
 | `media.play(source: 'str', volume: 'int' = 70) -> 'dict[str, Any]'` | `at-most-once` | dict: {pid, socket, source}. | PrimitiveError if mpv cannot start or its IPC socket never appears; any pre-existing… |
@@ -75,6 +77,7 @@ to blind-retry (read-only); `at-most-once` = never blindly retried (side effect)
 |---|---|---|---|
 | `files.find_file(name: 'str', directory: 'str | None' = None, recursive: 'bool' = False) -> 'dict[str, Any]'` | `idempotent` | dict: {path, name, matches} - path is the chosen file, matches lists … | PreconditionError naming the directory and search term when nothing matches or the d… |
 | `files.find_file_exact(name: 'str', directory: 'str | None' = None) -> 'str'` | `idempotent` | str: absolute path of the exact match, or '' when none. | Returns '' when no exact match exists (an absent file is a result, never an exceptio… |
+| `files.find_newest(name: 'str', directory: 'str') -> 'str'` | `idempotent` | str: absolute path of the newest matching file, or '' when none exist… | PreconditionError when name or directory is empty or the directory does not exist; r… |
 | `files.find_recent_doc(repo_path: 'str', patterns: 'list[str] | tuple[str, ...] | None' = None) -> 'str'` | `idempotent` | str: absolute path of the chosen doc, or '' when none exists. | PreconditionError when repo_path does not exist or is not a directory. An absent doc… |
 | `files.read_text(path: 'str', max_chars: 'int' = 8000) -> 'dict[str, Any]'` | `idempotent` | dict: {path, chars, truncated, text}. | PreconditionError when the path does not exist, is not a file, or max_chars is not p… |
 | `files.write_text(path: 'str', text: 'str', *, append: 'bool' = False) -> 'str'` | `commutative-safe` | str: the absolute path of the written file. | PreconditionError when path is empty, parent directory does not exist, or path is no… |
@@ -135,7 +138,15 @@ to blind-retry (read-only); `at-most-once` = never blindly retried (side effect)
 
 | primitive | idempotency | returns | failure mode |
 |---|---|---|---|
-| `calendar.list_upcoming(days: 'int' = 7) -> 'list[dict[str, str]]'` | `idempotent` | list[dict]: [{event_id, summary, start_time, end_time, location, atte… | PrimitiveError on API/auth failure - DISTINCT from 'no upcoming events', which retur… |
+| `calendar.add_event(summary: 'str', start: 'str', end: 'str') -> 'dict[str, str]'` | `at-most-once` | dict: {event_id, summary, start_time, end_time, status}. | PreconditionError for invalid parameters; PrimitiveError on auth/API failure. If the… |
+| `calendar.list_upcoming(days: 'int' = 7) -> 'list[dict[str, str]]'` | `idempotent` | list[dict]: [{event_id, summary, start_time, end_time, location, atte… | PrimitiveError on auth/API failure - DISTINCT from 'no upcoming events', which retur… |
+
+### `clipboard`
+
+| primitive | idempotency | returns | failure mode |
+|---|---|---|---|
+| `clipboard.read_text() -> 'str'` | `idempotent` | str: the clipboard contents ('' when empty). | PrimitiveError when the clipboard tool is missing or fails to read - DISTINCT from a… |
+| `clipboard.write_text(text: 'str') -> 'str'` | `idempotent` | str: the text that was written to the clipboard (echoed back to the c… | PrimitiveError when the clipboard tool is missing or fails to write - DISTINCT from … |
 
 ## L2 verification checks (17)
 
@@ -177,11 +188,13 @@ never sees them and L3 refuses them:
 | id | enabled | schedule | notify | allow |
 |---|---|---|---|---|
 | `ambient-gap-probe-calendar` | false | time 11:00 [daily] | false | notify.notify_send |
-| `ambient-gap-probe-clipboard` | true | time 11:00 [daily] | false | notify.notify_send |
+| `ambient-gap-probe-clipboard` | false | time 11:00 [daily] | false | notify.notify_send |
 | `ambient-gap-probe-email-send` | false | time 11:05 [daily] | false | notify.notify_send |
 | `ambient-gap-probe-file-write` | false | time 00:05 [daily] | false | notify.notify_send |
+| `morning-calendar-summary` | true | time 08:00 [daily] | true | calendar.list_upcoming |
+| `morning-clipboard-digest` | true | time 08:05 [daily] | true | calendar.list_upcoming, dev.digest, clipboard.write_text |
 | `morning-gmail-summary` | true | time 09:00 [mon,tue,wed,thu,fri] | true | gmail.list_unread, gmail.get_message, gmail.summarize |
-| `new-download-alert` | false | file - [daily] | true | - |
+| `new-download-alert` | true | file - [daily] | true | files.find_newest, whatsapp.send_document |
 | `sunday-digest-reminder` | true | time 10:05 [sun] | false | notify.notify_send |
 | `weekly-cross-project-digest` | true | time 10:00 [sun] | true | dev.digest, digestcheck.verify_attribution, files.find_rece… |
 
@@ -193,12 +206,18 @@ checks + sandboxed test run + build-verify where applicable) filters it before
 a human signature; on approval the primitive registers into L1 and the planner
 auto-discovers it - the originally-refused goal then re-runs and must pass.
 
-Gate-registered primitives (4):
+Gate-registered primitives (10):
 
+- `calendar.add_event`
 - `calendar.list_upcoming`
+- `clipboard.read_text`
+- `clipboard.write_text`
 - `files.find_file_exact`
+- `files.find_newest`
 - `files.write_text`
 - `gmail.send_document`
+- `media.get_playing_title`
+- `media.get_volume`
 
 ## Ambient learning (lessons + goal proposals)
 

@@ -1,40 +1,54 @@
 {
-  "_docs": "The human-approved lessons store - the lessons loop's injection source (friday/lessons.py). Each entry {category, targets, statement} is a KNOWN MISTAKE block rendered into the triage/planner/digest prompts. Editing this file IS the human gate: a lesson becomes active the moment it is added here, and pruned by removing it. Categories must match friday/lessons.py CATEGORIES; targets are from [triage, planner, digest]; the statement is your reviewed wording - rewrite it in your own words before adding, a wrong lesson injected everywhere is worse than none. 'human-seed' entries are the verified findings earned during Phase B/C that seeded this loop on 2026-08-11.",
+  "_docs": "The human-approved lessons store - the lessons loop's injection source (friday/lessons.py). Each entry {category, targets, statement} is a KNOWN MISTAKE block rendered into the triage/planner/digest prompts. Editing this file IS the human gate: a lesson becomes active the moment it is added here, and pruned by removing it. Categories must match friday/lessons.py CATEGORIES; targets are from [triage, planner, digest]; the statement is your reviewed wording - rewrite it in your own words before adding, a wrong lesson injected everywhere is worse than none. 'human-seed' entries are the verified findings earned during Phase B/C that seeded this loop on 2026-08-11. ORDER MATTERS for triage: render_known_mistakes injects only the first INJECT_LIMIT (5) lessons per target, so the most operationally valuable drafting lessons must come first - on 2026-08-14 the clipboard-family lessons (draft_no_register, draft_ast, draft_error_class, draft_contract_drift) sat beyond the cap and the model repeatedly drafted @contract-less impls the prompt warned about but the lessons would have stopped.",
   "lessons": [
     {
-      "category": "draft_confabulation",
+      "category": "draft_no_register",
       "targets": [
         "triage"
       ],
-      "statement": "Never claim a primitive, mechanism, or capability exists unless it is actually present in the gathered context. A refusal means the capability does NOT exist here - not that it exists and is blocked. If a boundary cannot be satisfied, report the constraint instead of fabricating a route around it (observed: a gmail-send draft asserted 'the existing gmail.send_document is disallowed' when no such primitive existed at all).",
+      "statement": "The impl MUST decorate the contracted function with @contract(...) using the real schema - without it the primitive never enters the REGISTRY and the executor keeps refusing it even after registration; and every log_transform the contract names must be defined in the impl, or the module fails to import (NameError). A draft that compiles and passes its own test can still be dead on arrival - the gate's registration check execs the draft and requires the contracted name to actually land in REGISTRY.",
       "source": "human-seed",
-      "approved_at": "2026-08-11",
+      "approved_at": "2026-08-14",
       "examples": [
-        "2026-08-11: gmail.send_document draft invented the existence of the very primitive it was supposed to create, then proposed a renamed wrapper around the phantom"
+        "2026-08-14: clipboard.read_text draft passed the structural self-check but had NO @contract decorator and referenced an undefined log_transform - it would never have registered, caught only by hand review",
+        "2026-08-14: clipboard.write_text drafts rejected 3x by the triage self-check - write_text() missing the @contract decorator, the same defect class, while the lesson that names it sat beyond the 5-lesson injection cap"
       ]
     },
     {
-      "category": "draft_dead_arg",
+      "category": "draft_ast",
       "targets": [
         "triage"
       ],
-      "statement": "Every declared parameter of the drafted function must be used in its body - never hardcode a value while ignoring an argument; the gate rejects dead arguments mechanically (observed: a find-file draft that ignored its own 'name' argument).",
+      "statement": "The drafted impl may shell out to an external tool ONLY via subprocess.run([<literal string list>], timeout=<int>) with one of two shapes: the READ shape (subprocess.run([...], capture_output=True, timeout=<int>) - tool output CAPTURED, for reads like clipboard.read_text running wl-paste/xclip) or the WRITE shape (subprocess.run([...], input=<str>, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=<int>) - tool output DISCARDED, for writes like clipboard.write_text running wl-copy/xclip: those tools fork a daemon that inherits the child's pipe fds, so capture_output=True blocks EOF forever and every write fails by its own timeout - observed live 2026-08-14). Never subprocess.check_output, Popen, call, check_call, shell=True, a string/variable command, a call without a timeout, or a mix of capture_output and stdout/stderr=DEVNULL. tkinter is NOT an allowed import - the clipboard carve-out is subprocess.run, nothing else.",
       "source": "human-seed",
-      "approved_at": "2026-08-11",
+      "approved_at": "2026-08-14",
       "examples": [
-        "2026-08-10: files.do_thing draft hardcoded a filename while ignoring its 'name' argument - caught by human review, now rejected by AST"
+        "2026-08-14: clipboard.read_text drafts rejected 3x - check_output (banned), unsafe subprocess.run, and a tkinter import that is not on the L1 allowlist",
+        "2026-08-14: clipboard.write_text registered with the READ shape (capture_output=True) deadlocked live - wl-copy forks a daemon inheriting the pipe fds, every write timed out; fixed by the WRITE shape (stdout/stderr=subprocess.DEVNULL) which completes in ~0.1s"
       ]
     },
     {
-      "category": "draft_wrapper_dodge",
+      "category": "draft_error_class",
       "targets": [
         "triage"
       ],
-      "statement": "Never route around a capability boundary by renaming an existing primitive under a new name - that is a dodge, not a capability. If the gap is an allowlist refusal of a primitive that ALREADY EXISTS, say so explicitly: the real fix may be the trigger's allowlist, not a new primitive.",
+      "statement": "Raise FridayError-family exceptions (friday.errors: PrimitiveError / PreconditionError / PrimitiveTimeout) for failures - never bare builtins like RuntimeError that the contract does not declare; the executor's retry policy keys on FridayError and cannot classify a bare builtin (a clipboard draft raised bare RuntimeError against a failure_mode declaring PrimitiveError).",
       "source": "human-seed",
-      "approved_at": "2026-08-11",
+      "approved_at": "2026-08-14",
       "examples": [
-        "2026-08-11: gmail.send_document draft proposed a new-named wrapper to 'stay within allowlist constraints' around a phantom primitive"
+        "2026-08-14: clipboard.read_text draft raised bare RuntimeError when the contract's failure_mode declared PrimitiveError - caught by hand review, now rejected by AST + build-verify probes"
+      ]
+    },
+    {
+      "category": "draft_contract_drift",
+      "targets": [
+        "triage"
+      ],
+      "statement": "Implement EVERYTHING the contract claims: if it says a tool has fallbacks (wl-paste or xclip), implement ALL of them; if it declares a log_transform, define it. Contract text is a spec of the impl, not prose - drift between them is a defect, and the impl is what ships.",
+      "source": "human-seed",
+      "approved_at": "2026-08-14",
+      "examples": [
+        "2026-08-14: clipboard.read_text contract claimed 'wl-paste or xclip' but the impl only shelled out to wl-paste - the fallback existed on paper only"
       ]
     },
     {
@@ -50,6 +64,42 @@
       ]
     },
     {
+      "category": "draft_dead_arg",
+      "targets": [
+        "triage"
+      ],
+      "statement": "Every declared parameter of the drafted function must be used in its body - never hardcode a value while ignoring an argument; the gate rejects dead arguments mechanically (observed: a find-file draft that ignored its own 'name' argument).",
+      "source": "human-seed",
+      "approved_at": "2026-08-11",
+      "examples": [
+        "2026-08-10: files.do_thing draft hardcoded a filename while ignoring its 'name' argument - caught by human review, now rejected by AST"
+      ]
+    },
+    {
+      "category": "draft_confabulation",
+      "targets": [
+        "triage"
+      ],
+      "statement": "Never claim a primitive, mechanism, or capability exists unless it is actually present in the gathered context. A refusal means the capability does NOT exist here - not that it exists and is blocked. If a boundary cannot be satisfied, report the constraint instead of fabricating a route around it (observed: a gmail-send draft asserted 'the existing gmail.send_document is disallowed' when no such primitive existed at all).",
+      "source": "human-seed",
+      "approved_at": "2026-08-11",
+      "examples": [
+        "2026-08-11: gmail.send_document draft invented the existence of the very primitive it was supposed to create, then proposed a renamed wrapper around the phantom"
+      ]
+    },
+    {
+      "category": "draft_wrapper_dodge",
+      "targets": [
+        "triage"
+      ],
+      "statement": "Never route around a capability boundary by renaming an existing primitive under a new name - that is a dodge, not a capability. If the gap is an allowlist refusal of a primitive that ALREADY EXISTS, say so explicitly: the real fix may be the trigger's allowlist, not a new primitive.",
+      "source": "human-seed",
+      "approved_at": "2026-08-11",
+      "examples": [
+        "2026-08-11: gmail.send_document draft proposed a new-named wrapper to 'stay within allowlist constraints' around a phantom primitive"
+      ]
+    },
+    {
       "category": "digest_misattribution",
       "targets": [
         "digest"
@@ -59,18 +109,6 @@
       "approved_at": "2026-08-11",
       "examples": [
         "2026-08-11: weekly digest attributed Vivaha's Cloudflare-Worker image-moderation pattern to Friday as if Friday had it"
-      ]
-    },
-    {
-      "category": "draft_ast",
-      "targets": [
-        "triage"
-      ],
-      "statement": "The drafted impl may shell out to an external tool ONLY via subprocess.run([<literal string list>], capture_output=True, timeout=<int>) - never subprocess.check_output, Popen, call, check_call, shell=True, a string/variable command, or a call without capture_output=True AND a timeout; the one legitimate use is reading from a tool (e.g. clipboard.read_text must run wl-paste on Wayland or xclip on X11). tkinter is NOT an allowed import - the clipboard carve-out is subprocess.run, nothing else.",
-      "source": "human-seed",
-      "approved_at": "2026-08-14",
-      "examples": [
-        "2026-08-14: clipboard.read_text drafts rejected 3x - check_output (banned), unsafe subprocess.run, and a tkinter import that is not on the L1 allowlist"
       ]
     }
   ]

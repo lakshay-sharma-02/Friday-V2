@@ -1,6 +1,6 @@
 # TESTS_PROOF — automated test suite for Friday
 
-Status date: 2026-08-14T04:40:10+00:00.
+Status date: 2026-08-15T04:53:05+00:00.
 
 The full unittest suite over every layer and feature: registry,
 observability (redaction / rotation / log_transform), the executor
@@ -12,7 +12,7 @@ never sends, launches, clicks or touches the compositor.
 
 ## Verdict: PASS
 
-Ran 474 tests: 474 passed, 0 failed, 0 errors.
+Ran 515 tests: 515 passed, 0 failed, 0 errors.
 
 ## Raw output
 
@@ -35,18 +35,39 @@ Returns a Path object (not str) - the present-name probe's exact ... ok
 test_clean_impl_passes_all (test_automated_gate.TestCombinedAst.test_clean_impl_passes_all) ... ok
 test_dead_arg_surfaces (test_automated_gate.TestCombinedAst.test_dead_arg_surfaces) ... ok
 test_subprocess_call_surfaces_even_with_allowed_import (test_automated_gate.TestCombinedAst.test_subprocess_call_surfaces_even_with_allowed_import) ... ok
+test_bare_builtin_raise_flagged (test_automated_gate.TestContractAwareChecks.test_bare_builtin_raise_flagged)
+The fourth clipboard defect: bare RuntimeError against a ... ok
+test_decorated_impl_clean (test_automated_gate.TestContractAwareChecks.test_decorated_impl_clean) ... ok
+test_friday_error_raise_clean (test_automated_gate.TestContractAwareChecks.test_friday_error_raise_clean)
+Raising the FridayError family is the convention - never flagged. ... ok
+test_implicit_oserror_propagation_not_flagged (test_automated_gate.TestContractAwareChecks.test_implicit_oserror_propagation_not_flagged)
+files.write_text's documented behavior - letting OSError escape ... ok
+test_log_transform_defined_clean (test_automated_gate.TestContractAwareChecks.test_log_transform_defined_clean) ... ok
+test_missing_contract_decorator_flagged (test_automated_gate.TestContractAwareChecks.test_missing_contract_decorator_flagged)
+The first clipboard draft's exact defect: a self-check-clean impl ... ok
+test_raise_class_in_contract_text_allowed (test_automated_gate.TestContractAwareChecks.test_raise_class_in_contract_text_allowed)
+A contract that explicitly declares a builtin (e.g. a ValueError ... ok
+test_undefined_log_transform_flagged (test_automated_gate.TestContractAwareChecks.test_undefined_log_transform_flagged)
+The second clipboard defect: contract declares ... ok
 test_missing_function_flagged (test_automated_gate.TestContractFunction.test_missing_function_flagged) ... ok
 test_present_function_clean (test_automated_gate.TestContractFunction.test_present_function_clean) ... ok
 test_bounded_run_with_text_and_extra_kwargs_allowed (test_automated_gate.TestDangerChecks.test_bounded_run_with_text_and_extra_kwargs_allowed) ... ok
 test_check_output_and_popen_still_rejected (test_automated_gate.TestDangerChecks.test_check_output_and_popen_still_rejected) ... ok
 test_clean_impl_no_danger (test_automated_gate.TestDangerChecks.test_clean_impl_no_danger) ... ok
 test_dangerous_calls_rejected (test_automated_gate.TestDangerChecks.test_dangerous_calls_rejected) ... ok
+test_mixed_read_and_write_shapes_rejected (test_automated_gate.TestDangerChecks.test_mixed_read_and_write_shapes_rejected)
+capture_output=True AND stdout=DEVNULL is contradictory - even ... ok
+test_partial_devnull_rejected (test_automated_gate.TestDangerChecks.test_partial_devnull_rejected)
+Only stdout discarded - stderr still inherits a pipe; the ... ok
 test_read_only_bounded_subprocess_run_allowed (test_automated_gate.TestDangerChecks.test_read_only_bounded_subprocess_run_allowed) ... ok
 test_run_with_shell_true_rejected (test_automated_gate.TestDangerChecks.test_run_with_shell_true_rejected) ... ok
 test_run_with_string_command_rejected (test_automated_gate.TestDangerChecks.test_run_with_string_command_rejected) ... ok
 test_run_with_variable_command_rejected (test_automated_gate.TestDangerChecks.test_run_with_variable_command_rejected) ... ok
 test_run_without_capture_output_rejected (test_automated_gate.TestDangerChecks.test_run_without_capture_output_rejected) ... ok
 test_run_without_timeout_rejected (test_automated_gate.TestDangerChecks.test_run_without_timeout_rejected) ... ok
+test_write_shape_devnull_allowed (test_automated_gate.TestDangerChecks.test_write_shape_devnull_allowed) ... ok
+test_write_shape_without_timeout_rejected (test_automated_gate.TestDangerChecks.test_write_shape_without_timeout_rejected) ... ok
+test_write_shape_xclip_allowed (test_automated_gate.TestDangerChecks.test_write_shape_xclip_allowed) ... ok
 test_ignored_argument_flagged (test_automated_gate.TestDeadArgs.test_ignored_argument_flagged) ... ok
 test_used_arguments_clean (test_automated_gate.TestDeadArgs.test_used_arguments_clean) ... ok
 test_credentials_and_overrides_stripped (test_automated_gate.TestEnvSanitization.test_credentials_and_overrides_stripped) ... ok
@@ -71,6 +92,13 @@ test_allowed_imports_pass (test_automated_gate.TestImportAllowlist.test_allowed_
 test_derived_from_real_primitives (test_automated_gate.TestImportAllowlist.test_derived_from_real_primitives)
 The allowlist must cover every import the shipped L1 primitives ... ok
 test_unseen_import_rejected (test_automated_gate.TestImportAllowlist.test_unseen_import_rejected) ... ok
+test_decorated_draft_registers (test_automated_gate.TestRegistrationCheck.test_decorated_draft_registers) ... ok
+test_missing_test_py_still_gets_registration_check (test_automated_gate.TestRegistrationCheck.test_missing_test_py_still_gets_registration_check)
+The registration check runs on the impl alone - a draft whose ... ok
+test_undecorated_draft_does_not_register (test_automated_gate.TestRegistrationCheck.test_undecorated_draft_does_not_register)
+The exact clipboard failure: an impl that compiles but has no ... ok
+test_undefined_log_transform_fails_import (test_automated_gate.TestRegistrationCheck.test_undefined_log_transform_fails_import)
+The log_transform defect is caught here too: exec'ing the impl ... ok
 test_bad_import_fails_before_any_signature_consideration (test_automated_gate.TestRunAutomatedGate.test_bad_import_fails_before_any_signature_consideration) ... ok
 test_clean_proposal_passes_and_reports_to_rationale (test_automated_gate.TestRunAutomatedGate.test_clean_proposal_passes_and_reports_to_rationale) ... ok
 test_dangerous_test_file_rejected_before_execution (test_automated_gate.TestRunAutomatedGate.test_dangerous_test_file_rejected_before_execution)
@@ -87,6 +115,12 @@ test_missing_test_file_is_documented_skip (test_automated_gate.TestSandbox.test_
 test_package_level_import_style_sees_the_draft (test_automated_gate.TestSandbox.test_package_level_import_style_sees_the_draft)
 Regression (2026-08-13 live): a draft whose test uses the ... ok
 test_passing_test_runs_in_sandbox (test_automated_gate.TestSandbox.test_passing_test_runs_in_sandbox) ... ok
+test_bare_runtime_error_rejected (test_automated_gate.TestSubreadBuildVerify.test_bare_runtime_error_rejected)
+The exact defect a human hand-corrected on the clipboard draft: ... ok
+test_correct_clipboard_draft_passes (test_automated_gate.TestSubreadBuildVerify.test_correct_clipboard_draft_passes)
+A correct clipboard-style draft (modeled on the hand-corrected ... ok
+test_non_subprocess_module_still_not_applicable (test_automated_gate.TestSubreadBuildVerify.test_non_subprocess_module_still_not_applicable)
+A non-files module that does NOT use the bounded subprocess ... ok
 test_click_context_destroyed_counts_as_navigated (test_browser.TestClickNavigationSettle.test_click_context_destroyed_counts_as_navigated) ... ok
 test_timed_out_click_that_navigated_is_reported_navigated (test_browser.TestClickNavigationSettle.test_timed_out_click_that_navigated_is_reported_navigated) ... ok
 test_timed_out_click_without_navigation_raises (test_browser.TestClickNavigationSettle.test_timed_out_click_without_navigation_raises) ... ok
@@ -108,6 +142,26 @@ test_fill_field_actually_fills (test_browser.TestTypingAndSecretDiscipline.test_
 test_fill_field_is_silent (test_browser.TestTypingAndSecretDiscipline.test_fill_field_is_silent)
 The credential fill path emits NO line carrying the secret - the ... ok
 test_type_text_logs_its_text_argument (test_browser.TestTypingAndSecretDiscipline.test_type_text_logs_its_text_argument) ... ok
+test_403_readonly_scope_is_actionable (test_calendar.TestAddEvent.test_403_readonly_scope_is_actionable)
+The scope guard (2026-08-15): a 403 'Insufficient Permission' ... ok
+test_403_unrelated_is_generic (test_calendar.TestAddEvent.test_403_unrelated_is_generic)
+A 403 that is NOT a scope problem (e.g. calendar API disabled) ... ok
+test_500_api_error_raises (test_calendar.TestAddEvent.test_500_api_error_raises) ... ok
+test_creates_event (test_calendar.TestAddEvent.test_creates_event) ... ok
+test_empty_summary_rejected (test_calendar.TestAddEvent.test_empty_summary_rejected) ... ok
+test_end_before_start_rejected_across_offsets (test_calendar.TestAddEvent.test_end_before_start_rejected_across_offsets)
+The 2026-08-14 hand-fix: an END of '14:00+05:30' vs a START of ... ok
+test_garbage_datetime_rejected (test_calendar.TestAddEvent.test_garbage_datetime_rejected) ... ok
+test_env_credentials_refresh_and_cache (test_calendar.TestAuth.test_env_credentials_refresh_and_cache) ... ok
+test_missing_credentials_raise (test_calendar.TestAuth.test_missing_credentials_raise) ... ok
+test_refresh_failure_raises (test_calendar.TestAuth.test_refresh_failure_raises) ... ok
+test_401_refreshes_once_and_retries (test_calendar.TestListUpcoming.test_401_refreshes_once_and_retries)
+A stale cached access token (expired ~1h) must not fail the call: ... ok
+test_api_error_raises_not_empty (test_calendar.TestListUpcoming.test_api_error_raises_not_empty) ... ok
+test_invalid_days_raises_precondition (test_calendar.TestListUpcoming.test_invalid_days_raises_precondition) ... ok
+test_returns_parsed_events (test_calendar.TestListUpcoming.test_returns_parsed_events) ... ok
+test_summary_redacted_from_l0_log (test_calendar.TestListUpcoming.test_summary_redacted_from_l0_log)
+Event SUMMARY is metadata that could leak - the L0 result line ... ok
 test_args_shape_never_leaks_values (test_capability_gaps.TestExecutorGaps.test_args_shape_never_leaks_values)
 The recorded shape is type tags only - secrets never ride a gap. ... ok
 test_blocked_by_design_primitive_records_gap (test_capability_gaps.TestExecutorGaps.test_blocked_by_design_primitive_records_gap)
@@ -264,19 +318,29 @@ test_normalized_draft_passes_self_check (test_gap_triage.TestNormalizeName.test_
 The exact observed failure: a draft whose contract name is the ... ok
 test_strips_friday_package_prefix (test_gap_triage.TestNormalizeName.test_strips_friday_package_prefix) ... ok
 test_two_part_name_untouched (test_gap_triage.TestNormalizeName.test_two_part_name_untouched) ... ok
+test_bare_builtin_raise_rejected_at_triage (test_gap_triage.TestSelfCheck.test_bare_builtin_raise_rejected_at_triage)
+A draft raising bare RuntimeError against a contract declaring ... ok
 test_broken_draft_repaired_on_retry (test_gap_triage.TestSelfCheck.test_broken_draft_repaired_on_retry)
 The centerpiece: a structurally-broken first draft gets the EXACT ... ok
 test_clean_draft_passes (test_gap_triage.TestSelfCheck.test_clean_draft_passes) ... ok
 test_dead_arg_and_ast_defects_rejected (test_gap_triage.TestSelfCheck.test_dead_arg_and_ast_defects_rejected) ... ok
+test_missing_contract_decorator_rejected_at_triage (test_gap_triage.TestSelfCheck.test_missing_contract_decorator_rejected_at_triage)
+The clipboard round's first defect is now repaired at TRIAGE: an ... ok
 test_persistently_broken_returns_none (test_gap_triage.TestSelfCheck.test_persistently_broken_returns_none)
 A draft that never passes the self-check is left unprocessed - ... ok
 test_renamed_primitive_rejected (test_gap_triage.TestSelfCheck.test_renamed_primitive_rejected)
 A draft that renames the gapped primitive (write_text -> ... ok
 test_test_py_compile_defect_rejected (test_gap_triage.TestSelfCheck.test_test_py_compile_defect_rejected)
 The self-check must not write a draft whose own test.py does not ... ok
+test_test_py_danger_ast_rejected (test_gap_triage.TestSelfCheck.test_test_py_danger_ast_rejected)
+The gate AST-checks test.py before executing it (the sandbox never ... ok
+test_test_py_subprocess_mock_constructor_rejected (test_gap_triage.TestSelfCheck.test_test_py_subprocess_mock_constructor_rejected)
+The exact clipboard test defect: building a mock via ... ok
 test_three_dot_contract_name_rejected (test_gap_triage.TestSelfCheck.test_three_dot_contract_name_rejected)
 The observed defect: a 4-segment qualified name instead of ... ok
 test_uncompilable_impl_rejected (test_gap_triage.TestSelfCheck.test_uncompilable_impl_rejected) ... ok
+test_undefined_log_transform_rejected_at_triage (test_gap_triage.TestSelfCheck.test_undefined_log_transform_rejected_at_triage)
+A contract naming a log_transform the impl never defines is a ... ok
 test_compile_failure_reported_honestly (test_gap_triage.TestTriage.test_compile_failure_reported_honestly) ... ok
 test_llm_failure_leaves_group_unprocessed (test_gap_triage.TestTriage.test_llm_failure_leaves_group_unprocessed) ... ok
 test_registered_primitive_gaps_consumed_without_drafting (test_gap_triage.TestTriage.test_registered_primitive_gaps_consumed_without_drafting)
@@ -528,6 +592,8 @@ test_emit_heartbeat_reports_liveness (test_watcher.TestHeartbeat.test_emit_heart
 test_heartbeat_fires_inside_daemon_loop (test_watcher.TestHeartbeat.test_heartbeat_fires_inside_daemon_loop)
 In daemon mode the loop emits daemon.alive on the interval; a ... ok
 test_heartbeat_fires_once_interval_elapses (test_watcher.TestHeartbeat.test_heartbeat_fires_once_interval_elapses) ... ok
+test_heartbeat_reports_pending_separately_from_total (test_watcher.TestHeartbeat.test_heartbeat_reports_pending_separately_from_total)
+capability_gaps is the TOTAL ever recorded; gaps_pending_triage ... ok
 test_heartbeat_respects_interval (test_watcher.TestHeartbeat.test_heartbeat_respects_interval)
 Regression: the first heartbeat must NOT fire immediately. The ... ok
 test_heartbeat_s_must_be_positive (test_watcher.TestHeartbeat.test_heartbeat_s_must_be_positive) ... ok
@@ -569,7 +635,7 @@ test_bare_name_becomes_class (test_window.TestSelectorNormalization.test_bare_na
 test_explicit_prefix_passthrough (test_window.TestSelectorNormalization.test_explicit_prefix_passthrough) ... ok
 
 ----------------------------------------------------------------------
-Ran 474 tests in 7.570s
+Ran 515 tests in 17.249s
 
 OK
 ```

@@ -398,17 +398,21 @@ def _emit_heartbeat(
 ) -> None:
     """One daemon.alive line on the heartbeat interval - the seed of an
     ambient event bus, deliberately minimal: uptime, the last trigger
-    that fired (id + UTC time), and how many capability-gap records
-    currently exist (the ambient-volume signal the triage loop consumes -
-    the number the reviewer watches to decide whether proposals are
-    outpacing human review). Best-effort: a broken gap file reports -1,
-    never a crash."""
-    from friday.capability_gaps import all_gaps
+    that fired (id + UTC time), and two capability-gap counts: the TOTAL
+    records ever (capability_gaps) and the UNPROCESSED ones still
+    awaiting triage (gaps_pending_triage) - the latter is the real
+    backlog signal the reviewer watches to decide whether proposals are
+    outpacing human review (a total that only grows is not actionable;
+    the pending count is what triage has not yet drafted). Best-effort:
+    a broken gap file reports -1, never a crash."""
+    from friday.capability_gaps import all_gaps, unprocessed_gaps
 
     try:
         gap_count = len(all_gaps())
+        pending = len(unprocessed_gaps())
     except Exception:
         gap_count = -1
+        pending = -1
     emit_event(
         layer="WATCH", primitive="daemon.alive", result="ALIVE",
         args={
@@ -416,6 +420,7 @@ def _emit_heartbeat(
             "last_trigger": last_trigger_id or "none",
             "last_trigger_at": last_trigger_at or "",
             "capability_gaps": gap_count,
+            "gaps_pending_triage": pending,
         },
     )
 

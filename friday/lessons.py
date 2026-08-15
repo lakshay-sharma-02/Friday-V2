@@ -170,8 +170,38 @@ CATEGORIES: dict[str, dict[str, Any]] = {
         "targets": ("triage",),
         "statement": (
             "The drafted function must behave correctly against a real target "
-            "(files.*): returning the exact path, the right types, and sane error "
-            "behavior - a self-authored test that passes is not proof the impl works."
+            "(files.* or a mocked external tool): returning the exact path, the "
+            "right types, and sane error behavior - a self-authored test that "
+            "passes is not proof the impl works."
+        ),
+    },
+    "draft_no_register": {
+        "targets": ("triage",),
+        "statement": (
+            "The impl MUST decorate the contracted function with @contract(...) - "
+            "without it the primitive never enters the REGISTRY and the executor "
+            "keeps refusing it even after registration, and any log_transform the "
+            "contract names must be defined in the impl or the module fails to "
+            "import (NameError)."
+        ),
+    },
+    "draft_error_class": {
+        "targets": ("triage",),
+        "statement": (
+            "Raise FridayError-family exceptions (friday.errors: PrimitiveError / "
+            "PreconditionError / PrimitiveTimeout) for failures - never bare "
+            "builtins like RuntimeError that the contract does not declare; the "
+            "executor's retry policy keys on FridayError and cannot classify a "
+            "bare builtin."
+        ),
+    },
+    "draft_contract_drift": {
+        "targets": ("triage",),
+        "statement": (
+            "Implement everything the contract claims: if it says a tool has "
+            "fallbacks (wl-paste or xclip), implement ALL of them; if it declares "
+            "a log_transform, define it. Contract text is a spec of the impl, not "
+            "prose - drift between them is a defect, and the impl is what ships."
         ),
     },
     # ---- digest synthesis (injected into the dev.digest prompt) ----

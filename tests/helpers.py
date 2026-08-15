@@ -42,6 +42,18 @@ ENV_KEYS = (
     "FRIDAY_TRIAGE_MODEL",
     "FRIDAY_TRIAGE_FALLBACK_MODELS",
     "FRIDAY_MODEL",
+    # Calendar API credential overrides - a test that set_env's them must
+    # not leak into the next (the gmail test suite has the same discipline
+    # via GMAIL_* below; found live when calendar's token-cache test
+    # leaked CALENDAR_CLIENT_ID into the missing-creds test, 2026-08-14)
+    "CALENDAR_CLIENT_ID",
+    "CALENDAR_CLIENT_SECRET",
+    "CALENDAR_REFRESH_TOKEN",
+    "GMAIL_CLIENT_ID",
+    "GMAIL_CLIENT_SECRET",
+    "GMAIL_REFRESH_TOKEN",
+    "GMAIL_DEFAULT_TO",
+    "GOOGLE_CALENDAR_TOKEN",
 )
 
 

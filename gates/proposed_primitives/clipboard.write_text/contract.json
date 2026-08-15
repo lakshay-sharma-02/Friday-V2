@@ -1,0 +1,8 @@
+{
+  "name": "clipboard.write_text",
+  "precondition": "A clipboard tool is available (wl-copy on Wayland, xclip on X11). `text` is a str.",
+  "postcondition": "Writes `text` to the system clipboard. The only state change is the clipboard contents; nothing else on the system is modified.",
+  "idempotency": "idempotent",
+  "failure_mode": "PrimitiveError when the clipboard tool is missing or fails to write - DISTINCT from a successful write of an empty string, which still returns ''.",
+  "returns": "str: the text that was written to the clipboard (echoed back to the caller)."
+}

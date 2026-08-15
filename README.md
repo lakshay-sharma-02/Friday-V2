@@ -11,12 +11,13 @@ L1  Primitives   (window/media/browser/dev/...) [Gate 1]
 L0  Observability (structured logging)          [Gate 2]
 ```
 
-**Status: DONE + hardened + live-verified** (2026-08-10) — every
-structural gate G1–G6 shipped raw, captured output; **13 composite tasks**
-plus **7 live-automation records** (watch/e2e) are on record in
+**Status: DONE + hardened + live-verified** (2026-08-15) — every
+structural gate G1–G6 shipped raw, captured output; **25 distinct
+passing task ids** — the **13 composite tasks**, the `retry-stress` gate,
+and **11 live-automation records** (watch/e2e) — are on record in
 `var/logs/tasks.jsonl`; every executor-callable L1 primitive has
 standalone bring-up proof; the core is hardened (blocked primitives,
-protected windows, dangerous-dev gate); a **466-test unit suite** covers
+protected windows, dangerous-dev gate); a **515-test unit suite** covers
 every layer; a **live end-to-end check** runs the real stack against
 this machine's real state — including a real gmail summary through the
 ambient watch loop — and the watch loop is **deployed as a persistent
@@ -26,10 +27,15 @@ restarts on failure) with a `daemon.alive` heartbeat every 60 s; the
 end: refused steps become structured records, triage drafts proposed
 primitives, an **automated gate** (AST checks + sandboxed test run)
 rejects structural defects before any human review, and a human-signed
-approval registers them — two real primitives registered and re-proven:
-`files.find_file_exact` (read-only) and **`gmail.send_document`** (the
-loop's first SIDE-EFFECTING primitive, hand-built rather than
-LLM-drafted after the two rejected drafts for it), and a deliberately
+approval registers them — **10 real primitives registered and re-proven**
+through the full loop: `files.find_file_exact` (read-only),
+**`gmail.send_document`** (the loop's first SIDE-EFFECTING primitive,
+hand-built rather than LLM-drafted after the two rejected drafts for
+it), `files.write_text`, `calendar.list_upcoming`, `clipboard.read_text`,
+`files.find_newest`, `media.get_volume`, `media.get_playing_title`,
+`calendar.add_event` and `clipboard.write_text` (the last two registered
+2026-08-14; `clipboard.write_text` needed the gate's WRITE subprocess
+shape after its READ-shape first registration deadlocked live), and a deliberately
 bad draft is mechanically blocked in the proof; the **lessons loop**
 makes the
 rejections stick: every mechanical rejection is recorded as a structured
@@ -67,11 +73,19 @@ friday/
                     (every "X's <mechanism>" claim must appear in X's own
                     gathered content - the v2.1 confabulation fix)
     files.py        deterministic discovery + bounded reader (find_file /
-                    find_file_exact / read_text / find_recent_doc)
+                    find_file_exact / find_newest / read_text /
+                    find_recent_doc / write_text)
     gmail.py        Gmail REST API, OAuth2 (list_unread / get_message /
                     summarize read-only; send_document — the gate-registered
                     first side-effecting primitive; scope gmail.readonly +
                     gmail.send after the 2026-08-11 re-consent)
+    calendar.py     Google Calendar API, OAuth2 (list_upcoming read-only;
+                    add_event — the loop's first calendar WRITE, registered
+                    2026-08-14; refresh-grant auth + summary redaction)
+    clipboard.py    gate-registered clipboard primitives (read_text /
+                    write_text — wl-paste/wl-copy on Wayland, xclip on X11;
+                    the WRITE shape's stdout/stderr=DEVNULL is the
+                    daemon-fork fix from the 2026-08-14 deadlock)
     notify.py       desktop notifications (notify-send) - the watch loop's
                     feedback channel
     telegram.py     Telegram Bot API (send_text / send_document)
@@ -89,7 +103,7 @@ friday/
   goal_proposals.py the goals-proposal stage: recurring FAILED goals from
                     tasks.jsonl + L0 failures -> INERT trigger proposals
                     (gates/proposed_triggers/) for human approval
-tests/               dependency-free unittest suite (466 tests, all mocked)
+tests/               dependency-free unittest suite (515 tests, all mocked)
   l2/
     checks.py       L2 verification: read-only checks (catalog below)
   l3/
@@ -118,14 +132,16 @@ state already matches).
 | Module | Primitives |
 |--------|-----------|
 | `window` | `open_app`, `close_window`, `close_all(exclude_classes=...)`, `focus_window`, `move_to_workspace`, `list_clients`, `get_active_window` (+ `shutdown` — **blocked from the executor** via `EXECUTOR_BLOCKED`; direct script calls only) |
-| `media` | `play`, `play_for`, `pause`, `resume`, `stop`, `set_volume`, `is_playing` (read) |
+| `media` | `play`, `play_for`, `pause`, `resume`, `stop`, `set_volume`, `is_playing` (read), `get_volume` (read, gate-registered), `get_playing_title` (read, gate-registered) |
 | `browser` | `goto`, `read_page_text`, `find_locator`, `click`, `type_text`, `press_key`, `upload_file`, `login`, `credentials` (returns secret — result redacted in the log), `close` |
 | `dev` | `run` (claude -p), `run_shell` — **arbitrary shell, requires `FRIDAY_ALLOW_DANGEROUS=1`** (checked before claude runs), `digest(context, instruction)` — LLM-in-primitive cross-project digest synthesis (Phase C, the gmail.summarize exception) |
-| `files` | `find_file(name, directory, recursive)`, `find_file_exact(name, directory)` — gate-registered exact-match probe returning `''` when absent, `read_text(path, max_chars)` — bounded read-only text reader, `find_recent_doc(repo_path)` — most recently modified status/planning doc (PLAN_STATUS/ROADMAP/DEVLOG/STATUS/TODO/CHANGELOG shapes, README fallback), `write_text(path, text, append)` — gate-registered first files.* WRITE primitive (commutative-safe; absolute/`..`/`~` targets rejected by the automated gate's fs-scope checks) |
+| `files` | `find_file(name, directory, recursive)`, `find_file_exact(name, directory)` — gate-registered exact-match probe returning `''` when absent, `find_newest(name, directory)` — gate-registered mtime-newest match ('' when none), `read_text(path, max_chars)` — bounded read-only text reader, `find_recent_doc(repo_path)` — most recently modified status/planning doc (PLAN_STATUS/ROADMAP/DEVLOG/STATUS/TODO/CHANGELOG shapes, README fallback), `write_text(path, text, append)` — gate-registered first files.* WRITE primitive (commutative-safe; absolute/`..`/`~` targets rejected by the automated gate's fs-scope checks) |
 | `git` | `log(repo_path, count, days)` — read-only recent commit entries (hash/author/date/subject, no diffs), the cross-project digest's eyes (Phase C) |
 | `digestcheck` | `verify_attribution(digest, context)` — mechanical per-repo attribution check: every "X's <mechanism>" claim must appear in X's own gathered content, not just anywhere in the combined prompt (Phase C, the v2.1 confabulation fix) |
 | `notify` | `notify_send(title, body, timeout_ms)` — desktop notification |
 | `gmail` | `list_unread(sender, max_results)`, `get_message(message_id)`, `summarize(message_id)` — OAuth2 read-only, auto token refresh; `send_document(file_path, to=None, subject, body)` — **gate-registered, the loop's first side-effecting primitive** (at-most-once; recipient redacted from the L0 result line); send scope requires the one-time re-consent in `gates/GMAIL_SETUP.md` §6.5 |
+| `calendar` | `list_upcoming(days)` — OAuth2 read-only, auto token refresh, summaries redacted in the L0 line (gate-registered; refresh-grant auth fix 2026-08-14); `add_event(summary, start, end)` — **gate-registered first calendar WRITE** (at-most-once; needs the `calendar.events` scope added at consent time — see `gates/_calendar_oauth_setup.py`) |
+| `clipboard` | `read_text()` — gate-registered clipboard read (wl-paste/wl-copy Wayland, xclip X11; content redacted in the L0 line), `write_text(text)` — gate-registered clipboard write (echoes text back; DEVNULL subprocess shape so the tool's forked daemon can't block the pipe) |
 | `whatsapp` | `get_me`, `upload_document`, `send_document`, `send_text` |
 | `telegram` | `get_me`, `send_document`, `send_text` |
 | `discord` | `get_me`, `send_file`, `send_text` |
@@ -296,15 +312,18 @@ proof discipline as every gate.
 `var/logs/tasks.jsonl` — one JSON line per run, from Gate 6 onward:
 `{task_id, goal, gate6_passed, timestamp, proof}`. Failures are recorded
 honestly (never deleted); tasks 1–7 predate the file and are backfilled
-with `backfilled: true`. Current distinct passing ids: **22** — the **13
+with `backfilled: true`. Current distinct passing ids: **25** — the **13
 composite tasks** (task1–task10 + `gate6` + `whatsapp-filesend` +
-`gmail-summary`), the `retry-stress` gate, and **8 live-automation
+`gmail-summary`), the `retry-stress` gate, and **11 live-automation
 records**: the watcher demos (`watch:demo-time`, `watch:demo-file`), the
 live E2E goals (`e2e:files`, `e2e:media`, `e2e:windows`, `e2e:gmail`),
-the real watcher trigger `watch:morning-gmail-summary` (a live gmail
-summary via `$facts.gmail_sender`) and `watch:weekly-cross-project-digest`
+the real watcher triggers `watch:morning-gmail-summary` (a live gmail
+summary via `$facts.gmail_sender`), `watch:weekly-cross-project-digest`
 (a live cross-project digest over Friday + vivaha + Aether, Phase C v2.2
-with the mechanical attribution check). Per
+with the mechanical attribution check), and the three daily-use
+triggers added 2026-08-14: `watch:morning-calendar-summary`,
+`watch:morning-clipboard-digest` (both live-proven against the real
+calendar 2026-08-15) and `watch:new-download-alert`. Per
 the Gate 6 prompt's scheme, counting starts at `gate6` from here on.
 
 ## Gates, tasks and proofs (all raw output, `gates/`)
@@ -326,8 +345,8 @@ the Gate 6 prompt's scheme, counting starts at `gate6` from here on.
 | `BRINGUP_REMAINING_PROOF.md` | Last unproven primitives: media pause/resume, browser upload, window focus/move/close_all |
 | `MPV_LIFECYCLE_FIX_PROOF.md` | mpv orphan-leak + zombie-reap defects fixed and re-proven |
 | `RETRY_STRESS_PROOF.md` | Lifecycle holds under repeated invocation + executor retry paths |
-| `TESTS_PROOF.md` | The dependency-free unit suite, raw output (regenerated by `gates/test_suite.py`; 466 tests) |
-| `CAPABILITIES.md` | Live capability inventory GENERATED from the contract registry — 51 primitives, 17 checks, 8 triggers, 4 gate-registered primitives (regenerate: `./.venv/bin/python gates/generate_capabilities.py`, idempotent) |
+| `TESTS_PROOF.md` | The dependency-free unit suite, raw output (regenerated by `gates/test_suite.py`; 515 tests) |
+| `CAPABILITIES.md` | Live capability inventory GENERATED from the contract registry — 57 primitives, 17 checks, 10 triggers, 10 gate-registered primitives (regenerate: `./.venv/bin/python gates/generate_capabilities.py`, idempotent) |
 | `PORTABILITY.md` | Windows-port analysis + ordered checklist — reference/aspirational, no porting scheduled |
 | `WATCHER_PROOF.md` | Watch loop first proof: time + file triggers fire deterministic plans through the real watcher (no LLM, no side effects), recorded in tasks.jsonl, notified |
 | `WATCHER_GMAIL_PROOF.md` | The enabled `morning-gmail-summary` trigger runs a REAL gmail summary through the unmodified watcher (`$facts.gmail_sender`, `allow: ["gmail.*"]`, live LLM plan, verified) |
@@ -385,13 +404,13 @@ only, `notify: false` so it never double-pings — nudging the weekly
 verdict into `gates/DIGEST_TRACKING.md`, the human judgment log that
 decides whether Phase C scales.
 
-The three `ambient-gap-probe-*` triggers were the loop's **deliberate
+The four `ambient-gap-probe-*` triggers were the loop's **deliberate
 ambient volume source**: silent (`notify: false`), allowlisted
 (`allow: ["notify.notify_send"]`) deterministic probes whose single step
 was a genuinely unbuilt primitive. The allowlist refused the step BEFORE
 any execution — nothing ever ran — and REFUSED is terminal-for-the-day,
 so each probe recorded **exactly one real capability-gap record per day**
-for triage to group and LLM-draft. All three are now **RETIRED** (disabled
+for triage to group and LLM-draft. All four are now **RETIRED** (disabled
 in `config/watcher.json`) because their primitives completed the loop and
 registered — a daily refusal of a solved primitive is noise:
 - `ambient-gap-probe-email-send` **RETIRED 2026-08-11** —
@@ -405,21 +424,38 @@ registered — a daily refusal of a solved primitive is noise:
   cycle (LLM-drafted with ZERO hand-correction; needs calendar OAuth
   creds to return real events — without them it returns `[]` and
   verification fails honestly).
+- `ambient-gap-probe-clipboard` **RETIRED 2026-08-14 — the same day it
+  was created** — `clipboard.read_text` was approved and registered
+  through the full loop (contract-aware gate + subprocess-read
+  build-verify + human signature), so its daily refusal of a now-solved
+  primitive became noise (lifecycle precedent: the three above). No
+  probe remains enabled; the loop's ambient volume now comes from REAL
+  refusals and the goal-proposals stage (below).
 
 And because registering a send primitive under a `gmail.*` pattern would
 have silently armed the LLM-planned morning trigger with send capability,
 that trigger's allowlist was tightened to the three read-only primitives
 (`gmail.list_unread` / `gmail.get_message` / `gmail.summarize`).
 
-**2026-08-14 — the loop's volume was replenished**: a new
-`ambient-gap-probe-clipboard` trigger (daily 11:00, enabled) points at
-`clipboard.read_text` — genuinely unbuilt (no clipboard module exists in
-`friday/l1`) and NOT deliberately deferred by the plan (unlike `vision`,
-gated off, and `window.shutdown`, mechanically blocked), so its daily
-allowlist refusal is a real gap, not noise. It restores the loop's
-continuous-operation volume after all three original probes retired; it
-will be retired in turn once `clipboard.read_text` completes the loop and
-registers (lifecycle precedent).
+**2026-08-14 — the daily-use layer caught up with the loop.** Three more
+triggers are wired in and enabled (all deterministic plans, no L4 LLM
+call, each allowlisted to exactly the primitives its plan needs):
+- `new-download-alert` — a `file` trigger on `~/Downloads` matching
+  `.pdf`: `files.find_newest` locates the newest pdf by mtime (mtime,
+  not lexicographic-first — the fix that motivated the primitive) and
+  `whatsapp.send_document` delivers it to the configured default phone.
+  Fires once per new pdf; never fires for pre-existing files.
+- `morning-calendar-summary` (daily 08:00) — one step,
+  `calendar.list_upcoming(days=1)`, verified with `checks.list_nonempty`
+  and desktop-notified. An empty day is an honest FAIL (same philosophy
+  as morning-gmail-summary's empty mailbox).
+- `morning-clipboard-digest` (daily 08:05, right after the calendar
+  summary) — `calendar.list_upcoming(days=1)` → `dev.digest` composes a
+  short plain-text morning digest (the one LLM-in-primitive exception,
+  same as gmail.summarize) → `clipboard.write_text` copies it. Both
+  were live-proven 2026-08-15 against the real calendar (a real
+  add_event test event read back into the digest, and the clipboard
+  held the composed digest).
 
 ```json
 { "id": "morning-gmail-summary",
@@ -527,11 +563,16 @@ two-stage approval gate (`friday/register_proposal.py`):
 1. **Automated stage** (`friday/automated_gate.py`), before any human
    involvement: contract schema → impl compiles → **AST checks** (imports
    limited to what shipped L1 primitives actually import, no
-   exec/eval/os-system calls and no subprocess.* beyond the read-only
-   bounded pattern shipped primitives use (`subprocess.run([...],
-   capture_output=True, timeout=...)` — the carve-out that lets a
-   read-family primitive like `clipboard.read_text` shell out to
-   `wl-paste`/`xclip`), the contracted function defined,
+   exec/eval/os-system calls and no subprocess.* beyond the bounded
+   pattern shipped primitives use — the READ shape
+   (`subprocess.run([...], capture_output=True, timeout=...)`, which lets
+   a read-family primitive like `clipboard.read_text` shell out to
+   `wl-paste`/`xclip`) and the WRITE shape (`subprocess.run([...],
+   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=...)`,
+   required for write-family tools like `wl-copy`/`xclip` whose forked
+   daemon inherits pipe fds and would block `capture_output` forever —
+   added 2026-08-14 after the first `write_text` deadlocked live), the
+   contracted function defined,
    no dead arguments, and no file writes escaping the sandbox —
    absolute/`..`/`~` write targets are rejected in impl.py AND test.py) →
    the proposal's own `test.py` is danger- and fs-scope-checked and runs

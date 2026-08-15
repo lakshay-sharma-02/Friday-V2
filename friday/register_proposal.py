@@ -11,13 +11,30 @@ automatically. The gate runs in two stages:
          log_transform),
       b. impl.py is AST-checked: imports limited to what the shipped L1
          primitives actually import, no exec/eval/os-system calls and no
-         subprocess.* beyond the read-only bounded pattern shipped
-         primitives use (subprocess.run([...], capture_output=True,
-         timeout=...) - the carve-out that lets a read-family primitive
-         like clipboard.read_text shell out to wl-paste/xclip), the
-         contracted function defined, no dead arguments,
-      c. the proposal's own test.py runs in an isolated subprocess
-         (temp HOME, no credentials, timeout) against the DRAFT impl.
+         subprocess.* beyond the bounded pattern shipped primitives use -
+         the READ shape (subprocess.run([...], capture_output=True,
+         timeout=...) - lets a read-family primitive like clipboard.read_text
+         shell out to wl-paste/xclip) and the WRITE shape
+         (subprocess.run([...], stdout=subprocess.DEVNULL,
+         stderr=subprocess.DEVNULL, timeout=...) - required for
+         write-family tools like wl-copy/xclip whose forked daemon inherits
+         pipe fds and would block capture_output forever; both added
+         2026-08-14 after the first write_text deadlocked live), the
+         contracted function defined, no dead arguments, the @contract
+         decorator present, every contract-named log_transform defined,
+         and no bare-builtin raises the contract never declares
+         (the clipboard round's hand-corrected defects, 2026-08-14),
+      c. a REGISTRATION check execs the DRAFT in an isolated subprocess
+         and requires the contracted name to ACTUALLY land in REGISTRY -
+         a draft that compiles and whose own test passes can still be
+         dead on arrival (missing decorator; undefined log_transform),
+      d. the proposal's own test.py runs in an isolated subprocess
+         (temp HOME, no credentials, timeout) against the DRAFT impl,
+      e. build-verify probes the draft against something like its real
+         target: files.* gets real temp-dir probes, clipboard-class
+         drafts get MOCKED-tool probes (success -> str, failure/timeout
+         -> FridayError, never a bare builtin), everything else is
+         honestly flagged not-applicable.
   A failure at any automated step is written into rationale.md and the
   proposal NEVER reaches the human signature - no AST- or sandbox-caught
   defect waits for a person to spot it by eye.

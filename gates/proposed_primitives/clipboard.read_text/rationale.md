@@ -102,3 +102,25 @@ contract, then sign APPROVED.md to register.
 The automated gate catches STRUCTURAL defects only - it does not
 validate design or safety intent. Review the impl against its
 contract, then sign APPROVED.md to register.
+
+## Automated gate (friday/automated_gate.py)
+- run: 2026-08-14T05:04:35+00:00
+- AST checks: passed - imports allowed; no dangerous calls; no sandbox-escaping writes; read_text() defined; no dead arguments; @contract decorator present; log_transform (if any) defined; no undeclared bare-builtin raises
+- registration: PASS - draft registers the contracted name when imported
+- sandbox: PASS - sandbox test run PASSED (exit 0) - ......... ---------------------------------------------------------------------- Ran 9 tests in 0.009s OK
+- build-verify: PASS - subprocess-read probes (mocked tool): success -> str; tool failure/timeout -> FridayError, never a bare builtin (the clipboard error-class fix, 2026-08-14)
+
+The automated gate catches STRUCTURAL defects only - it does not
+validate design or safety intent. Review the impl against its
+contract, then sign APPROVED.md to register.
+
+## Automated gate (friday/automated_gate.py)
+- run: 2026-08-14T11:51:51+00:00
+- AST checks: passed - imports allowed; no dangerous calls; no sandbox-escaping writes; read_text() defined; no dead arguments; @contract decorator present; log_transform (if any) defined; no undeclared bare-builtin raises
+- registration: PASS - draft registers the contracted name when imported
+- sandbox: PASS - sandbox test run PASSED (exit 0) - ......... ---------------------------------------------------------------------- Ran 9 tests in 0.013s OK
+- build-verify: PASS - subprocess-read probes (mocked tool): success -> str; tool failure/timeout -> FridayError, never a bare builtin (the clipboard error-class fix, 2026-08-14)
+
+The automated gate catches STRUCTURAL defects only - it does not
+validate design or safety intent. Review the impl against its
+contract, then sign APPROVED.md to register.

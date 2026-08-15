@@ -633,7 +633,27 @@ class TestHeartbeat(EnvTestCase):
         self.assertEqual(args["last_trigger"], "morning-gmail-summary")
         self.assertEqual(args["last_trigger_at"], "2026-08-10T09:00:00+00:00")
         self.assertEqual(args["capability_gaps"], 2)
+        self.assertEqual(args["gaps_pending_triage"], 2)  # both unprocessed
         self.assertIsInstance(args["uptime_s"], int)
+
+    def test_heartbeat_reports_pending_separately_from_total(self):
+        """capability_gaps is the TOTAL ever recorded; gaps_pending_triage
+        is the UNPROCESSED backlog - the actionable signal. Marking some
+        gaps processed must shrink pending while the total stays put."""
+        gaps = self.mktmp() / "gaps.jsonl"
+        self.set_env(FRIDAY_GAPS_FILE=str(gaps))
+        from friday.capability_gaps import mark_processed, record_gap
+
+        g1 = record_gap(source="executor", goal_id="g", attempted_primitive="a.b",
+                        goal_context="g", refusal_reason="r")
+        g2 = record_gap(source="watcher", trigger_id="t", attempted_primitive="c.d",
+                        goal_context="g", refusal_reason="r")
+        mark_processed([g1])  # one consumed, one still pending
+        with mock.patch("friday.watcher.emit_event") as m:
+            _emit_heartbeat(1.0, None, None)
+        args = m.call_args.kwargs["args"]
+        self.assertEqual(args["capability_gaps"], 2)   # total never shrinks
+        self.assertEqual(args["gaps_pending_triage"], 1)  # only g2 awaits triage
 
     def test_emit_heartbeat_never_fires_without_trigger(self):
         gaps = self.mktmp() / "gaps.jsonl"
@@ -643,6 +663,7 @@ class TestHeartbeat(EnvTestCase):
         args = m.call_args.kwargs["args"]
         self.assertEqual(args["last_trigger"], "none")
         self.assertEqual(args["capability_gaps"], 0)
+        self.assertEqual(args["gaps_pending_triage"], 0)
 
     def _clock_loop(self, heartbeat_s: float, poll_step: float, stop_after: int):
         """Run run_watcher under a fake monotonic clock that advances

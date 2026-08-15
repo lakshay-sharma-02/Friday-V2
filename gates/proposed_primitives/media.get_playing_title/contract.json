@@ -1,0 +1,8 @@
+{
+  "name": "media.get_playing_title",
+  "precondition": "None - reports current state with no caller obligations.",
+  "postcondition": "Makes NO state changes. Returns the current media-title property of the running mpv player, or None if no player is reachable. Distinct from media.play/play_for, which start playback.",
+  "idempotency": "idempotent",
+  "failure_mode": "Never raises: a missing or unreachable mpv player is reported as None, not an error. An mpv IPC reply that lacks a title value or carries an error is also treated as None.",
+  "returns": "str | None - the current media title (mpv 'media-title' property), or None when no player responds or the property is unavailable."
+}

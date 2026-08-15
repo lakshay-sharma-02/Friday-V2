@@ -16,12 +16,17 @@ from friday.automated_gate import (
     ALLOWED_IMPORTS,
     _build_probe_family,
     _sanitized_env,
+    check_contract_consistency,
+    check_contract_decorator,
     check_danger,
     check_dead_args,
     check_fs_scope,
     check_impl_ast,
     check_imports,
+    check_raise_classes,
+    check_registration,
     run_automated_gate,
+    run_build_verify,
     run_sandbox_test,
 )
 from tests.helpers import EnvTestCase
@@ -32,6 +37,16 @@ CLEAN_IMPL = (
     '    """Resolve name under directory."""\n'
     '    base = directory or "."\n'
     "    return base + \"/\" + name\n"
+)
+
+# The real L1 convention since 2026-08-14: a draft impl MUST carry the
+# @contract decorator (a missing one means the primitive never enters the
+# REGISTRY - the exact defect a human hand-corrected on the clipboard draft).
+# Every fixture that runs through the full gate uses this prefix.
+CONTRACT_PREFIX = (
+    "from friday.contracts import Idempotency, contract\n"
+    "@contract(precondition=\"p\", postcondition=\"q\",\n"
+    "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"str\")\n"
 )
 
 BAD_IMPORTS = [
@@ -163,6 +178,67 @@ class TestDangerChecks(EnvTestCase):
             "import subprocess\ndef f():\n    subprocess.check_call([\"ls\"])\n",
         ):
             self.assertTrue(check_danger(src), f"not flagged: {src!r}")
+
+    # The WRITE shape (2026-08-14, live-caught): clipboard.write_text
+    # shipped the read shape (capture_output=True) and EVERY write failed
+    # with a 5s timeout - wl-copy/xclip fork a daemon that inherits the
+    # child's pipe fds, so communicate() waits forever for EOF. Output must
+    # be DISCARDED (stdout/stderr=subprocess.DEVNULL), which completes in
+    # ~0.1s. The carve-out now admits both shapes, never mixed.
+    def test_write_shape_devnull_allowed(self):
+        src = (
+            "import subprocess\n"
+            "def write_text(text: str) -> str:\n"
+            '    p = subprocess.run(["wl-copy"], input=text, stdout=subprocess.DEVNULL,\n'
+            "                         stderr=subprocess.DEVNULL, text=True, timeout=5)\n"
+            "    return text\n"
+        )
+        self.assertEqual(check_danger(src), [], src)
+
+    def test_write_shape_xclip_allowed(self):
+        src = (
+            "import subprocess\n"
+            "def write_text(text: str) -> str:\n"
+            '    p = subprocess.run(["xclip", "-selection", "clipboard"], input=text,\n'
+            "                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,\n"
+            "                         text=True, timeout=5)\n"
+            "    return text\n"
+        )
+        self.assertEqual(check_danger(src), [], src)
+
+    def test_write_shape_without_timeout_rejected(self):
+        src = (
+            "import subprocess\n"
+            "def write_text(text: str) -> str:\n"
+            '    subprocess.run(["wl-copy"], input=text, stdout=subprocess.DEVNULL,\n'
+            "                         stderr=subprocess.DEVNULL, text=True)\n"
+            "    return text\n"
+        )
+        self.assertTrue(check_danger(src), src)
+
+    def test_partial_devnull_rejected(self):
+        """Only stdout discarded - stderr still inherits a pipe; the
+        daemon would block EOF on it exactly as with capture_output."""
+        src = (
+            "import subprocess\n"
+            "def write_text(text: str) -> str:\n"
+            '    subprocess.run(["wl-copy"], input=text, stdout=subprocess.DEVNULL,\n'
+            "                         text=True, timeout=5)\n"
+            "    return text\n"
+        )
+        self.assertTrue(check_danger(src), src)
+
+    def test_mixed_read_and_write_shapes_rejected(self):
+        """capture_output=True AND stdout=DEVNULL is contradictory - even
+        subprocess itself raises ValueError for the mix."""
+        src = (
+            "import subprocess\n"
+            "def write_text(text: str) -> str:\n"
+            '    subprocess.run(["wl-copy"], input=text, capture_output=True,\n'
+            "                         stdout=subprocess.DEVNULL, text=True, timeout=5)\n"
+            "    return text\n"
+        )
+        self.assertTrue(check_danger(src), src)
 
 
 class TestDeadArgs(EnvTestCase):
@@ -414,7 +490,7 @@ class TestBuildVerify(EnvTestCase):
     def test_catches_test_passes_but_impl_wrong(self):
         """The draft's own test passes (isinstance str) yet its impl returns
         the bare NAME, not the real path - build-verify catches it."""
-        impl = (
+        impl = CONTRACT_PREFIX + (
             "def find_file_exact(name: str, directory: str | None = None) -> str:\n"
             '    base = directory or "."\n'
             "    return name  # wrong: ignores the lookup, returns the input\n"
@@ -437,7 +513,8 @@ class TestBuildVerify(EnvTestCase):
         impl = (
             "from pathlib import Path\n"
             "from friday.errors import PreconditionError\n"
-            "def find_file_exact(name: str, directory: str | None = None) -> str:\n"
+            + CONTRACT_PREFIX
+            + "def find_file_exact(name: str, directory: str | None = None) -> str:\n"
             '    base = Path(directory) if directory else Path(".")\n'
             "    if not base.is_dir():\n"
             "        raise PreconditionError(f'directory does not exist: {base}')\n"
@@ -460,7 +537,8 @@ class TestBuildVerify(EnvTestCase):
         is-not-None."""
         impl = (
             "from pathlib import Path\n"
-            "def find_file_exact(name: str, directory: str | None = None) -> str:\n"
+            + CONTRACT_PREFIX
+            + "def find_file_exact(name: str, directory: str | None = None) -> str:\n"
             '    base = Path(directory) if directory else Path(".")\n'
             "    for p in base.iterdir():\n"
             "        if p.is_file() and p.name == name:\n"
@@ -489,7 +567,8 @@ class TestBuildVerify(EnvTestCase):
     GOOD_WRITE_IMPL = (
         "from pathlib import Path\n"
         "from friday.errors import PreconditionError\n"
-        "def write_text(path: str, text: str, *, append: bool = False) -> str:\n"
+        + CONTRACT_PREFIX
+        + "def write_text(path: str, text: str, *, append: bool = False) -> str:\n"
         "    p = Path(path)\n"
         "    if not p.parent.is_dir():\n"
         "        raise PreconditionError(f'parent does not exist: {p.parent}')\n"
@@ -553,7 +632,8 @@ class TestBuildVerify(EnvTestCase):
         impl = (
             "from pathlib import Path\n"
             "from friday.errors import PreconditionError\n"
-            "def write_text(path: str, text: str, *, append: bool = False) -> str:\n"
+            + CONTRACT_PREFIX
+            + "def write_text(path: str, text: str, *, append: bool = False) -> str:\n"
             "    p = Path(path)\n"
             "    if not p.parent.is_dir():\n"
             "        raise PreconditionError(f'parent does not exist: {p.parent}')\n"
@@ -583,7 +663,8 @@ class TestBuildVerify(EnvTestCase):
         impl = (
             "from pathlib import Path\n"
             "from friday.errors import PreconditionError\n"
-            "def write_text(path: str, text: str) -> str:\n"
+            + CONTRACT_PREFIX
+            + "def write_text(path: str, text: str) -> str:\n"
             "    p = Path(path)\n"
             "    if not p.parent.is_dir():\n"
             "        raise PreconditionError(f'parent does not exist: {p.parent}')\n"
@@ -617,7 +698,7 @@ class TestBuildVerify(EnvTestCase):
         }
         d = self.mktmp(prefix="friday_gate_")
         (d / "contract.json").write_text(__import__("json").dumps(contract), encoding="utf-8")
-        impl = "def adder(a: int, b: int) -> int:\n    return a + b\n"
+        impl = CONTRACT_PREFIX + "def adder(a: int, b: int) -> int:\n    return a + b\n"
         (d / "impl.py").write_text(impl, encoding="utf-8")
         (d / "test.py").write_text(
             "import unittest\n"
@@ -635,6 +716,273 @@ class TestBuildVerify(EnvTestCase):
         self.assertTrue(any("NOT APPLICABLE" in l and "human review required" in l for l in lines), lines)
         rationale = (d / "rationale.md").read_text(encoding="utf-8")
         self.assertIn("NOT APPLICABLE", rationale)
+
+
+class TestContractAwareChecks(EnvTestCase):
+    """The clipboard-round lesson (2026-08-14): a draft can compile, pass
+    its own self-check AND its own test, and still be wrong in ways a human
+    had to hand-correct - missing @contract decorator (never registers),
+    a log_transform the contract names but the impl never defines (NameError
+    at import), and bare builtin raises (RuntimeError) against a contract
+    declaring a Friday error class. All three are now STATIC checks."""
+
+    CONTRACT = {
+        "name": "clipboard.read_text",
+        "precondition": "A clipboard tool is available.",
+        "postcondition": "Returns the clipboard text; no state changes.",
+        "idempotency": "idempotent",
+        "failure_mode": "PrimitiveError when the clipboard tool fails.",
+        "returns": "str",
+        "log_transform": "_log_redact_clipboard_meta",
+    }
+
+    def test_missing_contract_decorator_flagged(self):
+        """The first clipboard draft's exact defect: a self-check-clean impl
+        with no @contract decorator - it compiles, but the primitive would
+        never enter REGISTRY and the executor would keep refusing it."""
+        src = (
+            "import subprocess\n"
+            "def read_text() -> str:\n"
+            '    p = subprocess.run(["wl-paste"], capture_output=True, timeout=5)\n'
+            "    return p.stdout.decode()\n"
+        )
+        issues = check_contract_decorator(src, "read_text")
+        self.assertTrue(any("not decorated with @contract" in i for i in issues), issues)
+        # and it surfaces through the full AST pass when the contract is passed
+        self.assertTrue(any("@contract" in i for i in check_impl_ast(src, "read_text", self.CONTRACT)))
+
+    def test_decorated_impl_clean(self):
+        src = CONTRACT_PREFIX + "def read_text() -> str:\n    return ''\n"
+        self.assertEqual(check_contract_decorator(src, "read_text"), [])
+
+    def test_undefined_log_transform_flagged(self):
+        """The second clipboard defect: contract declares
+        _log_redact_clipboard_meta but the impl never defines it - NameError
+        at import, so the primitive dies before the executor ever sees it."""
+        src = (
+            "from friday.contracts import Idempotency, contract\n"
+            "@contract(precondition=\"p\", postcondition=\"q\",\n"
+            "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"str\")\n"
+            "def read_text() -> str:\n"
+            "    return ''\n"
+        )
+        issues = check_contract_consistency(self.CONTRACT, src)
+        self.assertTrue(any("log_transform" in i and "never defines" in i for i in issues), issues)
+
+    def test_log_transform_defined_clean(self):
+        src = (
+            "def _log_redact_clipboard_meta(result):\n    return '<redacted>'\n"
+            "def read_text() -> str:\n    return ''\n"
+        )
+        self.assertEqual(check_contract_consistency(self.CONTRACT, src), [])
+
+    def test_bare_builtin_raise_flagged(self):
+        """The fourth clipboard defect: bare RuntimeError against a
+        failure_mode declaring PrimitiveError - the executor's retry policy
+        keys on FridayError and cannot classify a bare builtin."""
+        src = (
+            "from friday.contracts import Idempotency, contract\n"
+            "@contract(precondition=\"p\", postcondition=\"q\",\n"
+            "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"str\")\n"
+            "def read_text() -> str:\n"
+            "    raise RuntimeError('tool failed')\n"
+        )
+        issues = check_raise_classes(src, self.CONTRACT)
+        self.assertTrue(any("raises builtin RuntimeError" in i for i in issues), issues)
+
+    def test_friday_error_raise_clean(self):
+        """Raising the FridayError family is the convention - never flagged."""
+        src = (
+            "from friday.contracts import Idempotency, contract\n"
+            "from friday.errors import PrimitiveError\n"
+            "@contract(precondition=\"p\", postcondition=\"q\",\n"
+            "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"str\")\n"
+            "def read_text() -> str:\n"
+            "    raise PrimitiveError('tool failed')\n"
+        )
+        self.assertEqual(check_raise_classes(src, self.CONTRACT), [])
+
+    def test_implicit_oserror_propagation_not_flagged(self):
+        """files.write_text's documented behavior - letting OSError escape
+        through a with-block - is NOT an explicit raise and must not be
+        flagged (the check is about raise STATEMENTS, not propagation)."""
+        src = (
+            "from friday.contracts import Idempotency, contract\n"
+            "@contract(precondition=\"p\", postcondition=\"q\",\n"
+            "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"str\")\n"
+            "def write_text(path: str, text: str) -> str:\n"
+            "    with open(path, 'w') as f:\n"
+            "        f.write(text)\n"
+            "    return path\n"
+        )
+        self.assertEqual(check_raise_classes(src, self.CONTRACT), [])
+
+    def test_raise_class_in_contract_text_allowed(self):
+        """A contract that explicitly declares a builtin (e.g. a ValueError
+        precondition) legitimizes it - the check is drift, not dogma."""
+        contract = dict(self.CONTRACT, failure_mode="ValueError when the tool is missing.")
+        src = (
+            "from friday.contracts import Idempotency, contract\n"
+            "@contract(precondition=\"p\", postcondition=\"q\",\n"
+            "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"str\")\n"
+            "def read_text() -> str:\n"
+            "    raise ValueError('missing')\n"
+        )
+        self.assertEqual(check_raise_classes(src, contract), [])
+
+
+class TestRegistrationCheck(EnvTestCase):
+    """The dead-on-arrival check: a draft that compiles and whose own test
+    passes can still never register (missing @contract) or fail to import
+    (undefined log_transform). check_registration execs the DRAFT in an
+    isolated subprocess and requires the contracted name in REGISTRY."""
+
+    def _impl_file(self, impl: str) -> Path:
+        d = self.mktmp(prefix="friday_regcheck_")
+        p = d / "impl.py"
+        p.write_text(impl, encoding="utf-8")
+        return p
+
+    def test_decorated_draft_registers(self):
+        impl = CONTRACT_PREFIX + "def read_text() -> str:\n    return ''\n"
+        ok, msg = check_registration(self._impl_file(impl), "clipboard.read_text")
+        self.assertTrue(ok, msg)
+
+    def test_undecorated_draft_does_not_register(self):
+        """The exact clipboard failure: an impl that compiles but has no
+        @contract - the draft is dead on arrival and the gate must say so
+        before any human review."""
+        impl = "def read_text() -> str:\n    return ''\n"
+        ok, msg = check_registration(self._impl_file(impl), "clipboard.read_text")
+        self.assertFalse(ok)
+        self.assertIn("NOT in REGISTRY", msg)
+
+    def test_undefined_log_transform_fails_import(self):
+        """The log_transform defect is caught here too: exec'ing the impl
+        raises NameError before REGISTRY is even consulted."""
+        impl = (
+            "from friday.contracts import Idempotency, contract\n"
+            "@contract(precondition=\"p\", postcondition=\"q\",\n"
+            "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"str\",\n"
+            "          log_transform=_log_redact_clipboard_meta)\n"
+            "def read_text() -> str:\n"
+            "    return ''\n"
+        )
+        ok, msg = check_registration(self._impl_file(impl), "clipboard.read_text")
+        self.assertFalse(ok)
+        self.assertIn("import raised", msg)
+
+    def test_missing_test_py_still_gets_registration_check(self):
+        """The registration check runs on the impl alone - a draft whose
+        test.py is absent or AST-bad still gets the dead-on-arrival verdict."""
+        impl = CONTRACT_PREFIX + "def read_text() -> str:\n    return ''\n"
+        ok, msg = check_registration(self._impl_file(impl), "clipboard.read_text")
+        self.assertTrue(ok, msg)
+
+
+class TestSubreadBuildVerify(EnvTestCase):
+    """The clipboard-class build-verify (2026-08-14): a non-files module
+    that reads an external tool through the bounded subprocess.run pattern
+    gets probes with a MOCKED tool - success -> str, failure/timeout ->
+    FridayError, never a bare builtin (the RuntimeError defect a human
+    hand-corrected on the clipboard draft). Previously this class was
+    honestly NOT APPLICABLE; now it is probed behaviorally."""
+
+    CONTRACT = {
+        "name": "clipboard.read_text",
+        "precondition": "A clipboard tool is available.",
+        "postcondition": "Returns the clipboard text; no state changes.",
+        "idempotency": "idempotent",
+        "failure_mode": "PrimitiveError when the clipboard tool fails.",
+        "returns": "str",
+    }
+
+    def _proposal(self, impl: str) -> Path:
+        d = self.mktmp(prefix="friday_gate_")
+        (d / "contract.json").write_text(__import__("json").dumps(self.CONTRACT), encoding="utf-8")
+        (d / "impl.py").write_text(impl, encoding="utf-8")
+        (d / "test.py").write_text(
+            "import unittest\nfrom friday.l1.clipboard import read_text\n"
+            "class T(unittest.TestCase):\n    def test_ok(self):\n        self.assertIsInstance(read_text(), str)\n",
+            encoding="utf-8",
+        )
+        (d / "rationale.md").write_text("# rationale\n", encoding="utf-8")
+        return d
+
+    GOOD_IMPL = (
+        "import subprocess\n"
+        + CONTRACT_PREFIX
+        + "def read_text() -> str:\n"
+        "    p = subprocess.run([\"wl-paste\"], capture_output=True, timeout=5)\n"
+        "    if p.returncode != 0:\n"
+        "        raise PrimitiveError(f'clipboard tool failed: {p.stderr}')\n"
+        "    return p.stdout.decode('utf-8', 'replace').strip()\n"
+    )
+
+    def test_correct_clipboard_draft_passes(self):
+        """A correct clipboard-style draft (modeled on the hand-corrected
+        impl): success returns the decoded str, tool failure AND timeout both
+        raise PrimitiveError - all three probes pass."""
+        impl = (
+            "import subprocess\n"
+            "from friday.contracts import Idempotency, contract\n"
+            "from friday.errors import PrimitiveError\n"
+            "@contract(precondition=\"A clipboard tool is available.\", postcondition=\"Returns the clipboard text.\",\n"
+            "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"PrimitiveError when the clipboard tool fails.\", returns=\"str\")\n"
+            "def read_text() -> str:\n"
+            "    try:\n"
+            "        p = subprocess.run([\"wl-paste\"], capture_output=True, timeout=5)\n"
+            "    except (TimeoutError, FileNotFoundError) as exc:\n"
+            "        raise PrimitiveError(f'clipboard read failed: {exc}')\n"
+            "    if p.returncode != 0:\n"
+            "        raise PrimitiveError(f'clipboard tool failed: {p.stderr}')\n"
+            "    return p.stdout.decode('utf-8', 'replace').strip()\n"
+        )
+        d = self._proposal(impl)
+        status, lines = run_build_verify(d, self.CONTRACT, impl)
+        self.assertEqual(status, "pass", lines)
+        self.assertTrue(any("subprocess-read probes" in l for l in lines), lines)
+
+    def test_bare_runtime_error_rejected(self):
+        """The exact defect a human hand-corrected on the clipboard draft:
+        raising bare RuntimeError instead of PrimitiveError. The mocked-tool
+        failure probe now catches it mechanically."""
+        impl = (
+            "import subprocess\n"
+            "from friday.contracts import Idempotency, contract\n"
+            "@contract(precondition=\"p\", postcondition=\"q\",\n"
+            "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"str\")\n"
+            "def read_text() -> str:\n"
+            "    p = subprocess.run([\"wl-paste\"], capture_output=True, timeout=5)\n"
+            "    if p.returncode != 0:\n"
+            "        raise RuntimeError('tool failed')\n"
+            "    return p.stdout.decode()\n"
+        )
+        d = self._proposal(impl)
+        status, lines = run_build_verify(d, self.CONTRACT, impl)
+        self.assertEqual(status, "reject", lines)
+        joined = "\n".join(lines)
+        self.assertIn("RuntimeError", joined)
+
+    def test_non_subprocess_module_still_not_applicable(self):
+        """A non-files module that does NOT use the bounded subprocess
+        pattern stays honestly NOT APPLICABLE - never probed blind."""
+        contract = {
+            "name": "calendar.list_upcoming",
+            "precondition": "p",
+            "postcondition": "q",
+            "idempotency": "idempotent",
+            "failure_mode": "f",
+            "returns": "list",
+        }
+        d = self.mktmp(prefix="friday_gate_")
+        (d / "contract.json").write_text(__import__("json").dumps(contract), encoding="utf-8")
+        impl = CONTRACT_PREFIX + "def list_upcoming() -> list:\n    return []\n"
+        (d / "impl.py").write_text(impl, encoding="utf-8")
+        (d / "test.py").write_text("import unittest\n", encoding="utf-8")
+        (d / "rationale.md").write_text("# rationale\n", encoding="utf-8")
+        status, lines = run_build_verify(d, contract, impl)
+        self.assertEqual(status, "not-applicable", lines)
 
 
 class TestRunAutomatedGate(EnvTestCase):
@@ -668,7 +1016,7 @@ class TestRunAutomatedGate(EnvTestCase):
 
     def test_clean_proposal_passes_and_reports_to_rationale(self):
         d = self._proposal(
-            "def adder(a: int, b: int) -> int:\n    return a + b\n",
+            CONTRACT_PREFIX + "def adder(a: int, b: int) -> int:\n    return a + b\n",
             self._good_test(),
             self.GOOD_CONTRACT,
         )
@@ -705,7 +1053,7 @@ class TestRunAutomatedGate(EnvTestCase):
         """The file the sandbox EXECUTES is itself AST-checked - a clean
         impl cannot smuggle a dangerous test.py past the gate."""
         d = self._proposal(
-            "def adder(a: int, b: int) -> int:\n    return a + b\n",
+            CONTRACT_PREFIX + "def adder(a: int, b: int) -> int:\n    return a + b\n",
             "import os\n"
             "import unittest\n"
             "from friday.l1.demo import adder\n"
@@ -726,7 +1074,7 @@ class TestRunAutomatedGate(EnvTestCase):
         """A test.py that writes an absolute path is rejected before the
         sandbox runs it - the executed file is not trusted code."""
         d = self._proposal(
-            "def adder(a: int, b: int) -> int:\n    return a + b\n",
+            CONTRACT_PREFIX + "def adder(a: int, b: int) -> int:\n    return a + b\n",
             "import unittest\n"
             "from friday.l1.demo import adder\n"
             "class T(unittest.TestCase):\n"
@@ -745,7 +1093,7 @@ class TestRunAutomatedGate(EnvTestCase):
         """A relative write lands in the sandbox cwd and is both allowed by
         the AST check and exercised by the sandboxed test run."""
         d = self._proposal(
-            "def adder(a: int, b: int) -> int:\n    return a + b\n",
+            CONTRACT_PREFIX + "def adder(a: int, b: int) -> int:\n    return a + b\n",
             "import unittest\n"
             "from pathlib import Path\n"
             "from friday.l1.demo import adder\n"

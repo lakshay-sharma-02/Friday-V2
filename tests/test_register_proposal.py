@@ -25,7 +25,14 @@ GOOD_CONTRACT = {
     "failure_mode": "f",
     "returns": "bool",
 }
-GOOD_IMPL = "def new_prim() -> bool:\n    \"\"\"Do it.\"\"\"\n    return True\n"
+GOOD_IMPL = (
+    "from friday.contracts import Idempotency, contract\n"
+    "@contract(precondition=\"p\", postcondition=\"q\",\n"
+    "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"bool\")\n"
+    "def new_prim() -> bool:\n"
+    "    \"\"\"Do it.\"\"\"\n"
+    "    return True\n"
+)
 GOOD_TEST = (
     "import unittest\n"
     "from friday.l1.demo import new_prim\n"

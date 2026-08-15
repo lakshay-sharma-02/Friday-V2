@@ -1,4 +1,5 @@
-{  "_docs": "AMBIENT WATCH LOOP triggers - edit to opt in, no code changes needed.\n\nEach trigger has:\n  id        - unique name (appears in var/logs/tasks.jsonl as watch:<id>)\n  goal      - the goal string, planned through L4 (one LLM call per distinct\n              goal per daemon run, then cached) OR\n  plan      - an inline deterministic plan dict (no LLM; must be fully\n              resolved - no $facts refs)\n  schedule  - {\"type\": \"time\", \"at\": \"HH:MM\", \"days\": [\"mon\"...]} fires once\n              per day after the time; {\"type\": \"file\", \"directory\": ...,\"name\":\n              <substring>, \"recursive\": bool} fires once per new matching file\n  enabled   - false means the trigger is inert; set true to activate\n  notify    - send a desktop notification when the trigger finishes (default true)\n  allow     - OPTIONAL primitive allowlist: a list of exact names or 'mod.*' patterns.\n              If present, any plan step whose primitive is NOT on the list is REFUSED\n              before execution (recorded as REFUSED, never executed) - for unattended\n              triggers whose LLM plan must be constrained (L2 verify checks are\n              read-only and always permitted).\n\nCURRENTLY ENABLED (2026-08-14):\n- morning-gmail-summary (09:00 weekdays) - the live LLM-planned trigger. Its goal\n  references $facts.gmail_sender (edit config/planner_facts.json, never the trigger).\n  Allowlist TIGHTENED to the three read-only primitives (gmail.list_unread /\n  gmail.get_message / gmail.summarize) so the LLM plan can never reach the\n  gate-registered send primitive (gmail.send_document). An empty mailbox for that\n  sender is an honest FAIL, never an error.\n- weekly-cross-project-digest (Sun 10:00, Phase C v2.2) - a DETERMINISTIC plan (no\n  L4 LLM call) gathering git.log from Friday + vivaha + Aether, each repo's most\n  recently modified status/planning doc (files.find_recent_doc), reads those docs,\n  then dev.digest - the ONE live full-tier LLM call (~$0.17/run), verified by\n  digestcheck.verify_attribution (no repo may be credited with a mechanism not in\n  its own gathered content) and delivered via notify.notify_send. Repo paths are\n  hardcoded (deterministic plans must be fully resolved); edit if repos move.\n  Agent-Reach is deliberately excluded (third-party, not owned); Psyche Space and\n  ChangelogAI excluded pending a separate decision. Human verdicts are logged in\n  gates/DIGEST_TRACKING.md.\n- sunday-digest-reminder (Sun 10:05) - one-step deterministic notify-only plan\n  (allow [notify.notify_send], notify:false so it never double-pings) nudging the\n  weekly verdict into gates/DIGEST_TRACKING.md.\n\nRETIRED ambient-gap-probe-* triggers (all DISABLED - the gap-loop lifecycle):\n- ambient-gap-probe-email-send (2026-08-11): gmail.send_document hand-built, gated,\n  human-signed, registered - the loop's first side-effecting primitive.\n- ambient-gap-probe-file-write (2026-08-13): files.write_text approved + registered\n  through the full loop (self-checked LLM draft, automated gate with write-family\n  build-verify, human review, register); remaining gaps are consumed as SOLVED.\n- ambient-gap-probe-calendar (2026-08-13): calendar.list_upcoming registered through\n  the loop's second complete cycle (LLM-drafted with ZERO hand-correction, gate with\n  build-verify honestly NOT APPLICABLE for the calendar class, human-signed). Note:\n  it needs calendar OAuth creds (pass friday/calendar or GOOGLE_CALENDAR_TOKEN) to\n  return real events; without them it returns [] and verification fails honestly.\n\nACTIVE (2026-08-14):\n- ambient-gap-probe-clipboard (daily 11:00) - the loop's new ambient volume source\n  after all three originals retired. Its single step is clipboard.read_text, a\n  genuinely UNBUILT primitive (no clipboard module exists in friday/l1) that is NOT\n  deliberately deferred by the plan (unlike vision, gated off, and window.shutdown,\n  mechanically blocked) - so its daily refusal is a real gap, not noise. Allowlist\n  refuses before any execution (zero side effects); REFUSED is terminal-for-the-day;\n  exactly one capability-gap record per day for triage to LLM-draft. Retire it once\n  clipboard.read_text is approved and registered (lifecycle precedent: the three\n  above).\n\nLifecycle rule: once a probe's primitive is approved and registered, RETIRE the probe\n- its daily refusal of a now-solved primitive is noise. The loop's ambient volume now\ncomes from the active probe above plus real refusals and the goal-proposals stage;\nsee the README.\n\nSafety is inherited from the core: the executor refuses blocked primitives, window\nclose never touches protected classes, dev.run_shell needs FRIDAY_ALLOW_DANGEROUS=1,\nand triggers run strictly one at a time.\n\nRun once (for cron / testing):  ./.venv/bin/python -m friday.watcher --once\nRun as a daemon:               ./.venv/bin/python -m friday.watcher --poll 30",
+{
+  "_docs": "AMBIENT WATCH LOOP triggers - edit to opt in, no code changes needed.\n\nEach trigger has:\n  id        - unique name (appears in var/logs/tasks.jsonl as watch:<id>)\n  goal      - the goal string, planned through L4 (one LLM call per distinct\n              goal per daemon run, then cached) OR\n  plan      - an inline deterministic plan dict (no LLM; must be fully\n              resolved - no $facts refs)\n  schedule  - {\"type\": \"time\", \"at\": \"HH:MM\", \"days\": [\"mon\"...]} fires once\n              per day after the time; {\"type\": \"file\", \"directory\": ...,\"name\":\n              <substring>, \"recursive\": bool} fires once per new matching file\n  enabled   - false means the trigger is inert; set true to activate\n  notify    - send a desktop notification when the trigger finishes (default true)\n  allow     - OPTIONAL primitive allowlist: a list of exact names or 'mod.*' patterns.\n              If present, any plan step whose primitive is NOT on the list is REFUSED\n              before execution (recorded as REFUSED, never executed) - for unattended\n              triggers whose LLM plan must be constrained (L2 verify checks are\n              read-only and always permitted).\n\nCURRENTLY ENABLED (2026-08-14):\n- morning-gmail-summary (09:00 weekdays) - the live LLM-planned trigger. Its goal\n  references $facts.gmail_sender (edit config/planner_facts.json, never the trigger).\n  Allowlist TIGHTENED to the three read-only primitives (gmail.list_unread /\n  gmail.get_message / gmail.summarize) so the LLM plan can never reach the\n  gate-registered send primitive (gmail.send_document). An empty mailbox for that\n  sender is an honest FAIL, never an error.\n- weekly-cross-project-digest (Sun 10:00, Phase C v2.2) - a DETERMINISTIC plan (no\n  L4 LLM call) gathering git.log from Friday + vivaha + Aether, each repo's most\n  recently modified status/planning doc (files.find_recent_doc), reads those docs,\n  then dev.digest - the ONE live full-tier LLM call (~$0.17/run), verified by\n  digestcheck.verify_attribution (no repo may be credited with a mechanism not in\n  its own gathered content) and delivered via notify.notify_send. Repo paths are\n  hardcoded (deterministic plans must be fully resolved); edit if repos move.\n  Agent-Reach is deliberately excluded (third-party, not owned); Psyche Space and\n  ChangelogAI excluded pending a separate decision. Human verdicts are logged in\n  gates/DIGEST_TRACKING.md.\n- sunday-digest-reminder (Sun 10:05) - one-step deterministic notify-only plan\n  (allow [notify.notify_send], notify:false so it never double-pings) nudging the\n  weekly verdict into gates/DIGEST_TRACKING.md.\n- THE DAILY-USE LAYER (all added 2026-08-14, deterministic plans, zero L4 LLM):\n  - new-download-alert - FILE trigger on ~/Downloads matching .pdf: files.find_newest\n    (mtime, not lexicographic-first) locates the newest pdf and whatsapp.send_document\n    delivers it to the configured default phone. Fires once per NEW pdf; pre-existing\n    files never fire it.\n  - morning-calendar-summary (08:00 daily) - one step calendar.list_upcoming(days=1),\n    verified checks.list_nonempty, notified. Empty day = honest FAIL, not an error.\n  - morning-clipboard-digest (08:05 daily, right after the calendar summary) -\n    calendar.list_upcoming(days=1) -> dev.digest composes a short plain-text morning\n    digest (the one live LLM call per firing, same class as gmail.summarize) ->\n    clipboard.write_text copies it. Live-proven 2026-08-15 against the real calendar.\n\nRETIRED ambient-gap-probe-* triggers (all DISABLED - the gap-loop lifecycle):\n- ambient-gap-probe-email-send (2026-08-11): gmail.send_document hand-built, gated,\n  human-signed, registered - the loop's first side-effecting primitive.\n- ambient-gap-probe-file-write (2026-08-13): files.write_text approved + registered\n  through the full loop (self-checked LLM draft, automated gate with write-family\n  build-verify, human review, register); remaining gaps are consumed as SOLVED.\n- ambient-gap-probe-calendar (2026-08-13): calendar.list_upcoming registered through\n  the loop's second complete cycle (LLM-drafted with ZERO hand-correction, gate with\n  build-verify honestly NOT APPLICABLE for the calendar class, human-signed). Note:\n  it needs calendar OAuth creds (pass friday/calendar or GOOGLE_CALENDAR_TOKEN) to\n  return real events; without them it returns [] and verification fails honestly.\n\nRETIRED (2026-08-14):\n- ambient-gap-probe-clipboard (daily 11:00) - the loop's fourth probe, retired the\n  same day it was created: clipboard.read_text was approved + registered through the\n  full loop (contract-aware gate + subprocess-read build-verify + human signature),\n  so its daily refusal of a now-solved primitive became noise (lifecycle precedent:\n  the three above). The loop's ambient volume now comes from REAL refusals and the\n  goal-proposals stage; no probe remains enabled (all four retired once their\n  primitive registered - the lifecycle working as designed).\n\nLifecycle rule: once a probe's primitive is approved and registered, RETIRE the probe\n- its daily refusal of a now-solved primitive is noise. All four probes are now\nRETIRED (each after its primitive registered - the lifecycle working as designed);\nthe loop's ambient volume now comes from REAL refusals and the goal-proposals stage;\nsee the README.\n\nSafety is inherited from the core: the executor refuses blocked primitives, window\nclose never touches protected classes, dev.run_shell needs FRIDAY_ALLOW_DANGEROUS=1,\nand triggers run strictly one at a time.\n\nRun once (for cron / testing):  ./.venv/bin/python -m friday.watcher --once\nRun as a daemon:               ./.venv/bin/python -m friday.watcher --poll 30",
   "triggers": [
     {
       "id": "weekly-cross-project-digest",
@@ -365,12 +366,13 @@
         "type": "time",
         "at": "11:00"
       },
-      "enabled": true,
+      "enabled": false,
       "notify": false,
       "allow": [
         "notify.notify_send"
       ],
-      "_added": "2026-08-14: the loop's new ambient volume source after all three original probes retired. clipboard.read_text is genuinely unbuilt (no clipboard module exists in friday/l1) and NOT deliberately deferred by the plan (unlike vision, which the plan gated off, and window.shutdown, which is mechanically blocked) - so a daily refusal here is a real gap, not noise. Allowlist refuses the step before any execution (zero side effects); REFUSED is terminal-for-the-day; exactly one capability-gap record per day for triage to LLM-draft. Lifecycle: retire this probe once clipboard.read_text is approved and registered."
+      "_added": "2026-08-14: the loop's new ambient volume source after all three original probes retired. clipboard.read_text is genuinely unbuilt (no clipboard module exists in friday/l1) and NOT deliberately deferred by the plan (unlike vision, which the plan gated off, and window.shutdown, which is mechanically blocked) - so a daily refusal here is a real gap, not noise. Allowlist refuses the step before any execution (zero side effects); REFUSED is terminal-for-the-day; exactly one capability-gap record per day for triage to LLM-draft. Lifecycle: retire this probe once clipboard.read_text is approved and registered.",
+      "_retired": "2026-08-14: clipboard.read_text approved + registered through the loop; probe disabled (email-send / file-write / calendar lifecycle precedent). Any straggler gaps are consumed as SOLVED by triage."
     },
     {
       "id": "morning-gmail-summary",
@@ -397,14 +399,146 @@
     {
       "id": "new-download-alert",
       "goal": "send the newest pdf in my downloads to my whatsapp",
+      "plan": {
+        "goal": "send the newest pdf in my downloads to my whatsapp",
+        "steps": [
+          {
+            "primitive": "files.find_newest",
+            "args": {
+              "name": ".pdf",
+              "directory": "/home/lakshay/Downloads"
+            },
+            "verify": {
+              "check": "checks.file_exists",
+              "args": {
+                "path": "$steps.1.result"
+              },
+              "expect": true
+            }
+          },
+          {
+            "primitive": "whatsapp.send_document",
+            "args": {
+              "file_path": "$steps.1.result"
+            },
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {
+                "value": "$steps.2.result.message_id"
+              },
+              "expect": true
+            }
+          }
+        ]
+      },
       "schedule": {
         "type": "file",
         "directory": "~/Downloads",
         "name": ".pdf",
         "recursive": false
       },
-      "enabled": false,
-      "notify": true
+      "enabled": true,
+      "notify": true,
+      "allow": [
+        "files.find_newest",
+        "whatsapp.send_document"
+      ],
+      "_docs": "ENABLED 2026-08-14: the daily-use layer catches up with the gap loop - files.find_newest (built + registered through the loop the same day) locates the newest pdf by mtime (find_file is lexicographic-first, wrong for 'newest'), and whatsapp.send_document delivers it to the configured default phone. The file trigger fires once per new .pdf in ~/Downloads; the deterministic plan needs no LLM. Retire/disable if unwanted (a file trigger never fires for pre-existing files)."
+    },
+    {
+      "id": "morning-calendar-summary",
+      "goal": "show me my calendar events for today",
+      "plan": {
+        "goal": "show me my calendar events for today",
+        "steps": [
+          {
+            "primitive": "calendar.list_upcoming",
+            "args": {
+              "days": 1
+            },
+            "verify": {
+              "check": "checks.list_nonempty",
+              "args": {
+                "value": "$steps.1.result"
+              },
+              "expect": true
+            }
+          }
+        ]
+      },
+      "schedule": {
+        "type": "time",
+        "at": "08:00"
+      },
+      "enabled": true,
+      "notify": true,
+      "allow": [
+        "calendar.list_upcoming"
+      ],
+      "_docs": "ADDED 2026-08-14: the daily-use layer - calendar.list_upcoming became live the same day (refresh-grant auth fix + OAuth consent), so a morning summary is the natural routine. Deterministic one-step plan (no LLM): lists today's events (days=1) and desktop-notifies. An empty day is an honest FAIL (list_nonempty False), same philosophy as morning-gmail-summary's empty mailbox - change nothing to opt out, flip enabled:false."
+    },
+    {
+      "id": "morning-clipboard-digest",
+      "goal": "write a short plain-text morning digest of today's calendar to the clipboard",
+      "plan": {
+        "goal": "write a short plain-text morning digest of today's calendar to the clipboard",
+        "steps": [
+          {
+            "primitive": "calendar.list_upcoming",
+            "args": {
+              "days": 1
+            },
+            "verify": {
+              "check": "checks.list_nonempty",
+              "args": {
+                "value": "$steps.1.result"
+              },
+              "expect": true
+            }
+          },
+          {
+            "primitive": "dev.digest",
+            "args": {
+              "context": {
+                "today's calendar events": "$steps.1.result"
+              },
+              "instruction": "You are Friday's morning digest. Below is today's calendar (a list of events with start_time and summary). Write a short plain-text morning digest (at most 5 sentences): one line per event with its time and title, and one closing line. If the list is empty, say so in one line. Reply with ONLY the digest text."
+            },
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {
+                "value": "$steps.2.result"
+              },
+              "expect": true
+            }
+          },
+          {
+            "primitive": "clipboard.write_text",
+            "args": {
+              "text": "$steps.2.result"
+            },
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {
+                "value": "$steps.3.result"
+              },
+              "expect": true
+            }
+          }
+        ]
+      },
+      "schedule": {
+        "type": "time",
+        "at": "08:05"
+      },
+      "enabled": true,
+      "notify": true,
+      "allow": [
+        "calendar.list_upcoming",
+        "dev.digest",
+        "clipboard.write_text"
+      ],
+      "_docs": "ADDED 2026-08-14: the clipboard family's first real daily routine - clipboard.write_text (gate-registered the same day after the write-shape deadlock fix) pushes a morning digest of today's calendar to the system clipboard. Deterministic plan, no L4 LLM: calendar.list_upcoming(days=1) -> dev.digest composes a short plain-text digest (the ONE live LLM call, ~$0.17/run - same cost class as the existing morning-gmail-summary) -> clipboard.write_text copies it. Allowlist pins the three primitives. Empty calendar = honest FAIL (same philosophy as morning-calendar-summary)."
     }
   ]
 }

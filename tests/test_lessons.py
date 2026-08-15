@@ -234,7 +234,14 @@ class TestRecordSites(EnvTestCase):
         super().setUp()
         self.set_env(FRIDAY_L1_DIR=str(self.mktmp()), FRIDAY_PROPOSALS_DIR=str(self.mktmp()))
 
-    def _proposal(self, contract_name: str = "demo.new_prim", impl: str = "def new_prim() -> bool:\n    return True\n") -> Path:
+    def _proposal(self, contract_name: str = "demo.new_prim",
+                  impl: str = (
+                      "from friday.contracts import Idempotency, contract\n"
+                      "@contract(precondition=\"p\", postcondition=\"q\",\n"
+                      "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"bool\")\n"
+                      "def new_prim() -> bool:\n"
+                      "    return True\n"
+                  )) -> Path:
         d = Path(os.environ["FRIDAY_PROPOSALS_DIR"]) / "demo.new_prim"
         d.mkdir(parents=True)
         (d / "contract.json").write_text(json.dumps({

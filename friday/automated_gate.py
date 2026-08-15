@@ -8,13 +8,18 @@ The gap loop's earlier round proved the mechanism with a manual-only gate
     - imports:      only modules the shipped L1 primitives actually import
                     (derived below), plus a small documented stdlib set
     - danger calls: exec/eval/compile/__import__, any subprocess.* call
-                    EXCEPT the read-only bounded pattern the shipped
-                    primitives use for external reads
+                    EXCEPT the bounded pattern the shipped primitives
+                    use for external tool I/O - the READ shape
                     (subprocess.run([...], capture_output=True,
-                    timeout=...) - see _is_safe_subprocess_run; without
-                    this carve-out a genuine read-family primitive like
-                    clipboard.read_text could never be drafted, because
-                    reading the Linux clipboard REQUIRES wl-paste/xclip),
+                    timeout=...)) for reads and the WRITE shape
+                    (subprocess.run([...], stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, timeout=...)) for writes,
+                    because wl-copy/xclip fork a daemon that inherits pipe
+                    fds and capture_output then blocks EOF forever (see
+                    _is_safe_subprocess_run; without this carve-out a
+                    genuine clipboard primitive could never be drafted,
+                    since reading/writing the Linux clipboard REQUIRES
+                    wl-paste/xclip/wl-copy),
                     os.system/os.popen/os.spawn*/os.exec*/os.fork, pty.spawn
                     (mirrors what the shipped executor gates already treat
                     as dangerous - there was NO reusable danger list, so
@@ -23,6 +28,13 @@ The gap loop's earlier round proved the mechanism with a manual-only gate
     - dead args:    every declared parameter must be used in the body (the
                     exact defect a human caught by hand last round: an impl
                     that ignored its own `name` argument)
+    - decorator:    the contracted function MUST be decorated with @contract(...)
+                    (a missing decorator = the primitive never enters REGISTRY;
+                    observed live on the clipboard draft, 2026-08-14)
+    - consistency:  every log_transform the contract names must be defined by
+                    the impl (an undefined one is a NameError at import); no
+                    bare-builtin raises (RuntimeError/...) the contract never
+                    declares - the executor's retry policy keys on FridayError
 
   Sandboxed test run
     - test.py is danger-checked (exec/eval/subprocess/os-system/dev.run)
@@ -43,6 +55,17 @@ The gap loop's earlier round proved the mechanism with a manual-only gate
       sandbox can only write inside its own temp dir. Applied to BOTH
       impl.py and test.py before either is executed (the sandbox never
       runs an AST-rejected draft's test).
+
+  Registration check (check_registration)
+    - After the impl AST passes, the DRAFT is executed in the same isolated
+      subprocess and the contracted name must ACTUALLY land in REGISTRY.
+      A draft that compiles and whose own test passes can still be DEAD ON
+      ARRIVAL - the clipboard.read_text round (2026-08-14) produced exactly
+      that: a self-check-clean draft whose impl had NO @contract decorator
+      (registration wrote the file but the primitive never entered REGISTRY
+      and the executor kept refusing it) and a contract declaring a
+      log_transform the impl never defined (NameError at import). Both are
+      structural and both are rejected here, before any human review.
 
 Documented limits: network egress is NOT hard-blocked and file READS of
 local paths are not restricted - with no credentials present and the
@@ -75,6 +98,15 @@ seccomp/containerization remains aspirational). A path built at runtime
       self-authored test asserted.
     - files.* that declares neither family -> honest not-applicable
       (never probed blind).
+    - SUBPROCESS-READ family (clipboard.read_text shape, 2026-08-14): a
+      non-files module whose impl shells out through the bounded
+      subprocess.run pattern with a no-arg contracted fn gets probes with a
+      MOCKED external tool: success -> str result; tool failure and timeout
+      -> FridayError, never a bare builtin (the RuntimeError defect a human
+      hand-corrected on the clipboard draft). Reading the real clipboard
+      under the sandbox would be meaningless, but the impl's error-class
+      behavior is probeable - the exact gap that previously forced a human
+      to hand-fix the draft.
     - other module classes: no safe real target in this session -> an
       HONEST "build-verification not applicable, human review required"
       report line, never a silent skip or a pretended pass.
@@ -310,14 +342,25 @@ def check_fs_scope(source: str) -> list[str]:
 
 
 def _is_safe_subprocess_run(node: ast.Call) -> bool:
-    """True ONLY for the read-only, bounded, statically-visible subprocess
-    pattern the shipped L1 primitives use for external reads (git.log,
-    notify_send, _hyprctl): `subprocess.run([...], capture_output=True,
-    timeout=...)`. The carve-out exists because a genuine read-family
-    primitive like clipboard.read_text CANNOT exist on Linux without
-    shelling out to wl-paste/xclip - the blanket 'any subprocess.* call'
-    rule (which also rejects the shipped pattern) made the primitive
-    undraftable. Everything else under subprocess.* stays rejected.
+    """True ONLY for the bounded, statically-visible subprocess.run shapes
+    the shipped L1 primitives use for external tool I/O:
+
+      - READ shape:  subprocess.run([...], capture_output=True, timeout=...)
+        (git.log, notify_send, _hyprctl, clipboard.read_text) - output is
+        captured, never inherited.
+      - WRITE shape: subprocess.run([...], input=<str>,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=...)
+        - output is DISCARDED, never inherited. REQUIRED for write-family
+        primitives like clipboard.write_text: wl-copy/xclip fork a daemon
+        that inherits the child's pipe fds, so capture_output=True blocks
+        EOF forever (the run only ends via its own timeout and every write
+        fails) - discarding output is the only shape that completes.
+
+    The carve-out exists because genuine clipboard primitives CANNOT exist
+    on Linux without shelling out to wl-paste/xclip/wl-copy - the blanket
+    'any subprocess.* call' rule (which also rejects the shipped pattern)
+    made them undraftable. Everything else under subprocess.* stays
+    rejected.
     Safety conditions (each is structural, not semantic):
       - the call target is exactly subprocess.run (not check_output,
         Popen, call, check_call, run with shell=True, ...)
@@ -325,7 +368,10 @@ def _is_safe_subprocess_run(node: ast.Call) -> bool:
         whole command is visible in the draft source; a variable or a
         shell string hides what runs and is rejected
       - shell is absent or explicitly False
-      - capture_output=True (output is captured, never inherited)
+      - EITHER capture_output=True (read) OR BOTH stdout=subprocess.DEVNULL
+        and stderr=subprocess.DEVNULL (write) - never both (subprocess
+        itself rejects the contradictory mix at runtime), and never a
+        partial DEVNULL (the remaining pipe would be inherited)
       - a timeout is present (bounded, never unbounded)
     A wrong-but-clean command (e.g. a destructive binary in the list) is
     still a HUMAN-review concern - the gate catches the structural
@@ -344,6 +390,8 @@ def _is_safe_subprocess_run(node: ast.Call) -> bool:
     ):
         return False
     capture_ok = False
+    stdout_devnull = False
+    stderr_devnull = False
     timeout_ok = False
     for kw in node.keywords:
         if kw.arg == "shell":
@@ -353,16 +401,34 @@ def _is_safe_subprocess_run(node: ast.Call) -> bool:
             capture_ok = (
                 isinstance(kw.value, ast.Constant) and kw.value.value is True
             )
+        elif kw.arg == "stdout":
+            stdout_devnull = (
+                isinstance(kw.value, ast.Attribute)
+                and _dotted_name(kw.value) == "subprocess.DEVNULL"
+            )
+        elif kw.arg == "stderr":
+            stderr_devnull = (
+                isinstance(kw.value, ast.Attribute)
+                and _dotted_name(kw.value) == "subprocess.DEVNULL"
+            )
         elif kw.arg == "timeout":
             timeout_ok = True
-    return capture_ok and timeout_ok
+    # capture_output=True and stdout/stderr=DEVNULL are mutually exclusive -
+    # subprocess itself raises ValueError for the mix
+    if capture_ok and (stdout_devnull or stderr_devnull):
+        return False
+    read_shape = capture_ok
+    write_shape = stdout_devnull and stderr_devnull
+    return timeout_ok and (read_shape or write_shape)
 
 
 def check_danger(source: str) -> list[str]:
     """Any exec/eval/os.system-style call is rejected outright, and any
-    subprocess.* call EXCEPT the read-only bounded pattern shipped
-    primitives use (`subprocess.run([...], capture_output=True,
-    timeout=...)` - see _is_safe_subprocess_run)."""
+    subprocess.* call EXCEPT the bounded pattern shipped primitives use -
+    the READ shape (`subprocess.run([...], capture_output=True,
+    timeout=...)`) and the WRITE shape (`subprocess.run([...],
+    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=...)`, for
+    tools whose daemon inherits pipe fds) - see _is_safe_subprocess_run."""
     issues: list[str] = []
     try:
         tree = ast.parse(source)
@@ -428,17 +494,124 @@ def check_dead_args(source: str, fn_name: str) -> list[str]:
     return [f"parameter {p!r} is declared but never used" for p in params if p not in used]
 
 
-def check_impl_ast(source: str, fn_name: str) -> list[str]:
+# Builtin exception names a draft must NOT raise explicitly unless its own
+# contract text declares them: the executor's retry policy keys on the
+# FridayError family (friday/errors.py), so a primitive that raises a bare
+# builtin against a contract declaring a Friday error class fails its own
+# contract on first real failure - observed live 2026-08-14: the clipboard
+# draft raised RuntimeError against a failure_mode declaring PrimitiveError.
+_BUILTIN_EXC_NAMES = frozenset({
+    "ArithmeticError", "AssertionError", "AttributeError", "EOFError", "Exception",
+    "ImportError", "IndexError", "KeyError", "LookupError", "MemoryError",
+    "NameError", "NotImplementedError", "OSError", "OverflowError",
+    "RecursionError", "ReferenceError", "RuntimeError", "StopIteration",
+    "SyntaxError", "SystemError", "TimeoutError", "TypeError", "UnicodeError",
+    "ValueError", "ZeroDivisionError", "IOError", "EnvironmentError",
+})
+
+
+def check_contract_decorator(source: str, fn_name: str) -> list[str]:
+    """The contracted function MUST be decorated with @contract(...). Without
+    the decorator the impl never enters the REGISTRY, so the executor keeps
+    refusing the primitive even after 'registration' - the exact defect a human
+    hand-corrected on the first clipboard.read_text draft (2026-08-14: the
+    draft passed the structural self-check yet would never have been callable)."""
+    fn = _find_function(source, fn_name)
+    if fn is None:
+        return []  # the missing-function check reports that separately
+    for d in fn.decorator_list:
+        if (isinstance(d, ast.Call) and isinstance(d.func, ast.Name) and d.func.id == "contract") or \
+                (isinstance(d, ast.Name) and d.id == "contract"):
+            return []
+    return [
+        f"{fn_name}() is not decorated with @contract(...) - the impl would never "
+        "enter the REGISTRY and the executor would keep refusing it",
+    ]
+
+
+def check_contract_consistency(contract: dict[str, Any], source: str) -> list[str]:
+    """contract.json may name a log_transform; the impl MUST define it at module
+    level. A contract declaring a transform the impl never defines is a NameError
+    at import time - the exact defect a human hand-corrected on the clipboard
+    draft (contract declared _log_redact_clipboard_meta, impl had no such
+    function). Static and cheap; runs at triage AND at the gate."""
+    lt = contract.get("log_transform")
+    if not isinstance(lt, str) or not lt:
+        return []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    defs = {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    if lt not in defs:
+        return [
+            f"contract declares log_transform={lt!r} but the impl never defines "
+            "it - the module would fail with NameError at import",
+        ]
+    return []
+
+
+def check_raise_classes(source: str, contract: dict[str, Any]) -> list[str]:
+    """The impl must not explicitly raise a bare builtin exception the contract
+    never declares: the executor's retry policy keys on the FridayError family,
+    so a draft raising RuntimeError against a failure_mode declaring PrimitiveError
+    fails its own contract on first real failure (the clipboard defect a human
+    hand-corrected 2026-08-14). IMPLICIT propagation (files.write_text letting
+    OSError escape through a `with` block) is NOT an explicit raise and is not
+    flagged - that is documented as legitimate for that primitive. A raise whose
+    exception name appears in the contract's own text is allowed (the contract
+    declares it)."""
+    contract_text = " ".join(
+        str(contract.get(k, "")) for k in ("failure_mode", "precondition", "postcondition", "returns")
+    ).lower()
+    issues: list[str] = []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return issues
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Raise) or node.exc is None:
+            continue
+        exc = node.exc
+        name: str | None = None
+        if isinstance(exc, ast.Call) and isinstance(exc.func, ast.Name):
+            name = exc.func.id
+        elif isinstance(exc, ast.Name):
+            name = exc.id
+        if name in _BUILTIN_EXC_NAMES and name.lower() not in contract_text:
+            issues.append(
+                f"raises builtin {name}() but the contract declares "
+                f"failure_mode={contract.get('failure_mode', '')!r} - raise a "
+                "FridayError subclass (PrimitiveError/PreconditionError) instead "
+                "so the executor's retry policy classifies it"
+            )
+    return issues
+
+
+def check_impl_ast(
+    source: str, fn_name: str, contract: dict[str, Any] | None = None
+) -> list[str]:
     """The full static pass: imports, danger calls, sandbox-escaping
-    writes, contract function, dead arguments. Returns [] when the impl
-    is structurally clean."""
-    return (
+    writes, contract function, dead arguments - plus, when the contract is
+    supplied (the gate and the triage self-check both pass it), the
+    contract-consistency checks: the @contract decorator present, every
+    log_transform the contract names defined by the impl, and no
+    bare-builtin raises the contract never declares. Returns [] when the
+    impl is structurally clean."""
+    issues = (
         check_imports(source)
         + check_danger(source)
         + check_fs_scope(source)
         + check_contract_function(source, fn_name)
         + check_dead_args(source, fn_name)
     )
+    if contract is not None:
+        issues += (
+            check_contract_decorator(source, fn_name)
+            + check_contract_consistency(contract, source)
+            + check_raise_classes(source, contract)
+        )
+    return issues
 
 
 # ------------------------------------------------------ build verification
@@ -493,6 +666,64 @@ def _run_write_probe(fn, calls) -> str | None:
     return None
 
 
+def _run_subread_probe(fn, mod, probe, FridayError) -> str | None:
+    # A subprocess-read primitive (clipboard.read_text shape): patch the
+    # module's subprocess.run (and a `from subprocess import run` binding, if
+    # present) with a fake, then call fn() with no args and check the contract
+    # shape: success -> str result; tool failure/timeout -> FridayError, NEVER
+    # a bare builtin (the RuntimeError defect a human hand-corrected on the
+    # clipboard draft, 2026-08-14). None = probe passed, else a FAIL text.
+    # FridayError is passed in: the runner imports it locally inside main()
+    # (sys.path is set up there), so the helper takes it as a parameter.
+    import subprocess as _sp
+
+    class _FakeProc:
+        def __init__(self, *, returncode=0, stdout=b"", stderr=b""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    mock = probe.get("mock", {})
+    exc_name = mock.get("raise")
+
+    def _fake_run(*_a, **_kw):
+        if exc_name:
+            raise TimeoutError("mocked timeout")
+        return _FakeProc(
+            returncode=mock.get("returncode", 0),
+            stdout=(mock.get("stdout") or "").encode(),
+            stderr=(mock.get("stderr") or "").encode(),
+        )
+
+    # patch both call styles: `subprocess.run(...)` (module attr) and
+    # `from subprocess import run` (bare name bound in the module namespace)
+    if getattr(mod, "subprocess", None) is not None:
+        mod.subprocess.run = _fake_run
+    if getattr(mod, "run", None) is not None and callable(mod.run):
+        mod.run = _fake_run
+    try:
+        result = fn()
+    except FridayError:
+        if probe.get("expect") == "friday_or_str":
+            return None
+        return f"raised FridayError on a success mock (expected a str result)"
+    except Exception as exc:
+        return (
+            f"raised {type(exc).__name__}: {exc} - expected FridayError "
+            "(or a str result); bare builtins never satisfy a contract "
+            "declaring a Friday error class"
+        )
+    if probe.get("expect") == "str":
+        if not isinstance(result, str):
+            return f"expected str result, got {type(result).__name__}: {result!r}"
+        return None
+    if probe.get("expect") == "friday_or_str":
+        if isinstance(result, str):
+            return None
+        return f"expected FridayError or a str result, got {type(result).__name__}: {result!r}"
+    return None
+
+
 def main() -> int:
     root, impl_path, module, existing, probes_path = sys.argv[1:6]
     sys.path.insert(0, root)
@@ -521,6 +752,14 @@ def main() -> int:
                 failed += 1
             else:
                 print(f"PROBE_OK {i} write probes passed (created/overwrote/appended temp files)")
+            continue
+        if p.get("kind") == "subread":
+            msg = _run_subread_probe(fn, mod, p, FridayError)
+            if msg:
+                print(f"PROBE_FAIL {i} {msg}")
+                failed += 1
+            else:
+                print(f"PROBE_OK {i} subprocess-read probes passed (mocked tool: success->str, failure/timeout->FridayError)")
             continue
         try:
             result = fn(**p["args"])
@@ -555,6 +794,20 @@ _READ_PARAMS = frozenset({"name", "pattern", "repo_path"})
 # Write-family params: a path-ish AND a content-ish arg (files.write_text).
 _WRITE_PATH_PARAMS = frozenset({"path", "file_path", "filename", "target"})
 _WRITE_CONTENT_PARAMS = frozenset({"text", "content", "data"})
+
+
+def _uses_bounded_subprocess(source: str) -> bool:
+    """True when the impl shells out through the read-only bounded subprocess
+    pattern shipped primitives use (subprocess.run([...], capture_output=True,
+    timeout=...)) - the signal that a non-files draft is a clipboard-style
+    external-read primitive whose build-verify can probe with a mocked tool."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    return any(
+        isinstance(n, ast.Call) and _is_safe_subprocess_run(n) for n in ast.walk(tree)
+    )
 
 
 def _build_probe_family(fn_name: str, params: list[str]) -> str:
@@ -593,13 +846,60 @@ def run_build_verify(
     gate before the signature."""
     module = contract["name"].partition(".")[0]
     fn_name = contract["name"].partition(".")[2]
+    params = _fn_params(impl_src, fn_name)
     if module != "files":
+        # SUBPROCESS-READ family (2026-08-14): a module class like clipboard
+        # that reads an external tool through the bounded subprocess.run
+        # pattern has NO safe real target in this session (reading the real
+        # clipboard under the sandbox is meaningless) - but its behavior IS
+        # probeable with a MOCKED subprocess.run: success must return a str,
+        # a tool failure and a timeout must surface as FridayError, never a
+        # bare builtin (the RuntimeError defect a human hand-corrected on the
+        # clipboard draft). Probes run when the impl uses the bounded pattern
+        # and the contracted fn takes no args (read_text() shape) - otherwise
+        # honest not-applicable, never probed blind.
+        if not params and _uses_bounded_subprocess(impl_src):
+            probes = [
+                {"kind": "subread", "mock": {"returncode": 0, "stdout": "probe text\n"}, "expect": "str"},
+                {"kind": "subread", "mock": {"returncode": 1, "stderr": "tool failed"}, "expect": "friday_or_str"},
+                {"kind": "subread", "mock": {"raise": "TimeoutError"}, "expect": "friday_or_str"},
+            ]
+            try:
+                with tempfile.TemporaryDirectory(prefix="friday_buildverify_") as td:
+                    sandbox = Path(td)
+                    spec_path = sandbox / "probes.json"
+                    spec_path.write_text(json.dumps({"fn": fn_name, "probes": probes}), encoding="utf-8")
+                    runner = sandbox / "build_runner.py"
+                    runner.write_text(_BUILD_RUNNER, encoding="utf-8")
+                    existing = "1" if (L1_DIR / f"{module}.py").is_file() else "0"
+                    cmd = [
+                        sys.executable, str(runner), str(PROJECT_ROOT),
+                        str((proposal / "impl.py").resolve()), module, existing, str(spec_path),
+                    ]
+                    try:
+                        proc = subprocess.run(
+                            cmd, capture_output=True, text=True,
+                            timeout=timeout_s, cwd=str(sandbox), env=_sanitized_env(sandbox),
+                        )
+                    except subprocess.TimeoutExpired:
+                        return "reject", ["build-verify: REJECT - timed out while probing the mocked tool"]
+                    out = proc.stdout + "\n" + proc.stderr
+                    fails = [l for l in out.splitlines() if l.startswith("PROBE_FAIL")]
+                    if proc.returncode != 0 or fails:
+                        detail = fails[0] if fails else (out.strip().splitlines()[-1] if out.strip() else "unknown")
+                        return "reject", [f"build-verify: REJECT - {detail}"]
+                    return "pass", [
+                        "build-verify: PASS - subprocess-read probes (mocked tool): "
+                        "success -> str; tool failure/timeout -> FridayError, never "
+                        "a bare builtin (the clipboard error-class fix, 2026-08-14)",
+                    ]
+            except OSError as exc:
+                return "reject", [f"build-verify: REJECT - probe setup failed: {exc}"]
         return "not-applicable", [
             f"build-verify: NOT APPLICABLE for module class {module!r} - no "
             "safe real target for this class this session; human review "
             "required (documented limit)",
         ]
-    params = _fn_params(impl_src, fn_name)
     family = _build_probe_family(fn_name, params)
     if family == "none":
         return "not-applicable", [
@@ -730,6 +1030,98 @@ if __name__ == "__main__":
     sys.exit(main())
 """
 
+# Runs in a SEPARATE subprocess: execs the DRAFT impl in place (same
+# injection as the sandbox runner) and asserts the contracted name actually
+# lands in REGISTRY. A draft that compiles and even passes its own test can
+# still be DEAD ON ARRIVAL - the clipboard.read_text round (2026-08-14)
+# produced exactly that: a self-check-clean draft whose impl had NO
+# @contract decorator (so registration wrote the file but the primitive
+# never entered REGISTRY and the executor kept refusing it) and a contract
+# declaring log_transform=_log_redact_clipboard_meta the impl never defined
+# (NameError at import). Both are structurally checkable and both are
+# checked here, BEFORE any human review.
+_REGISTRATION_RUNNER = r"""
+import sys
+import types
+
+
+def main() -> int:
+    root, impl_path, module, existing, expected = sys.argv[1:6]
+    sys.path.insert(0, root)
+    # ALWAYS a fresh module - never import the real friday.l1.<module>,
+    # even when it exists on disk. Importing the real module would satisfy
+    # the check vacuously (its already-registered primitive is in REGISTRY
+    # from its own import), so an undecorated re-draft of a registered
+    # module would pass - the exact dead-on-arrival class this check
+    # exists to catch (observed live 2026-08-14: the two negative
+    # registration tests started passing vacuously the moment
+    # clipboard.read_text was registered). The draft must register the
+    # name ON ITS OWN.
+    mod = types.ModuleType(f"friday.l1.{module}")
+    mod.__file__ = impl_path
+    src = open(impl_path, encoding="utf-8").read()
+    try:
+        exec(compile(src, impl_path, "exec"), mod.__dict__)
+    except Exception as exc:
+        print(f"REGISTER_FAIL import raised {type(exc).__name__}: {exc}")
+        return 1
+    sys.modules[f"friday.l1.{module}"] = mod
+    pkg = sys.modules.get("friday.l1")
+    if pkg is not None:
+        setattr(pkg, module, mod)
+    from friday.contracts import REGISTRY
+
+    if expected in REGISTRY:
+        print(f"REGISTER_OK {expected} is in REGISTRY")
+        return 0
+    print(f"REGISTER_FAIL {expected} NOT in REGISTRY after exec - missing @contract decorator?")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+"""
+
+
+def check_registration(
+    impl_path: Path,
+    contract_name: str,
+    *,
+    timeout_s: int = DEFAULT_SANDBOX_TIMEOUT_S,
+) -> tuple[bool, str]:
+    """Assert the DRAFT actually registers the contracted name when its code
+    runs: exec the impl in place (same isolated subprocess as the sandbox:
+    temp HOME, no credentials, timeout) and require `name in REGISTRY`.
+    Catches the dead-on-arrival class the clipboard round exposed - a draft
+    that compiles and whose test passes yet whose impl is missing the
+    @contract decorator (never registers, executor keeps refusing) or
+    references a log_transform it never defines (NameError at import).
+    Returns (ok, summary)."""
+    module = contract_name.partition(".")[0]
+    existing = "1" if (L1_DIR / f"{module}.py").is_file() else "0"
+    cmd = [
+        sys.executable, "<runner>", str(PROJECT_ROOT),
+        str(Path(impl_path).resolve()), module, existing, contract_name,
+    ]
+    try:
+        with tempfile.TemporaryDirectory(prefix="friday_regcheck_") as td:
+            sandbox = Path(td)
+            runner = sandbox / "reg_runner.py"
+            runner.write_text(_REGISTRATION_RUNNER, encoding="utf-8")
+            cmd[1] = str(runner)
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True,
+                timeout=timeout_s, cwd=str(sandbox), env=_sanitized_env(sandbox),
+            )
+    except subprocess.TimeoutExpired:
+        return False, f"registration check timed out after {timeout_s}s"
+    tail = (proc.stdout + "\n" + proc.stderr).strip()
+    if proc.returncode != 0:
+        lines = tail.splitlines()[-6:]
+        return False, "registration check FAILED:\n" + "\n".join(lines)
+    return True, "draft registers the contracted name"
+
+
 _STRIP_MARKERS = ("TOKEN", "SECRET", "PASSWORD", "PASSWD", "API_KEY", "APIKEY",
                   "PRIVATE_KEY", "PASSPHRASE", "KEY")
 
@@ -819,7 +1211,7 @@ def run_automated_gate(
     full report to rationale.md (rejection reasons included, per the spec -
     a failed gate never reaches the human signature). Returns (ok, report)."""
     fn_name = contract["name"].partition(".")[2]
-    issues = check_impl_ast(impl_src, fn_name)
+    issues = check_impl_ast(impl_src, fn_name, contract)
     lines: list[str] = []
     if issues:
         # short-circuit: an AST-rejected draft is NEVER executed, not even
@@ -836,8 +1228,28 @@ def run_automated_gate(
         return False, lines
     lines.append(
         "AST checks: passed - imports allowed; no dangerous calls; no "
-        f"sandbox-escaping writes; {fn_name}() defined; no dead arguments"
+        f"sandbox-escaping writes; {fn_name}() defined; no dead arguments; "
+        "@contract decorator present; log_transform (if any) defined; no "
+        "undeclared bare-builtin raises"
     )
+    # REGISTRATION check: a draft that compiles and passes its own test can
+    # still be dead on arrival - missing @contract decorator (never enters
+    # REGISTRY, executor keeps refusing) or a log_transform the impl never
+    # defines (NameError at import). Both were hand-corrected on the first
+    # clipboard.read_text draft (2026-08-14); both are structural and are
+    # checked here, before any human review.
+    reg_ok, reg_summary = check_registration(
+        proposal / "impl.py", contract["name"], timeout_s=timeout_s
+    )
+    if not reg_ok:
+        lines.append(f"registration: REJECT - {reg_summary}")
+        record_lesson_event(
+            category="draft_no_register", source="automated_gate",
+            detail=f"{contract['name']}: {reg_summary}", primitive=contract["name"],
+        )
+        _append_report(proposal / "rationale.md", lines)
+        return False, lines
+    lines.append("registration: PASS - draft registers the contracted name when imported")
     # The FILE THE SANDBOX EXECUTES (test.py) is itself danger- and
     # fs-scope-checked before it runs - the LLM writes both files. Imports
     # are NOT restricted here: a test file legitimately imports
