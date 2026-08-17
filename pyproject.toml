@@ -2,15 +2,220 @@
 name = "friday"
 version = "0.8.0"
 description = "Friday V8 - layered desktop automation (L0 observability through L4 planning)"
+readme = "README.md"
 requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Lakshay Sharma", email = "lakshay@example.com"}
+]
+keywords = ["automation", "desktop", "LLM", "orchestration"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 dependencies = [
-    "playwright>=1.49",
-    "requests>=2.31",
+    "playwright>=1.49.0",
+    "requests>=2.31.0",
+    # Windows-port screenshot backend (2026-08-16): PIL.ImageGrab replaces
+    # grim for capture on Windows; harmless on Linux.
+    "Pillow>=10.0.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8.0",
+    "mypy>=1.12.0",
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "pre-commit>=3.8.0",
+]
+test = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+]
+
+[project.scripts]
+friday = "friday.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/lakshay/Friday-V2"
+Documentation = "https://github.com/lakshay/Friday-V2#readme"
+Repository = "https://github.com/lakshay/Friday-V2.git"
+
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=68", "wheel>=0.45"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["friday", "friday.l1", "friday.l2", "friday.l3", "friday.l4"]
+
+# ------------------------------------------------------------ Ruff
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # Pyflakes
+    "I",      # isort
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+    "TID",    # tidy imports
+    "RET",    # return statement
+    "RSE",    # raise error
+    "PLC",    # pylint convention
+    "PLE",    # pylint error
+    "PLR",    # pylint refactor
+    "PLW",    # pylint warning
+    "RUF",    # Ruff-specific rules
+]
+ignore = [
+    "E501",   # line-length handled by formatter
+    "PLR2004", # magic number
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["friday"]
+combine-as-imports = true
+
+[tool.ruff.lint.isort.section-names]
+future = ["future"]
+standard-library = ["standard-library"]
+third-party = ["third-party"]
+first-party = ["first-party"]
+local-folder = ["local-folder"]
+
+[tool.ruff.lint.per-file-ignores]
+"friday/__init__.py" = ["F401", "F811"]
+"tests/**" = ["SLF001"]  # private-member-access
+
+[tool.ruff.lint.pylint]
+max-attributes = 10
+max-args = 10
+max-branches = 20
+max-locals = 30
+max-statements = 80
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+indent-width = 4
+skip-magic-trailing-comma = false
+
+# ------------------------------------------------------------ MyPy
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+show_error_codes = true
+show_column_numbers = true
+pretty = true
+color_output = true
+
+[[tool.mypy.overrides]]
+module = [
+    "playwright.*",
+    "PIL.*",
+    "requests.*",
+]
+ignore_missing_imports = true
+
+[tool.mypy.files]
+# Strict for saturday
+strict = ["friday"]
+
+# ------------------------------------------------------------ Pytest
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = [
+    "-ra",
+    "-q",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=friday",
+    "--cov-report=term-missing",
+    "--cov-report=xml",
+]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "e2e: marks tests as end-to-end tests",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["friday"]
+branch = true
+omit = [
+    "friday/__main__.py",
+    "tests/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "type: ignore",
+    "@overload",
+]
+
+# ------------------------------------------------------------ Setuptools
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["friday*"]
+
+# ------------------------------------------------------------ PyBuild
+[tool.pybuild]
+name = "Friday V8"
+version = "0.8.0"

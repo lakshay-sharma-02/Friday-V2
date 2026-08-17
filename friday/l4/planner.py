@@ -224,7 +224,7 @@ def _has_unresolved_facts_ref(value: Any) -> bool:
 # The tuple is the FALLBACK; _discover_l1_modules() prefers scanning the
 # friday/l1/ directory so a primitive registered through the capability-gap
 # gate becomes planable WITHOUT editing this list.
-_L1_MODULES = ("window", "media", "browser", "dev", "digestcheck", "files", "git", "whatsapp", "telegram", "discord", "gmail", "notify")
+_L1_MODULES = ("window", "media", "browser", "dev", "digestcheck", "files", "git", "calendar", "clipboard", "screenshot", "whatsapp", "telegram", "discord", "gmail", "notify")
 
 DEFAULT_ATTEMPTS = 3
 DEFAULT_TIMEOUT_S = 300

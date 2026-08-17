@@ -107,6 +107,35 @@ class TestCatalog(EnvTestCase):
         cat = planner.build_catalog()
         self.assertNotIn("window.shutdown", cat)
 
+    def test_all_registered_primitives_in_catalog(self):
+        """REGRESSION guard: every contract-registered primitive must be
+        planable (in the catalog produced by build_catalog). This catches
+        failures in _discover_l1_modules or the contract decorator."""
+        from friday.contracts import REGISTRY, EXECUTOR_BLOCKED
+        planner._ensure_registry()
+        cat = planner.build_catalog()
+        for qualified in REGISTRY:
+            if qualified in EXECUTOR_BLOCKED:
+                self.assertNotIn(qualified, cat,
+                    f"{qualified} is blocked but appears in catalog")
+            else:
+                self.assertIn(qualified, cat,
+                    f"{qualified} is registered but missing from catalog - "
+                    "check _discover_l1_modules or the module import")
+
+    def test_calendar_and_screenshot_are_planable(self):
+        """REGRESSION test for calendar and screenshot modules.
+        These were missing from _L1_MODULES fallback tuple."""
+        from friday.contracts import REGISTRY
+        planner._ensure_registry()
+        cat = planner.build_catalog()
+        self.assertIn("calendar.list_upcoming", cat,
+            "calendar.list_upcoming must be planable")
+        self.assertIn("calendar.add_event", cat,
+            "calendar.add_event must be planable")
+        self.assertIn("screenshot.capture", cat,
+            "screenshot.capture must be planable")
+
     def test_discovery_finds_new_module_files(self):
         """REGRESSION (2026-08-13, found live by cycle 2): the default base
         path used parents[1] of friday/l4/planner.py - which is the friday
