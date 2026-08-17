@@ -19,7 +19,10 @@ from tests.helpers import EnvTestCase
 
 class TestRefResolver(EnvTestCase):
     # results as the executor stores them: {step_id: return_value}
-    R = {1: {"message_id": "wamid.ABC", "to": "123"}, 2: [{"message_id": "m0"}, {"message_id": "m1"}]}
+    R = {
+        1: {"message_id": "wamid.ABC", "to": "123"},
+        2: [{"message_id": "m0"}, {"message_id": "m1"}],
+    }
 
     def test_dot_path(self):
         self.assertEqual(_apply_refs("$steps.1.result.message_id", self.R), "wamid.ABC")
@@ -33,7 +36,9 @@ class TestRefResolver(EnvTestCase):
         self.assertEqual(_apply_refs("$steps.2.result[1].message_id", self.R), "m1")
 
     def test_whole_result(self):
-        self.assertEqual(_apply_refs("$steps.1.result", self.R), {"message_id": "wamid.ABC", "to": "123"})
+        self.assertEqual(
+            _apply_refs("$steps.1.result", self.R), {"message_id": "wamid.ABC", "to": "123"}
+        )
 
     def test_recursive_application(self):
         v = {"a": ["$steps.2.result.0.message_id"], "b": {"c": "$steps.1.result.to"}}
@@ -76,9 +81,9 @@ class TestRefResolver(EnvTestCase):
 
 class TestRetryPolicy(EnvTestCase):
     def test_derived_from_idempotency(self):
-        self.assertEqual(_default_retries("whatsapp.send_text"), 0)      # at-most-once: never retry
-        self.assertEqual(_default_retries("window.list_clients"), 2)     # idempotent
-        self.assertEqual(_default_retries("window.close_window"), 2)     # commutative-safe
+        self.assertEqual(_default_retries("whatsapp.send_text"), 0)  # at-most-once: never retry
+        self.assertEqual(_default_retries("window.list_clients"), 2)  # idempotent
+        self.assertEqual(_default_retries("window.close_window"), 2)  # commutative-safe
         self.assertIsNone(_default_retries("no.such.primitive"))
 
 
@@ -114,8 +119,13 @@ class TestRunPlan(EnvTestCase):
     def test_blocked_primitive_aborts(self):
         plan = {
             "goal": "x",
-            "steps": [{"primitive": "window.shutdown", "args": {},
-                       "verify": {"check": "checks.window_client_count", "args": {}, "expect": 0}}],
+            "steps": [
+                {
+                    "primitive": "window.shutdown",
+                    "args": {},
+                    "verify": {"check": "checks.window_client_count", "args": {}, "expect": 0},
+                }
+            ],
         }
         with self.assertRaises(FridayError) as ctx:
             run_plan(plan)
@@ -125,8 +135,20 @@ class TestRunPlan(EnvTestCase):
         # files is a real module; files.nope_fn is not registered -> the
         # no-contract refusal fires (a fully unknown module imports fail
         # earlier with 'cannot be imported', which is also an ABORT).
-        plan = {"goal": "x", "steps": [{"primitive": "files.nope_fn", "args": {},
-                                        "verify": {"check": "checks.file_exists", "args": {"path": "/x"}, "expect": True}}]}
+        plan = {
+            "goal": "x",
+            "steps": [
+                {
+                    "primitive": "files.nope_fn",
+                    "args": {},
+                    "verify": {
+                        "check": "checks.file_exists",
+                        "args": {"path": "/x"},
+                        "expect": True,
+                    },
+                }
+            ],
+        }
         with self.assertRaises(FridayError) as ctx:
             run_plan(plan)
         self.assertIn("no registered contract", str(ctx.exception))
@@ -140,9 +162,14 @@ class TestRunPlan(EnvTestCase):
     def test_zero_verify_wait_rejected_before_execution(self):
         plan = {
             "goal": "x",
-            "steps": [{"primitive": "window.list_clients", "args": {},
-                       "verify": {"check": "checks.window_client_count", "args": {}, "expect": 0},
-                       "verify_wait_s": 0}],
+            "steps": [
+                {
+                    "primitive": "window.list_clients",
+                    "args": {},
+                    "verify": {"check": "checks.window_client_count", "args": {}, "expect": 0},
+                    "verify_wait_s": 0,
+                }
+            ],
         }
         with self.assertRaises(FridayError) as ctx:
             run_plan(plan)
@@ -152,9 +179,15 @@ class TestRunPlan(EnvTestCase):
         plan = {
             "goal": "x",
             "steps": [
-                {"primitive": "files.find_file",
-                 "args": {"name": "alpha", "directory": "/tmp"},
-                 "verify": {"check": "checks.file_exists", "args": {"path": "$steps.2.result.path"}, "expect": True}},
+                {
+                    "primitive": "files.find_file",
+                    "args": {"name": "alpha", "directory": "/tmp"},
+                    "verify": {
+                        "check": "checks.file_exists",
+                        "args": {"path": "$steps.2.result.path"},
+                        "expect": True,
+                    },
+                },
             ],
         }
         with self.assertRaises(FridayError) as ctx:
@@ -194,14 +227,19 @@ class TestRunPlan(EnvTestCase):
         # result, so the executor can VERIFY a failed primitive.
         plan = {
             "goal": "x",
-            "steps": [{
-                "primitive": "files.find_file",
-                "args": {"name": "missing", "directory": str(d)},
-                "verify": {"check": "checks.file_exists",
-                            "args": {"path": str(d / "already_there.txt")},
-                            "expect": True},
-                "verify_wait_s": 0.1, "backoff_s": 0.05,
-            }],
+            "steps": [
+                {
+                    "primitive": "files.find_file",
+                    "args": {"name": "missing", "directory": str(d)},
+                    "verify": {
+                        "check": "checks.file_exists",
+                        "args": {"path": str(d / "already_there.txt")},
+                        "expect": True,
+                    },
+                    "verify_wait_s": 0.1,
+                    "backoff_s": 0.05,
+                }
+            ],
         }
         result = run_plan(plan)
         self.assertEqual(result.status, "COMPLETED")

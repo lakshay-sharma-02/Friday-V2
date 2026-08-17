@@ -4,7 +4,6 @@ log projection - all through mocked hyprctl, never the real compositor."""
 
 from __future__ import annotations
 
-import os
 import unittest
 from unittest import mock
 
@@ -110,11 +109,29 @@ class TestPreconditions(EnvTestCase):
 class TestLogProjection(EnvTestCase):
     def test_compact_client(self):
         c = w._compact_client(
-            {"address": "0x1", "class": "kitty", "title": "t", "workspace": {"id": 2},
-             "pid": 9, "mapped": True, "at": [1, 2], "size": [3, 4], "monitor": 0}
+            {
+                "address": "0x1",
+                "class": "kitty",
+                "title": "t",
+                "workspace": {"id": 2},
+                "pid": 9,
+                "mapped": True,
+                "at": [1, 2],
+                "size": [3, 4],
+                "monitor": 0,
+            }
         )
-        self.assertEqual(c, {"address": "0x1", "class": "kitty", "title": "t",
-                             "workspace_id": 2, "pid": 9, "mapped": True})
+        self.assertEqual(
+            c,
+            {
+                "address": "0x1",
+                "class": "kitty",
+                "title": "t",
+                "workspace_id": 2,
+                "pid": 9,
+                "mapped": True,
+            },
+        )
 
     def test_log_clients_result_list_and_single(self):
         out = w._log_clients_result(list(CLIENTS))
@@ -129,9 +146,8 @@ class TestListClientsErrors(EnvTestCase):
         def boom(*a, **k):
             return mock.Mock(returncode=1, stderr="compositor not running", stdout="")
 
-        with mock.patch.object(w, "_hyprctl", boom):
-            with self.assertRaises(PrimitiveError):
-                w.list_clients()
+        with mock.patch.object(w, "_hyprctl", boom), self.assertRaises(PrimitiveError):
+            w.list_clients()
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 from unittest import mock
 
+from friday.errors import FridayError
 from friday.lessons import (
     INJECT_LIMIT,
     MIN_EXAMPLES,
@@ -44,8 +45,10 @@ def _write_approved(lessons: list[dict]) -> None:
 class TestRecord(EnvTestCase):
     def test_record_writes_well_formed_event(self):
         eid = record_lesson_event(
-            category="draft_schema", source="register_proposal",
-            detail="demo.x: contract name must be '<module>.<fn>'", primitive="demo.x",
+            category="draft_schema",
+            source="register_proposal",
+            detail="demo.x: contract name must be '<module>.<fn>'",
+            primitive="demo.x",
         )
         events = all_events()
         self.assertEqual(len(events), 1)
@@ -88,12 +91,19 @@ class TestApprovedStore(EnvTestCase):
 
     def test_invalid_entries_excluded_fail_open(self):
         path = Path(os.environ["FRIDAY_APPROVED_LESSONS"])
-        path.write_text(json.dumps({"lessons": [
-            TRIAGE_LESSON,
-            {"category": "draft_schema"},  # no statement
-            {"category": "x", "statement": "s", "targets": ["nope"]},  # bad target
-            {"statement": "s", "targets": ["triage"]},  # no category
-        ]}), encoding="utf-8")
+        path.write_text(
+            json.dumps(
+                {
+                    "lessons": [
+                        TRIAGE_LESSON,
+                        {"category": "draft_schema"},  # no statement
+                        {"category": "x", "statement": "s", "targets": ["nope"]},  # bad target
+                        {"statement": "s", "targets": ["triage"]},  # no category
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         self.assertEqual(len(approved_lessons()), 1)  # only the valid one
         block = render_known_mistakes("triage")
         self.assertIn("'<module>.<fn>'", block)
@@ -132,7 +142,9 @@ class TestGeneralize(EnvTestCase):
 
     def test_cluster_writes_candidate_with_evidence(self):
         for i in range(MIN_EXAMPLES):
-            record_lesson_event(category="draft_schema", source="register_proposal", detail=f"reject {i}")
+            record_lesson_event(
+                category="draft_schema", source="register_proposal", detail=f"reject {i}"
+            )
         written = generalize()
         self.assertEqual(len(written), 1)
         md = Path(written[0])
@@ -184,7 +196,9 @@ class TestGeneralize(EnvTestCase):
         # append a malformed-but-parseable event with no event_id
         path = Path(os.environ["FRIDAY_LESSONS_FILE"])
         with open(path, "a", encoding="utf-8") as fh:
-            fh.write(_json.dumps({"category": "draft_schema", "source": "s", "detail": "no id"}) + "\n")
+            fh.write(
+                _json.dumps({"category": "draft_schema", "source": "s", "detail": "no id"}) + "\n"
+            )
         self.assertEqual(generalize(), [])  # no rewrite without fresh tracked events
 
 
@@ -206,8 +220,15 @@ class TestInjection(EnvTestCase):
         self.assertNotIn("KNOWN MISTAKES", prompt)
 
     def test_planner_prompt_includes_lessons(self):
-        _write_approved([{"category": "planner_schema", "targets": ["planner"],
-                          "statement": "The plan must match the executor schema exactly."}])
+        _write_approved(
+            [
+                {
+                    "category": "planner_schema",
+                    "targets": ["planner"],
+                    "statement": "The plan must match the executor schema exactly.",
+                }
+            ]
+        )
         from friday.l4.planner import build_prompt
 
         prompt = build_prompt("do the thing")
@@ -234,20 +255,32 @@ class TestRecordSites(EnvTestCase):
         super().setUp()
         self.set_env(FRIDAY_L1_DIR=str(self.mktmp()), FRIDAY_PROPOSALS_DIR=str(self.mktmp()))
 
-    def _proposal(self, contract_name: str = "demo.new_prim",
-                  impl: str = (
-                      "from friday.contracts import Idempotency, contract\n"
-                      "@contract(precondition=\"p\", postcondition=\"q\",\n"
-                      "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"bool\")\n"
-                      "def new_prim() -> bool:\n"
-                      "    return True\n"
-                  )) -> Path:
+    def _proposal(
+        self,
+        contract_name: str = "demo.new_prim",
+        impl: str = (
+            "from friday.contracts import Idempotency, contract\n"
+            '@contract(precondition="p", postcondition="q",\n'
+            '          idempotency=Idempotency.IDEMPOTENT, failure_mode="f", returns="bool")\n'
+            "def new_prim() -> bool:\n"
+            "    return True\n"
+        ),
+    ) -> Path:
         d = Path(os.environ["FRIDAY_PROPOSALS_DIR"]) / "demo.new_prim"
         d.mkdir(parents=True)
-        (d / "contract.json").write_text(json.dumps({
-            "name": contract_name, "precondition": "p", "postcondition": "q",
-            "idempotency": "idempotent", "failure_mode": "f", "returns": "bool",
-        }), encoding="utf-8")
+        (d / "contract.json").write_text(
+            json.dumps(
+                {
+                    "name": contract_name,
+                    "precondition": "p",
+                    "postcondition": "q",
+                    "idempotency": "idempotent",
+                    "failure_mode": "f",
+                    "returns": "bool",
+                }
+            ),
+            encoding="utf-8",
+        )
         (d / "impl.py").write_text(impl, encoding="utf-8")
         (d / "test.py").write_text(
             "import unittest\nfrom friday.l1.demo import new_prim\n"
@@ -269,7 +302,9 @@ class TestRecordSites(EnvTestCase):
     def test_gate_rejection_records_draft_ast(self):
         from friday.register_proposal import approve_and_register
 
-        d = self._proposal(impl="import subprocess\n\ndef new_prim() -> bool:\n    return subprocess.run(['true']).returncode == 0\n")
+        d = self._proposal(
+            impl="import subprocess\n\ndef new_prim() -> bool:\n    return subprocess.run(['true']).returncode == 0\n"
+        )
         (d / "APPROVED.md").write_text("APPROVED\n", encoding="utf-8")
         ok, _ = approve_and_register(d)
         self.assertFalse(ok)
@@ -303,6 +338,6 @@ class TestRecordSites(EnvTestCase):
         # plan -> planner_schema (both recorded per attempt)
         env = {"result": "not json at all", "is_error": False}
         with mock.patch("friday.l1.dev.run", return_value=env):
-            with self.assertRaises(Exception):
+            with self.assertRaises(FridayError):
                 plan("do the thing", attempts=1)
         self.assertEqual([e["category"] for e in all_events()], ["planner_unparseable"])

@@ -13,7 +13,8 @@ import json
 import os
 import subprocess
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from friday.contracts import Idempotency, contract
 from friday.errors import PreconditionError, PrimitiveError, PrimitiveTimeout
@@ -24,9 +25,7 @@ DEFAULT_TIMEOUT = 15.0
 
 def _hyprctl(*args: str, timeout: float = DEFAULT_TIMEOUT) -> subprocess.CompletedProcess:
     try:
-        proc = subprocess.run(
-            [HYPRCTL, *args], capture_output=True, text=True, timeout=timeout
-        )
+        proc = subprocess.run([HYPRCTL, *args], capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
         raise PrimitiveTimeout(
             f"hyprctl {' '.join(args)} timed out after {timeout:.0f}s",
@@ -217,7 +216,7 @@ def open_app(command: str) -> dict[str, Any]:
     def _match(c: dict) -> bool:
         return token in _client_haystack(c)
 
-    def _find() -> dict | None:
+    def _find() -> dict[str, Any] | None:
         clients = list_clients()
         for c in clients:
             if _match(c) and c.get("address") not in before_addrs:
@@ -229,7 +228,7 @@ def open_app(command: str) -> dict[str, Any]:
                     return c
         return None
 
-    found = _wait_until_return(_find, timeout=12.0, interval=0.3)
+    found: dict[str, Any] | None = _wait_until_return(_find, timeout=12.0, interval=0.3)
     if found is None and pre_existing:
         # The app was already running and chose not to spawn a new client
         # (single-instance apps just focus). That is success.
@@ -265,8 +264,7 @@ def close_window(selector: str) -> None:
         # window class is 'Navigator', not 'firefox'), while closing by
         # address always works - so never depend on the class: selector.
         targets = [
-            str(c["address"]) for c in list_clients()
-            if selector.lower() in _client_haystack(c)
+            str(c["address"]) for c in list_clients() if selector.lower() in _client_haystack(c)
         ]
     if not targets:
         return  # nothing matched; already closed
@@ -276,7 +274,7 @@ def close_window(selector: str) -> None:
     for address in targets:
         _hyprctl("dispatch", "closewindow", f"address:{address}")
 
-        def _gone() -> bool:
+        def _gone(address: str = address) -> bool:
             return all(str(c.get("address")) != address for c in list_clients())
 
         if not _wait_until(_gone, timeout=5.0):

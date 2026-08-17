@@ -67,7 +67,7 @@ def get_me() -> str:
             f"discord getMe failed ({resp.status_code}): {resp.text[:300]}",
             state="credentials not confirmed",
         )
-    return (resp.json() or {}).get("username", "")
+    return str((resp.json() or {}).get("username", ""))
 
 
 @contract(

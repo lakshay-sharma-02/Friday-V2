@@ -32,11 +32,10 @@ primitive in this module (and one of the very few in L1) that does so.
 from __future__ import annotations
 
 import base64
-import json
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import requests
 
@@ -85,7 +84,7 @@ def _access_token() -> str:
     client_id, client_secret, refresh_token = _auth()
     now = time.time()
     if _token_cache["access_token"] and _token_cache["expires_at"] > now + 60:
-        return _token_cache["access_token"]
+        return str(_token_cache["access_token"])
     resp = requests.post(
         TOKEN_URL,
         data={
@@ -110,7 +109,7 @@ def _access_token() -> str:
         )
     _token_cache["access_token"] = token
     _token_cache["expires_at"] = now + int(body.get("expires_in", 3600))
-    return token
+    return str(token)
 
 
 def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -132,7 +131,7 @@ def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
             f"gmail API error ({resp.status_code}): {resp.text[:300]}",
             state="gmail API error",
         )
-    return resp.json()
+    return cast(dict[str, Any], resp.json())
 
 
 def _header(payload: dict[str, Any], name: str) -> str:
@@ -160,6 +159,7 @@ def _body_text(payload: dict[str, Any]) -> str:
     """Best-effort plain-text extraction: single-part body.data, then
     text/plain parts, then the API snippet. Deterministic and bounded -
     a summary needs readable text, not perfect MIME parsing."""
+
     def _decode(data: str | None) -> str:
         if not data:
             return ""
@@ -208,19 +208,23 @@ def list_unread(sender: str, max_results: int = 5) -> list[dict[str, str]]:
             continue
         meta = _get(
             f"/users/me/messages/{mid}",
-            {"format": "metadata",
-             # metadataHeaders is a REPEATED query param in the Gmail API
-             # (metadataHeaders=From&metadataHeaders=Subject&...) - a
-             # comma-joined string silently returns empty headers.
-             "metadataHeaders": ["From", "Subject", "Date"]},
+            {
+                "format": "metadata",
+                # metadataHeaders is a REPEATED query param in the Gmail API
+                # (metadataHeaders=From&metadataHeaders=Subject&...) - a
+                # comma-joined string silently returns empty headers.
+                "metadataHeaders": ["From", "Subject", "Date"],
+            },
         )
         payload = meta.get("payload", {})
-        out.append({
-            "message_id": mid,
-            "sender": _header(payload, "From"),
-            "subject": _header(payload, "Subject"),
-            "date": _header(payload, "Date"),
-        })
+        out.append(
+            {
+                "message_id": mid,
+                "sender": _header(payload, "From"),
+                "subject": _header(payload, "Subject"),
+                "date": _header(payload, "Date"),
+            }
+        )
     return out
 
 
@@ -327,8 +331,6 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from friday.contracts import Idempotency, contract
-from friday.errors import PreconditionError, PrimitiveError
-from friday.secrets import get_credentials
 
 
 def _default_to() -> str:

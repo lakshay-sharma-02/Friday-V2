@@ -30,9 +30,10 @@ import json
 import math
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, cast
 
 from friday.capability_gaps import record_gap
 from friday.contracts import EXECUTOR_BLOCKED, REGISTRY, Idempotency
@@ -117,33 +118,26 @@ def _resolve_primitive(qualified: str) -> Callable:
             f"primitive module 'friday.l1.{module_name}' cannot be imported: {exc}"
         ) from exc
     if qualified not in REGISTRY:
-        raise KeyError(
-            f"primitive '{qualified}' has no registered contract; refusing to call it"
-        )
+        raise KeyError(f"primitive '{qualified}' has no registered contract; refusing to call it")
     if qualified in EXECUTOR_BLOCKED:
-        raise KeyError(
-            f"primitive '{qualified}' is in EXECUTOR_BLOCKED; refusing to execute it"
-        )
+        raise KeyError(f"primitive '{qualified}' is in EXECUTOR_BLOCKED; refusing to execute it")
     fn = getattr(mod, fn_name)
     if not hasattr(fn, "__contract__"):
         raise KeyError(
             f"primitive '{qualified}' has a registry entry but no __contract__; refusing"
         )
-    return fn
+    return cast(Callable[..., Any], fn)
 
 
 def _resolve_check(check: str) -> Callable:
     import importlib
 
-    if check.startswith("checks."):
-        name = check.split(".", 1)[1]
-    else:
-        name = check
+    name = check.split(".", 1)[1] if check.startswith("checks.") else check
     mod = importlib.import_module("friday.l2.checks")
     fn = getattr(mod, name, None)
     if fn is None:
         raise KeyError(f"unknown L2 check '{check}'")
-    return fn
+    return cast(Callable[..., Any], fn)
 
 
 def _apply_refs(value: Any, results: dict[int, Any]) -> Any:
@@ -173,9 +167,7 @@ def _apply_refs(value: Any, results: dict[int, Any]) -> Any:
             # Negative indices are NOT accepted ("-1".isdigit() is False,
             # so it falls through to the dict branch and errors cleanly).
             if not isinstance(val, list):
-                raise FridayError(
-                    f"reference {value!r}: index {part} on a non-list result"
-                )
+                raise FridayError(f"reference {value!r}: index {part} on a non-list result")
             try:
                 val = val[int(part)]
             except IndexError:
@@ -203,7 +195,7 @@ def _split_ref_path(rest: str, full_ref: str) -> list[str]:
             nxt_brk = rest.find("[", i + 1)
             ends = [x for x in (nxt_dot, nxt_brk) if x != -1]
             nxt = min(ends) if ends else n
-            part = rest[i + 1:nxt]
+            part = rest[i + 1 : nxt]
             if not part:
                 raise FridayError(f"reference {full_ref!r}: empty path segment")
             segs.append(part)
@@ -212,17 +204,15 @@ def _split_ref_path(rest: str, full_ref: str) -> list[str]:
             j = rest.find("]", i)
             if j == -1:
                 raise FridayError(f"reference {full_ref!r}: unterminated bracket segment")
-            inner = rest[i + 1:j].strip()
-            if len(inner) >= 2 and inner[0] in ("\"", "'") and inner[-1] == inner[0]:
+            inner = rest[i + 1 : j].strip()
+            if len(inner) >= 2 and inner[0] in ('"', "'") and inner[-1] == inner[0]:
                 inner = inner[1:-1]
             if not inner:
                 raise FridayError(f"reference {full_ref!r}: empty bracket segment")
             segs.append(inner)
             i = j + 1
         else:
-            raise FridayError(
-                f"reference {full_ref!r}: unexpected character {c!r} after '.result'"
-            )
+            raise FridayError(f"reference {full_ref!r}: unexpected character {c!r} after '.result'")
     return segs
 
 
@@ -298,9 +288,7 @@ def _reject_future_refs(value: Any, step_id: int) -> None:
         for m in re.finditer(r"\$steps\.(\d+)\.result", value):
             n = int(m.group(1))
             if n > step_id:
-                raise FridayError(
-                    f"verify references future step {n} (current step {step_id})"
-                )
+                raise FridayError(f"verify references future step {n} (current step {step_id})")
 
 
 def _step_emit(step_id: int, **kwargs: Any) -> None:
@@ -339,15 +327,19 @@ def run_plan(plan: dict[str, Any], *, run_id: str | None = None) -> PlanResult:
             primitive = str(raw["primitive"])
             args = dict(raw.get("args") or {})
             v = raw.get("verify") or {}
-            verify = VerifySpec(check=str(v["check"]), expect=v.get("expect"), args=dict(v.get("args") or {}))
-            retries = int(raw["retries"]) if raw.get("retries") is not None else _default_retries(primitive)
+            verify = VerifySpec(
+                check=str(v["check"]), expect=v.get("expect"), args=dict(v.get("args") or {})
+            )
+            retries = (
+                int(raw["retries"])
+                if raw.get("retries") is not None
+                else _default_retries(primitive)
+            )
             # backoff_s, like verify_wait_s below, is read from the step
             # level OR nested inside the verify object - same reasoning: a
             # timing field the planner intended must never be silently
             # ignored.
-            backoff = float(
-                raw.get("backoff_s", v.get("backoff_s", DEFAULT_BACKOFF_S))
-            )
+            backoff = float(raw.get("backoff_s", v.get("backoff_s", DEFAULT_BACKOFF_S)))
             # verify_wait_s is read from the step level OR nested inside the
             # verify object: LLM-generated plans have emitted it in both
             # places, and a timing field the planner intended must never be
@@ -363,10 +355,16 @@ def run_plan(plan: dict[str, Any], *, run_id: str | None = None) -> PlanResult:
             if backoff <= 0 or not math.isfinite(backoff):
                 raise ValueError(f"backoff_s must be a positive finite number, got {backoff!r}")
             if verify_wait <= 0 or not math.isfinite(verify_wait):
-                raise ValueError(f"verify_wait_s must be a positive finite number, got {verify_wait!r}")
+                raise ValueError(
+                    f"verify_wait_s must be a positive finite number, got {verify_wait!r}"
+                )
             step = Step(
-                primitive=primitive, args=args, verify=verify, retries=retries,
-                backoff_s=backoff, verify_wait_s=verify_wait,
+                primitive=primitive,
+                args=args,
+                verify=verify,
+                retries=retries,
+                backoff_s=backoff,
+                verify_wait_s=verify_wait,
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise FridayError(f"step {step_id}: malformed plan step: {exc}") from exc
@@ -391,7 +389,10 @@ def run_plan(plan: dict[str, Any], *, run_id: str | None = None) -> PlanResult:
             step_id,
             layer="L3",
             primitive=f"step.{step_id}",
-            args={**step.args, "verify": {"check": step.verify.check, "expect": step.verify.expect}},
+            args={
+                **step.args,
+                "verify": {"check": step.verify.check, "expect": step.verify.expect},
+            },
             result="PENDING",
         )
 
@@ -413,13 +414,22 @@ def run_plan(plan: dict[str, Any], *, run_id: str | None = None) -> PlanResult:
             )
             set_step_id(None)
             result.steps.append(
-                StepResult(step_id=step_id, primitive=step.primitive, status="ABORTED", attempts=0, error=str(exc))
+                StepResult(
+                    step_id=step_id,
+                    primitive=step.primitive,
+                    status="ABORTED",
+                    attempts=0,
+                    error=str(exc),
+                )
             )
             result.status = "ABORTED"
             _step_emit(
                 step_id,
-                layer="L3", primitive=f"step.{step_id}",
-                result="ABORT", exception=str(exc), extra={"reason": "unresolvable step"},
+                layer="L3",
+                primitive=f"step.{step_id}",
+                result="ABORT",
+                exception=str(exc),
+                extra={"reason": "unresolvable step"},
             )
             raise FridayError(f"plan aborted at step {step_id}: {exc}") from exc
         try:
@@ -429,13 +439,22 @@ def run_plan(plan: dict[str, Any], *, run_id: str | None = None) -> PlanResult:
             # static), not a missing primitive - no capability-gap record.
             set_step_id(None)
             result.steps.append(
-                StepResult(step_id=step_id, primitive=step.primitive, status="ABORTED", attempts=0, error=str(exc))
+                StepResult(
+                    step_id=step_id,
+                    primitive=step.primitive,
+                    status="ABORTED",
+                    attempts=0,
+                    error=str(exc),
+                )
             )
             result.status = "ABORTED"
             _step_emit(
                 step_id,
-                layer="L3", primitive=f"step.{step_id}",
-                result="ABORT", exception=str(exc), extra={"reason": "unresolvable step"},
+                layer="L3",
+                primitive=f"step.{step_id}",
+                result="ABORT",
+                exception=str(exc),
+                extra={"reason": "unresolvable step"},
             )
             raise FridayError(f"plan aborted at step {step_id}: {exc}") from exc
 
@@ -476,7 +495,9 @@ def run_plan(plan: dict[str, Any], *, run_id: str | None = None) -> PlanResult:
                 # an internal primitive bug must stay maximally loud,
                 # never silently retried into an endless loop.
                 error = f"{type(exc).__name__}: {exc}"
-                emit_event(layer="L3", primitive=f"step.{step_id}", exception=error, result="FAILED")
+                emit_event(
+                    layer="L3", primitive=f"step.{step_id}", exception=error, result="FAILED"
+                )
             finally:
                 set_step_id(None)
 
@@ -516,7 +537,11 @@ def run_plan(plan: dict[str, Any], *, run_id: str | None = None) -> PlanResult:
                 layer="L3",
                 primitive=f"step.{step_id}",
                 result="RETRY",
-                extra={"attempt": attempts, "backoff_s": step.backoff_s, "verify_actual": str(verify_actual)},
+                extra={
+                    "attempt": attempts,
+                    "backoff_s": step.backoff_s,
+                    "verify_actual": str(verify_actual),
+                },
             )
             time.sleep(step.backoff_s)
 
@@ -548,12 +573,27 @@ def run_plan(plan: dict[str, Any], *, run_id: str | None = None) -> PlanResult:
             )
             result.status = "ABORTED"
             result.steps.append(
-                StepResult(step_id=step_id, primitive=step.primitive, status="ABORTED", attempts=attempts, verify_actual=verify_actual, error=msg)
+                StepResult(
+                    step_id=step_id,
+                    primitive=step.primitive,
+                    status="ABORTED",
+                    attempts=attempts,
+                    verify_actual=verify_actual,
+                    error=msg,
+                )
             )
             raise FridayError(f"plan aborted at step {step_id}: {msg}")
 
         result.steps.append(
-            StepResult(step_id=step_id, primitive=step.primitive, status=step_status, attempts=attempts, verify_actual=verify_actual, error=error, result=return_value)
+            StepResult(
+                step_id=step_id,
+                primitive=step.primitive,
+                status=step_status,
+                attempts=attempts,
+                verify_actual=verify_actual,
+                error=error,
+                result=return_value,
+            )
         )
 
     emit_event(layer="L3", primitive="plan", result="COMPLETED", extra={"steps": len(result.steps)})
@@ -561,4 +601,4 @@ def run_plan(plan: dict[str, Any], *, run_id: str | None = None) -> PlanResult:
 
 
 def load_plan(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text())
+    return cast(dict[str, Any], json.loads(path.read_text()))

@@ -4,6 +4,17 @@ logs/
 __pycache__/
 *.pyc
 .pytest_cache/
+*.egg-info/
 
 # agent session worktree (nested git repo) - never commit
 .claude/
+
+# LIVE CREDENTIALS - never commit. The OAuth setup scripts
+# (gates/_gmail_oauth_setup.py, gates/_calendar_oauth_setup.py) read this
+# as their INPUT (the downloaded Google OAuth client file); the runtime
+# primitives read env vars or the pass store, never this file. It was
+# found un-ignored (and mis-documented as gitignored) 2026-08-17 - a
+# single `git add .` would have committed real Google client secrets +
+# refresh tokens, a Telegram bot token, a WhatsApp API token and a
+# Discord bot token.
+config/credentials.json

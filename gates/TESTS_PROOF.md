@@ -1,6 +1,6 @@
 # TESTS_PROOF — automated test suite for Friday
 
-Status date: 2026-08-15T05:31:23+00:00.
+Status date: 2026-08-17T18:39:00+00:00.
 
 The full unittest suite over every layer and feature: registry,
 observability (redaction / rotation / log_transform), the executor
@@ -12,7 +12,7 @@ never sends, launches, clicks or touches the compositor.
 
 ## Verdict: PASS
 
-Ran 535 tests: 535 passed, 0 failed, 0 errors.
+Ran 537 tests: 537 passed, 0 failed, 0 errors.
 
 ## Raw output
 
@@ -493,6 +493,10 @@ test_rotation_preserves_order_and_drops_oldest (test_observability.TestRotation.
 test_emitted_lines_use_reset_run_id (test_observability.TestRunIdLifecycle.test_emitted_lines_use_reset_run_id) ... ok
 test_reset_restores_process_default (test_observability.TestRunIdLifecycle.test_reset_restores_process_default) ... ok
 test_set_run_id_none_generates_fresh (test_observability.TestRunIdLifecycle.test_set_run_id_none_generates_fresh) ... ok
+test_all_registered_primitives_in_catalog (test_planner.TestCatalog.test_all_registered_primitives_in_catalog)
+REGRESSION guard: every contract-registered primitive must be ... ok
+test_calendar_and_screenshot_are_planable (test_planner.TestCatalog.test_calendar_and_screenshot_are_planable)
+REGRESSION test for calendar and screenshot modules. ... ok
 test_discovery_finds_new_module_files (test_planner.TestCatalog.test_discovery_finds_new_module_files)
 REGRESSION (2026-08-13, found live by cycle 2): the default base ... ok
 test_discovery_honors_friday_l1_dir_override (test_planner.TestCatalog.test_discovery_honors_friday_l1_dir_override) ... ok
@@ -659,7 +663,7 @@ test_bare_name_becomes_class (test_window.TestSelectorNormalization.test_bare_na
 test_explicit_prefix_passthrough (test_window.TestSelectorNormalization.test_explicit_prefix_passthrough) ... ok
 
 ----------------------------------------------------------------------
-Ran 535 tests in 19.970s
+Ran 537 tests in 29.299s
 
 OK
 ```

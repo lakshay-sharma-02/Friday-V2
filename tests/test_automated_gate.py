@@ -11,7 +11,6 @@ import os
 import unittest
 from pathlib import Path
 
-from friday import automated_gate
 from friday.automated_gate import (
     ALLOWED_IMPORTS,
     _build_probe_family,
@@ -36,7 +35,7 @@ CLEAN_IMPL = (
     "def clean_prim(name: str, directory: str | None = None) -> str:\n"
     '    """Resolve name under directory."""\n'
     '    base = directory or "."\n'
-    "    return base + \"/\" + name\n"
+    '    return base + "/" + name\n'
 )
 
 # The real L1 convention since 2026-08-14: a draft impl MUST carry the
@@ -45,8 +44,8 @@ CLEAN_IMPL = (
 # Every fixture that runs through the full gate uses this prefix.
 CONTRACT_PREFIX = (
     "from friday.contracts import Idempotency, contract\n"
-    "@contract(precondition=\"p\", postcondition=\"q\",\n"
-    "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"str\")\n"
+    '@contract(precondition="p", postcondition="q",\n'
+    '          idempotency=Idempotency.IDEMPOTENT, failure_mode="f", returns="str")\n'
 )
 
 BAD_IMPORTS = [
@@ -58,12 +57,11 @@ DANGER_IMPLS = [
     'def f():\n    exec("x = 1")\n',
     'def f():\n    eval("1 + 1")\n',
     'def f():\n    __import__("os")\n',
-    "import subprocess\n\ndef f():\n    subprocess.run([\"ls\"])\n",
-    "import os\n\ndef f():\n    os.system(\"ls\")\n",
+    'import subprocess\n\ndef f():\n    subprocess.run(["ls"])\n',
+    'import os\n\ndef f():\n    os.system("ls")\n',
 ]
 DEAD_ARG_IMPL = (
-    "def bad_prim(name: str, directory: str | None = None) -> str:\n"
-    '    return "/fixed/path"\n'
+    'def bad_prim(name: str, directory: str | None = None) -> str:\n    return "/fixed/path"\n'
 )
 
 
@@ -85,8 +83,10 @@ class TestImportAllowlist(EnvTestCase):
                 elif isinstance(node, ast.ImportFrom):
                     observed.add((node.module or "").split(".")[0])
         self.assertTrue(observed, "no imports observed in friday/l1?")
-        self.assertTrue(observed <= ALLOWED_IMPORTS,
-                        f"shipped primitives import outside the allowlist: {observed - ALLOWED_IMPORTS}")
+        self.assertTrue(
+            observed <= ALLOWED_IMPORTS,
+            f"shipped primitives import outside the allowlist: {observed - ALLOWED_IMPORTS}",
+        )
 
     def test_unseen_import_rejected(self):
         for src in BAD_IMPORTS:
@@ -131,19 +131,11 @@ class TestDangerChecks(EnvTestCase):
         self.assertEqual(check_danger(src), [], src)
 
     def test_run_without_capture_output_rejected(self):
-        src = (
-            "import subprocess\n"
-            "def f():\n"
-            '    subprocess.run(["ls"])\n'
-        )
+        src = 'import subprocess\ndef f():\n    subprocess.run(["ls"])\n'
         self.assertTrue(check_danger(src), src)
 
     def test_run_without_timeout_rejected(self):
-        src = (
-            "import subprocess\n"
-            "def f():\n"
-            '    subprocess.run(["ls"], capture_output=True)\n'
-        )
+        src = 'import subprocess\ndef f():\n    subprocess.run(["ls"], capture_output=True)\n'
         self.assertTrue(check_danger(src), src)
 
     def test_run_with_shell_true_rejected(self):
@@ -172,10 +164,10 @@ class TestDangerChecks(EnvTestCase):
 
     def test_check_output_and_popen_still_rejected(self):
         for src in (
-            "import subprocess\ndef f():\n    subprocess.check_output([\"wl-paste\"])\n",
-            "import subprocess\ndef f():\n    subprocess.Popen([\"wl-paste\"], capture_output=True)\n",
-            "import subprocess\ndef f():\n    subprocess.call([\"ls\"])\n",
-            "import subprocess\ndef f():\n    subprocess.check_call([\"ls\"])\n",
+            'import subprocess\ndef f():\n    subprocess.check_output(["wl-paste"])\n',
+            'import subprocess\ndef f():\n    subprocess.Popen(["wl-paste"], capture_output=True)\n',
+            'import subprocess\ndef f():\n    subprocess.call(["ls"])\n',
+            'import subprocess\ndef f():\n    subprocess.check_call(["ls"])\n',
         ):
             self.assertTrue(check_danger(src), f"not flagged: {src!r}")
 
@@ -382,7 +374,7 @@ class TestSandbox(EnvTestCase):
             "from friday.l1.files import find_file_exact\n"
             "class T(unittest.TestCase):\n"
             "    def test_draft(self):\n"
-            "        self.assertEqual(find_file_exact(\"x\"), \"DRAFT_RAN\")\n",
+            '        self.assertEqual(find_file_exact("x"), "DRAFT_RAN")\n',
             "files.find_file_exact",
         )
         ok, summary = run_sandbox_test(impl, test, "files.find_file_exact", timeout_s=30)
@@ -403,7 +395,7 @@ class TestSandbox(EnvTestCase):
             "from friday.l1 import files\n"
             "class T(unittest.TestCase):\n"
             "    def test_draft(self):\n"
-            "        self.assertEqual(files.find_file_exact(\"x\"), \"PACKAGE_STYLE_RAN\")\n",
+            '        self.assertEqual(files.find_file_exact("x"), "PACKAGE_STYLE_RAN")\n',
             "files.find_file_exact",
         )
         ok, summary = run_sandbox_test(impl, test, "files.find_file_exact", timeout_s=30)
@@ -450,7 +442,7 @@ class TestFsScope(EnvTestCase):
 
     def test_path_join_traversal_rejected(self):
         src = (
-            'def f():\n'
+            "def f():\n"
             '    Path("a") / ".." / "x"\n'
             '    Path("a") / "../x"\n'
             '    (Path("a") / ".." / "x").write_text("y")\n'
@@ -491,19 +483,20 @@ class TestEnvSanitization(EnvTestCase):
         os.environ["WHATSAPP_ACCESS_TOKEN"] = "w-secret"
         os.environ["FRIDAY_ALLOW_DANGEROUS"] = "1"
         os.environ["FRIDAY_LOG_FILE"] = "/real/log.jsonl"
-        sandbox = Path("/tmp/sandbox")
+        sandbox = self.mktmp(prefix="friday_sandbox_")
         env = _sanitized_env(sandbox)
         # credential-bearing and gate-flag vars are STRIPPED entirely...
         for key in ("WHATSAPP_ACCESS_TOKEN", "FRIDAY_ALLOW_DANGEROUS"):
             self.assertNotIn(key, env, key)
         # ...while FRIDAY_* logging/triage vars are REDIRECTED to the sandbox
-        self.assertEqual(env["FRIDAY_LOG_FILE"], "/tmp/sandbox/log.jsonl")
-        self.assertEqual(env["FRIDAY_GAPS_FILE"], "/tmp/sandbox/gaps.jsonl")
-        self.assertEqual(env["HOME"], "/tmp/sandbox")
+        self.assertEqual(env["FRIDAY_LOG_FILE"], str(sandbox / "log.jsonl"))
+        self.assertEqual(env["FRIDAY_GAPS_FILE"], str(sandbox / "gaps.jsonl"))
+        self.assertEqual(env["HOME"], str(sandbox))
         # tempfile inside the sandbox must land in the sandbox, never the
-        # real /tmp (mkstemp/NamedTemporaryFile are not statically catchable)
+        # real OS temp dir (mkstemp/NamedTemporaryFile are not statically
+        # catchable)
         for k in ("TMPDIR", "TMP", "TEMP"):
-            self.assertEqual(env[k], "/tmp/sandbox", k)
+            self.assertEqual(env[k], str(sandbox), k)
 
 
 class TestBuildVerify(EnvTestCase):
@@ -653,7 +646,8 @@ class TestBuildVerify(EnvTestCase):
     def _write_proposal(self, impl: str, test: str) -> Path:
         d = self.mktmp(prefix="friday_gate_")
         (d / "contract.json").write_text(
-            __import__("json").dumps(self.WRITE_CONTRACT), encoding="utf-8")
+            __import__("json").dumps(self.WRITE_CONTRACT), encoding="utf-8"
+        )
         (d / "impl.py").write_text(impl, encoding="utf-8")
         (d / "test.py").write_text(test, encoding="utf-8")
         (d / "rationale.md").write_text("# rationale\n", encoding="utf-8")
@@ -678,9 +672,13 @@ class TestBuildVerify(EnvTestCase):
             "self.assertEqual(Path(p).read_text(), 'hello')"
         )
         d = self._write_proposal(self.GOOD_WRITE_IMPL, test)
-        ok, lines = run_automated_gate(d, contract=self.WRITE_CONTRACT, impl_src=self.GOOD_WRITE_IMPL)
+        ok, lines = run_automated_gate(
+            d, contract=self.WRITE_CONTRACT, impl_src=self.GOOD_WRITE_IMPL
+        )
         self.assertTrue(ok, lines)
-        self.assertTrue(any("build-verify: PASS" in l and "write probes" in l for l in lines), lines)
+        self.assertTrue(
+            any("build-verify: PASS" in l and "write probes" in l for l in lines), lines
+        )
 
     def test_write_draft_that_appends_when_it_should_overwrite_is_caught(self):
         """The draft's own test passes (writes once, checks content) but the
@@ -739,7 +737,9 @@ class TestBuildVerify(EnvTestCase):
         d = self._write_proposal(impl, test)
         ok, lines = run_automated_gate(d, contract=self.WRITE_CONTRACT, impl_src=impl)
         self.assertTrue(ok, lines)
-        self.assertTrue(any("build-verify: PASS" in l and "write probes" in l for l in lines), lines)
+        self.assertTrue(
+            any("build-verify: PASS" in l and "write probes" in l for l in lines), lines
+        )
 
     def test_not_applicable_class_is_honestly_flagged(self):
         """demo.adder has no safe real target - the gate does NOT pretend it
@@ -770,7 +770,9 @@ class TestBuildVerify(EnvTestCase):
         (d / "rationale.md").write_text("# rationale\n", encoding="utf-8")
         ok, lines = run_automated_gate(d, contract=contract, impl_src=impl)
         self.assertTrue(ok, lines)
-        self.assertTrue(any("NOT APPLICABLE" in l and "human review required" in l for l in lines), lines)
+        self.assertTrue(
+            any("NOT APPLICABLE" in l and "human review required" in l for l in lines), lines
+        )
         rationale = (d / "rationale.md").read_text(encoding="utf-8")
         self.assertIn("NOT APPLICABLE", rationale)
 
@@ -806,7 +808,9 @@ class TestContractAwareChecks(EnvTestCase):
         issues = check_contract_decorator(src, "read_text")
         self.assertTrue(any("not decorated with @contract" in i for i in issues), issues)
         # and it surfaces through the full AST pass when the contract is passed
-        self.assertTrue(any("@contract" in i for i in check_impl_ast(src, "read_text", self.CONTRACT)))
+        self.assertTrue(
+            any("@contract" in i for i in check_impl_ast(src, "read_text", self.CONTRACT))
+        )
 
     def test_decorated_impl_clean(self):
         src = CONTRACT_PREFIX + "def read_text() -> str:\n    return ''\n"
@@ -818,8 +822,8 @@ class TestContractAwareChecks(EnvTestCase):
         at import, so the primitive dies before the executor ever sees it."""
         src = (
             "from friday.contracts import Idempotency, contract\n"
-            "@contract(precondition=\"p\", postcondition=\"q\",\n"
-            "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"str\")\n"
+            '@contract(precondition="p", postcondition="q",\n'
+            '          idempotency=Idempotency.IDEMPOTENT, failure_mode="f", returns="str")\n'
             "def read_text() -> str:\n"
             "    return ''\n"
         )
@@ -839,8 +843,8 @@ class TestContractAwareChecks(EnvTestCase):
         keys on FridayError and cannot classify a bare builtin."""
         src = (
             "from friday.contracts import Idempotency, contract\n"
-            "@contract(precondition=\"p\", postcondition=\"q\",\n"
-            "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"str\")\n"
+            '@contract(precondition="p", postcondition="q",\n'
+            '          idempotency=Idempotency.IDEMPOTENT, failure_mode="f", returns="str")\n'
             "def read_text() -> str:\n"
             "    raise RuntimeError('tool failed')\n"
         )
@@ -852,8 +856,8 @@ class TestContractAwareChecks(EnvTestCase):
         src = (
             "from friday.contracts import Idempotency, contract\n"
             "from friday.errors import PrimitiveError\n"
-            "@contract(precondition=\"p\", postcondition=\"q\",\n"
-            "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"str\")\n"
+            '@contract(precondition="p", postcondition="q",\n'
+            '          idempotency=Idempotency.IDEMPOTENT, failure_mode="f", returns="str")\n'
             "def read_text() -> str:\n"
             "    raise PrimitiveError('tool failed')\n"
         )
@@ -865,8 +869,8 @@ class TestContractAwareChecks(EnvTestCase):
         flagged (the check is about raise STATEMENTS, not propagation)."""
         src = (
             "from friday.contracts import Idempotency, contract\n"
-            "@contract(precondition=\"p\", postcondition=\"q\",\n"
-            "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"str\")\n"
+            '@contract(precondition="p", postcondition="q",\n'
+            '          idempotency=Idempotency.IDEMPOTENT, failure_mode="f", returns="str")\n'
             "def write_text(path: str, text: str) -> str:\n"
             "    with open(path, 'w') as f:\n"
             "        f.write(text)\n"
@@ -880,8 +884,8 @@ class TestContractAwareChecks(EnvTestCase):
         contract = dict(self.CONTRACT, failure_mode="ValueError when the tool is missing.")
         src = (
             "from friday.contracts import Idempotency, contract\n"
-            "@contract(precondition=\"p\", postcondition=\"q\",\n"
-            "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"str\")\n"
+            '@contract(precondition="p", postcondition="q",\n'
+            '          idempotency=Idempotency.IDEMPOTENT, failure_mode="f", returns="str")\n'
             "def read_text() -> str:\n"
             "    raise ValueError('missing')\n"
         )
@@ -919,8 +923,8 @@ class TestRegistrationCheck(EnvTestCase):
         raises NameError before REGISTRY is even consulted."""
         impl = (
             "from friday.contracts import Idempotency, contract\n"
-            "@contract(precondition=\"p\", postcondition=\"q\",\n"
-            "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"str\",\n"
+            '@contract(precondition="p", postcondition="q",\n'
+            '          idempotency=Idempotency.IDEMPOTENT, failure_mode="f", returns="str",\n'
             "          log_transform=_log_redact_clipboard_meta)\n"
             "def read_text() -> str:\n"
             "    return ''\n"
@@ -967,10 +971,8 @@ class TestSubreadBuildVerify(EnvTestCase):
         return d
 
     GOOD_IMPL = (
-        "import subprocess\n"
-        + CONTRACT_PREFIX
-        + "def read_text() -> str:\n"
-        "    p = subprocess.run([\"wl-paste\"], capture_output=True, timeout=5)\n"
+        "import subprocess\n" + CONTRACT_PREFIX + "def read_text() -> str:\n"
+        '    p = subprocess.run(["wl-paste"], capture_output=True, timeout=5)\n'
         "    if p.returncode != 0:\n"
         "        raise PrimitiveError(f'clipboard tool failed: {p.stderr}')\n"
         "    return p.stdout.decode('utf-8', 'replace').strip()\n"
@@ -984,11 +986,11 @@ class TestSubreadBuildVerify(EnvTestCase):
             "import subprocess\n"
             "from friday.contracts import Idempotency, contract\n"
             "from friday.errors import PrimitiveError\n"
-            "@contract(precondition=\"A clipboard tool is available.\", postcondition=\"Returns the clipboard text.\",\n"
-            "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"PrimitiveError when the clipboard tool fails.\", returns=\"str\")\n"
+            '@contract(precondition="A clipboard tool is available.", postcondition="Returns the clipboard text.",\n'
+            '          idempotency=Idempotency.IDEMPOTENT, failure_mode="PrimitiveError when the clipboard tool fails.", returns="str")\n'
             "def read_text() -> str:\n"
             "    try:\n"
-            "        p = subprocess.run([\"wl-paste\"], capture_output=True, timeout=5)\n"
+            '        p = subprocess.run(["wl-paste"], capture_output=True, timeout=5)\n'
             "    except (TimeoutError, FileNotFoundError) as exc:\n"
             "        raise PrimitiveError(f'clipboard read failed: {exc}')\n"
             "    if p.returncode != 0:\n"
@@ -1007,10 +1009,10 @@ class TestSubreadBuildVerify(EnvTestCase):
         impl = (
             "import subprocess\n"
             "from friday.contracts import Idempotency, contract\n"
-            "@contract(precondition=\"p\", postcondition=\"q\",\n"
-            "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"str\")\n"
+            '@contract(precondition="p", postcondition="q",\n'
+            '          idempotency=Idempotency.IDEMPOTENT, failure_mode="f", returns="str")\n'
             "def read_text() -> str:\n"
-            "    p = subprocess.run([\"wl-paste\"], capture_output=True, timeout=5)\n"
+            '    p = subprocess.run(["wl-paste"], capture_output=True, timeout=5)\n'
             "    if p.returncode != 0:\n"
             "        raise RuntimeError('tool failed')\n"
             "    return p.stdout.decode()\n"
@@ -1077,7 +1079,9 @@ class TestRunAutomatedGate(EnvTestCase):
             self._good_test(),
             self.GOOD_CONTRACT,
         )
-        ok, lines = run_automated_gate(d, contract=self.GOOD_CONTRACT, impl_src=(d / "impl.py").read_text())
+        ok, lines = run_automated_gate(
+            d, contract=self.GOOD_CONTRACT, impl_src=(d / "impl.py").read_text()
+        )
         self.assertTrue(ok, lines)
         rationale = (d / "rationale.md").read_text(encoding="utf-8")
         self.assertIn("Automated gate", rationale)
@@ -1090,7 +1094,9 @@ class TestRunAutomatedGate(EnvTestCase):
             self._good_test(),
             self.GOOD_CONTRACT,
         )
-        ok, lines = run_automated_gate(d, contract=self.GOOD_CONTRACT, impl_src=(d / "impl.py").read_text())
+        ok, lines = run_automated_gate(
+            d, contract=self.GOOD_CONTRACT, impl_src=(d / "impl.py").read_text()
+        )
         self.assertFalse(ok)
         self.assertTrue(any("AST REJECT" in l for l in lines), lines)
         rationale = (d / "rationale.md").read_text(encoding="utf-8")
@@ -1102,7 +1108,9 @@ class TestRunAutomatedGate(EnvTestCase):
             self._good_test(),
             self.GOOD_CONTRACT,
         )
-        ok, lines = run_automated_gate(d, contract=self.GOOD_CONTRACT, impl_src=(d / "impl.py").read_text())
+        ok, lines = run_automated_gate(
+            d, contract=self.GOOD_CONTRACT, impl_src=(d / "impl.py").read_text()
+        )
         self.assertFalse(ok)
         self.assertTrue(any("never used" in l for l in lines), lines)
 
@@ -1122,7 +1130,9 @@ class TestRunAutomatedGate(EnvTestCase):
             "    unittest.main()\n",
             self.GOOD_CONTRACT,
         )
-        ok, lines = run_automated_gate(d, contract=self.GOOD_CONTRACT, impl_src=(d / "impl.py").read_text())
+        ok, lines = run_automated_gate(
+            d, contract=self.GOOD_CONTRACT, impl_src=(d / "impl.py").read_text()
+        )
         self.assertFalse(ok)
         self.assertTrue(any("test.py AST REJECT" in l for l in lines), lines)
         self.assertTrue(any("os.system" in l for l in lines), lines)
@@ -1142,7 +1152,9 @@ class TestRunAutomatedGate(EnvTestCase):
             "    unittest.main()\n",
             self.GOOD_CONTRACT,
         )
-        ok, lines = run_automated_gate(d, contract=self.GOOD_CONTRACT, impl_src=(d / "impl.py").read_text())
+        ok, lines = run_automated_gate(
+            d, contract=self.GOOD_CONTRACT, impl_src=(d / "impl.py").read_text()
+        )
         self.assertFalse(ok)
         self.assertTrue(any("outside the sandbox" in l for l in lines), lines)
 
@@ -1163,7 +1175,9 @@ class TestRunAutomatedGate(EnvTestCase):
             "    unittest.main()\n",
             self.GOOD_CONTRACT,
         )
-        ok, lines = run_automated_gate(d, contract=self.GOOD_CONTRACT, impl_src=(d / "impl.py").read_text())
+        ok, lines = run_automated_gate(
+            d, contract=self.GOOD_CONTRACT, impl_src=(d / "impl.py").read_text()
+        )
         self.assertTrue(ok, lines)
 
 

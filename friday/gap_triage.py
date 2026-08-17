@@ -73,11 +73,12 @@ Run:  ./.venv/bin/python -m friday.gap_triage [--limit N]
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -93,6 +94,7 @@ def _proposals_root() -> Path:
     """FRIDAY_PROPOSALS_DIR overrides the draft location (tests point it at
     a temp dir so they never write into the repo)."""
     return Path(os.environ.get("FRIDAY_PROPOSALS_DIR", str(PROPOSALS)))
+
 
 # A real shipped contract used as the exemplar in every drafting prompt -
 # the schema reference must be the codebase's own, never an invented shape.
@@ -268,14 +270,15 @@ def _self_check(primitive: str, draft: dict[str, Any]) -> list[str]:
     ok, err = validate_contract(contract)
     if not ok:
         issues.append(f"contract: {err}")
-    if isinstance(contract, dict):
-        name = contract.get("name")
-        if isinstance(name, str) and name != primitive:
-            issues.append(
-                f"contract name {name!r} must EXACTLY equal the attempted "
-                f"primitive {primitive!r} - a renamed primitive would never "
-                "solve this gap (the executor will keep refusing the gapped name)"
-            )
+    if not isinstance(contract, dict):
+        return issues
+    name = contract.get("name")
+    if isinstance(name, str) and name != primitive:
+        issues.append(
+            f"contract name {name!r} must EXACTLY equal the attempted "
+            f"primitive {primitive!r} - a renamed primitive would never "
+            "solve this gap (the executor will keep refusing the gapped name)"
+        )
     if issues:
         return issues
     fn_name = contract["name"].partition(".")[2]
@@ -318,7 +321,9 @@ def _triage_model_chain() -> list[str]:
     return chain
 
 
-def draft_one(records: list[dict[str, Any]], attempts: int = 3) -> tuple[dict[str, Any] | None, str]:
+def draft_one(
+    records: list[dict[str, Any]], attempts: int = 3
+) -> tuple[dict[str, Any] | None, str]:
     """One LLM drafting pass over a grouped gap; bounded repair retries.
     After the reply parses, the draft is run through the gate's OWN
     structural checks (_self_check) and the EXACT rejection is fed back as
@@ -428,10 +433,8 @@ def _registered_primitives() -> set[str]:
     from friday.contracts import REGISTRY
     from friday.l4.planner import _ensure_registry
 
-    try:
+    with contextlib.suppress(Exception):
         _ensure_registry()
-    except Exception:
-        pass
     return set(REGISTRY)
 
 
@@ -449,7 +452,7 @@ def write_proposal(primitive: str, records: list[dict[str, Any]], draft: dict[st
     rationale = str(draft["rationale"]).strip() + "\n\n## Draft status\n"
     sc = _self_check(primitive, draft)
     rationale += (
-        f"- generated: {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
+        f"- generated: {datetime.now(UTC).isoformat(timespec='seconds')}\n"
         f"- structural self-check: {'passed' if not sc else 'FAILED - ' + '; '.join(sc)}\n"
         f"- impl compiles: {'yes' if _compiles(impl) else 'no'}\n"
         f"- test compiles: {'yes' if _compiles(test) else 'no'}\n"

@@ -6,6 +6,8 @@ still rejected)."""
 
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
 from unittest import mock
 
@@ -14,22 +16,29 @@ from friday.errors import PreconditionError, PrimitiveError, PrimitiveTimeout
 from friday.l1 import screenshot as shot
 
 
+def _out(name: str = "shot.png") -> str:
+    """A writable output path whose parent exists. The tests must not
+    hardcode /tmp - it does not exist on Windows (the capture()
+    precondition checks the parent dir), so every path is built from a
+    real temp dir."""
+    return os.path.join(tempfile.mkdtemp(prefix="friday_shot_"), name)
+
+
 class TestContract(unittest.TestCase):
     def test_registered_in_registry(self):
         self.assertIn("screenshot.capture", REGISTRY)
-        self.assertEqual(
-            REGISTRY["screenshot.capture"].idempotency, Idempotency.IDEMPOTENT
-        )
+        self.assertEqual(REGISTRY["screenshot.capture"].idempotency, Idempotency.IDEMPOTENT)
 
 
 class TestFullCapture(unittest.TestCase):
     @mock.patch("friday.l1.screenshot.subprocess.run")
     def test_full_uses_literal_grim_argv(self, mock_run):
         mock_run.return_value = mock.Mock(returncode=0, stdout=b"", stderr=b"")
-        out = shot.capture(target="full", output_path="/tmp/shot.png")
-        self.assertEqual(out, "/tmp/shot.png")
+        out_path = _out()
+        out = shot.capture(target="full", output_path=out_path)
+        self.assertEqual(out, out_path)
         mock_run.assert_called_once_with(
-            ["grim", "/tmp/shot.png"], capture_output=True, timeout=shot.DEFAULT_TIMEOUT
+            ["grim", out_path], capture_output=True, timeout=shot.DEFAULT_TIMEOUT
         )
 
     @mock.patch("friday.l1.screenshot.subprocess.run")
@@ -41,13 +50,13 @@ class TestFullCapture(unittest.TestCase):
     def test_grim_failure_raises(self, mock_run):
         mock_run.return_value = mock.Mock(returncode=1, stdout=b"", stderr=b"no display")
         with self.assertRaises(PrimitiveError):
-            shot.capture(output_path="/tmp/shot.png")
+            shot.capture(output_path=_out())
 
     @mock.patch("friday.l1.screenshot.subprocess.run")
     def test_grim_timeout_raises_primitive_timeout(self, mock_run):
         mock_run.side_effect = TimeoutError("grim hung")
         with self.assertRaises(PrimitiveTimeout):
-            shot.capture(output_path="/tmp/shot.png")
+            shot.capture(output_path=_out())
 
     def test_relative_output_path_rejected(self):
         with self.assertRaises(PreconditionError):
@@ -55,27 +64,34 @@ class TestFullCapture(unittest.TestCase):
 
     def test_missing_output_dir_rejected(self):
         with self.assertRaises(PreconditionError):
-            shot.capture(output_path="/no_such_dir_xyz/shot.png")
+            shot.capture(output_path=_out("no_such_dir_xyz/shot.png"))
 
 
 class TestWindowCapture(unittest.TestCase):
     @staticmethod
-    def _client(cls, title, at, size, address="0x1234"):
+    def _client(win_class, title, at, size, address="0x1234"):
         return {
-            "class": cls, "initialClass": cls, "title": title,
-            "initialTitle": title, "at": at, "size": size, "address": address,
+            "class": win_class,
+            "initialClass": win_class,
+            "title": title,
+            "initialTitle": title,
+            "at": at,
+            "size": size,
+            "address": address,
         }
 
     @mock.patch("friday.l1.screenshot.subprocess.run")
     @mock.patch("friday.l1.screenshot._window_geometry", return_value="1,39 1364x728")
     def test_selector_passes_geometry(self, mock_geom, mock_run):
         mock_run.return_value = mock.Mock(returncode=0, stdout=b"", stderr=b"")
-        out = shot.capture(target="kitty", output_path="/tmp/term.png")
+        out_path = _out("term.png")
+        out = shot.capture(target="kitty", output_path=out_path)
         mock_run.assert_called_once_with(
-            ["grim", "-g", "1,39 1364x728", "/tmp/term.png"],
-            capture_output=True, timeout=shot.DEFAULT_TIMEOUT,
+            ["grim", "-g", "1,39 1364x728", out_path],
+            capture_output=True,
+            timeout=shot.DEFAULT_TIMEOUT,
         )
-        self.assertEqual(out, "/tmp/term.png")
+        self.assertEqual(out, out_path)
 
     @mock.patch("friday.l1.window.get_active_window")
     @mock.patch("friday.l1.screenshot.subprocess.run")
@@ -85,23 +101,25 @@ class TestWindowCapture(unittest.TestCase):
         window selector."""
         mock_active.return_value = self._client("kitty", "term", [0, 0], [800, 600])
         mock_run.return_value = mock.Mock(returncode=0, stdout=b"", stderr=b"")
-        out = shot.capture(target="active window", output_path="/tmp/a.png")
+        out_path = _out("a.png")
+        out = shot.capture(target="active window", output_path=out_path)
         mock_run.assert_called_once_with(
-            ["grim", "-g", "0,0 800x600", "/tmp/a.png"],
-            capture_output=True, timeout=shot.DEFAULT_TIMEOUT,
+            ["grim", "-g", "0,0 800x600", out_path],
+            capture_output=True,
+            timeout=shot.DEFAULT_TIMEOUT,
         )
-        self.assertEqual(out, "/tmp/a.png")
+        self.assertEqual(out, out_path)
 
     @mock.patch("friday.l1.window.get_active_window", return_value=None)
     def test_no_active_window_raises_precondition(self, mock_active):
         with self.assertRaises(PreconditionError):
-            shot.capture(target="active", output_path="/tmp/a.png")
+            shot.capture(target="active", output_path=_out("a.png"))
 
     @mock.patch("friday.l1.window.list_clients")
     def test_missing_selector_raises_precondition(self, mock_clients):
         mock_clients.return_value = [self._client("kitty", "term", [0, 0], [800, 600])]
         with self.assertRaises(PreconditionError):
-            shot.capture(target="firefox", output_path="/tmp/x.png")
+            shot.capture(target="firefox", output_path=_out("x.png"))
 
 
 class TestGateCaptureShape(unittest.TestCase):
@@ -138,7 +156,7 @@ class TestGateCaptureShape(unittest.TestCase):
         src = (
             "import subprocess\n"
             "def f(tool: str, out: str) -> str:\n"
-            '    p = subprocess.run([tool, out], capture_output=True, timeout=10)\n'
+            "    p = subprocess.run([tool, out], capture_output=True, timeout=10)\n"
             "    return out\n"
         )
         self.assertTrue(self._check(src))

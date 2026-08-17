@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -85,12 +85,11 @@ def _validate_trigger(t: Any, seen: set[str]) -> None:
         raise FridayError(f"watcher: trigger {tid!r} 'plan' must be a plan object")
     allow = t.get("allow")
     if allow is not None and (
-        not isinstance(allow, list)
-        or not all(isinstance(a, str) and a.strip() for a in allow)
+        not isinstance(allow, list) or not all(isinstance(a, str) and a.strip() for a in allow)
     ):
         raise FridayError(
             f"watcher: trigger {tid!r} 'allow' must be a list of primitive "
-            "patterns like [\"gmail.*\"]"
+            'patterns like ["gmail.*"]'
         )
     sch = t.get("schedule")
     if not isinstance(sch, dict):
@@ -141,9 +140,7 @@ def _time_due(trigger: dict[str, Any], now: datetime, fired_dates: dict[str, str
         if now.weekday() not in enabled:
             return False
     hh, mm = (int(x) for x in sch["at"].split(":"))
-    if now.hour * 60 + now.minute < hh * 60 + mm:
-        return False
-    return True
+    return not now.hour * 60 + now.minute < hh * 60 + mm
 
 
 # Minimum gap between RETRY attempts of a FAILED same-day trigger. A
@@ -184,9 +181,7 @@ def _new_files(trigger: dict[str, Any], seen: set[str]) -> list[str]:
                 if needle in fn.lower()
             ]
         else:
-            matches = [
-                p for p in base.iterdir() if p.is_file() and needle in p.name.lower()
-            ]
+            matches = [p for p in base.iterdir() if p.is_file() and needle in p.name.lower()]
     except OSError:
         return []
     new = [str(p) for p in matches if str(p) not in seen]
@@ -248,8 +243,10 @@ def _save_fired_state(state: dict[str, str]) -> None:
         os.replace(tmp, path)
     except OSError as exc:
         emit_event(
-            layer="WATCH", primitive="fired-state.save",
-            exception=f"could not write {_fired_state_file()}: {exc}", result="FAILED",
+            layer="WATCH",
+            primitive="fired-state.save",
+            exception=f"could not write {_fired_state_file()}: {exc}",
+            result="FAILED",
         )
 
 
@@ -260,7 +257,7 @@ def _record_task(task_id: str, goal: str, ok: bool, detail: dict[str, Any]) -> N
         "task_id": task_id,
         "goal": goal,
         "gate6_passed": ok,
-        "timestamp": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+        "timestamp": datetime.now(UTC).isoformat(timespec="microseconds"),
         "proof": json.dumps(detail, ensure_ascii=False),
     }
     try:
@@ -270,8 +267,10 @@ def _record_task(task_id: str, goal: str, ok: bool, detail: dict[str, Any]) -> N
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
     except OSError as exc:
         emit_event(
-            layer="WATCH", primitive="tasks.record",
-            exception=f"could not write {_tasks_file()}: {exc}", result="FAILED",
+            layer="WATCH",
+            primitive="tasks.record",
+            exception=f"could not write {_tasks_file()}: {exc}",
+            result="FAILED",
         )
 
 
@@ -328,7 +327,8 @@ def _run_trigger(
         allowed = trigger.get("allow")
         if allowed:
             forbidden = [
-                s.get("primitive") for s in plan_dict.get("steps", [])
+                s.get("primitive")
+                for s in plan_dict.get("steps", [])
                 if not _allowed_prim(s.get("primitive"), allowed)
             ]
             if forbidden:
@@ -349,13 +349,18 @@ def _run_trigger(
                             refusal_reason=f"trigger allowlist {allowed}",
                         )
                 detail = {
-                    "trigger": t_id, "status": "REFUSED",
-                    "forbidden": forbidden, "allowed": allowed,
+                    "trigger": t_id,
+                    "status": "REFUSED",
+                    "forbidden": forbidden,
+                    "allowed": allowed,
                 }
                 _record_task(f"watch:{t_id}", goal, False, detail)
                 emit_event(
-                    layer="WATCH", primitive="trigger", args={"id": t_id},
-                    result="FAILED", extra=detail,
+                    layer="WATCH",
+                    primitive="trigger",
+                    args={"id": t_id},
+                    result="FAILED",
+                    extra=detail,
                 )
                 if trigger.get("notify", True):
                     _notify_outcome(t_id, False, detail)
@@ -366,7 +371,12 @@ def _run_trigger(
             "trigger": t_id,
             "status": result.status,
             "steps": [
-                {"step_id": s.step_id, "primitive": s.primitive, "status": s.status, "attempts": s.attempts}
+                {
+                    "step_id": s.step_id,
+                    "primitive": s.primitive,
+                    "status": s.status,
+                    "attempts": s.attempts,
+                }
                 for s in result.steps
             ],
         }
@@ -380,8 +390,11 @@ def _run_trigger(
         plan_cache.pop(goal, None)  # same reason: don't cache a plan that errored
     _record_task(f"watch:{t_id}", goal, ok, detail)
     emit_event(
-        layer="WATCH", primitive="trigger", args={"id": t_id},
-        result="DONE" if ok else "FAILED", extra=detail,
+        layer="WATCH",
+        primitive="trigger",
+        args={"id": t_id},
+        result="DONE" if ok else "FAILED",
+        extra=detail,
     )
     if trigger.get("notify", True):
         _notify_outcome(t_id, ok, detail)
@@ -414,7 +427,9 @@ def _emit_heartbeat(
         gap_count = -1
         pending = -1
     emit_event(
-        layer="WATCH", primitive="daemon.alive", result="ALIVE",
+        layer="WATCH",
+        primitive="daemon.alive",
+        result="ALIVE",
         args={
             "uptime_s": int(time.monotonic() - started),
             "last_trigger": last_trigger_id or "none",
@@ -473,10 +488,15 @@ def run_watcher(
     last_trigger_id: str | None = None
     last_trigger_at: str | None = None
     emit_event(
-        layer="WATCH", primitive="watcher",
-        args={"triggers": [t["id"] for t in enabled], "once": once,
-              "poll_s": poll_s, "heartbeat_s": heartbeat_s,
-              "fired_state_loaded": len(fired_dates)},
+        layer="WATCH",
+        primitive="watcher",
+        args={
+            "triggers": [t["id"] for t in enabled],
+            "once": once,
+            "poll_s": poll_s,
+            "heartbeat_s": heartbeat_s,
+            "fired_state_loaded": len(fired_dates),
+        },
         result="START",
     )
     try:
@@ -485,9 +505,8 @@ def run_watcher(
             for t in enabled:
                 sch = t["schedule"]
                 if sch["type"] == "time":
-                    due = (
-                        _time_due(t, now, fired_dates)
-                        and not _in_retry_backoff(t["id"], last_attempts)
+                    due = _time_due(t, now, fired_dates) and not _in_retry_backoff(
+                        t["id"], last_attempts
                     )
                 else:
                     due = bool(_new_files(t, seen))
@@ -501,7 +520,7 @@ def run_watcher(
                     reset_run_id()
                     last_attempts[t["id"]] = time.monotonic()
                     last_trigger_id = t["id"]
-                    last_trigger_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                    last_trigger_at = datetime.now(UTC).isoformat(timespec="seconds")
                     if ok or detail.get("status") == "REFUSED":
                         # fired-state is recorded on genuine SUCCESS or a
                         # deliberate ALLOWLIST REFUSAL (a refusal IS the safe
@@ -523,9 +542,7 @@ def run_watcher(
                 _emit_heartbeat(started, last_trigger_id, last_trigger_at)
             time.sleep(poll_s)
     except KeyboardInterrupt:
-        emit_event(
-            layer="WATCH", primitive="watcher", result="STOP", extra={"reason": "interrupt"}
-        )
+        emit_event(layer="WATCH", primitive="watcher", result="STOP", extra={"reason": "interrupt"})
         return
     emit_event(layer="WATCH", primitive="watcher", result="STOP")
 
@@ -537,11 +554,16 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--config", default=str(DEFAULT_CONFIG), help="watcher config JSON")
     ap.add_argument("--once", action="store_true", help="fire due triggers once, then exit")
     ap.add_argument("--poll", type=float, default=30.0, help="loop poll interval seconds")
-    ap.add_argument("--heartbeat", type=float, default=None,
-                    help="daemon.alive interval seconds (default: $FRIDAY_HEARTBEAT_S or 120)")
+    ap.add_argument(
+        "--heartbeat",
+        type=float,
+        default=None,
+        help="daemon.alive interval seconds (default: $FRIDAY_HEARTBEAT_S or 120)",
+    )
     args = ap.parse_args(argv)
     heartbeat_s = (
-        args.heartbeat if args.heartbeat is not None
+        args.heartbeat
+        if args.heartbeat is not None
         else float(os.environ.get("FRIDAY_HEARTBEAT_S", "120"))
     )
     run_watcher(args.config, once=args.once, poll_s=args.poll, heartbeat_s=heartbeat_s)

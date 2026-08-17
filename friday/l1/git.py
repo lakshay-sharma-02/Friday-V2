@@ -18,7 +18,6 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
-from typing import Any
 
 from friday.contracts import Idempotency, contract
 from friday.errors import PreconditionError, PrimitiveError
@@ -45,27 +44,41 @@ def _git_log(repo: Path, count: int, days: int | None) -> list[str]:
     legitimate no-commits-in-range result)."""
     fmt = "%h%x1f%an%x1f%ad%x1f%s"
     cmd = [
-        "git", "--no-pager", "-C", str(repo), "log",
-        f"--format={fmt}", "--date=short", "-n", str(count),
+        "git",
+        "--no-pager",
+        "-C",
+        str(repo),
+        "log",
+        f"--format={fmt}",
+        "--date=short",
+        "-n",
+        str(count),
     ]
     if days is not None:
         cmd += ["--since", f"{int(days)} days ago"]
     env = dict(os.environ, LC_ALL="C")
     try:
         proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=GIT_TIMEOUT_S, env=env,
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=GIT_TIMEOUT_S,
+            env=env,
             # decode in the parent locale-robustly: a non-UTF-8 commit
             # subject must be REPLACED, never raise UnicodeDecodeError
             # (which the executor would misread as a caller bug)
-            encoding="utf-8", errors="replace",
+            encoding="utf-8",
+            errors="replace",
         )
     except FileNotFoundError as exc:
         raise PrimitiveError(
-            "git is not installed or not on PATH", state="git binary missing",
+            "git is not installed or not on PATH",
+            state="git binary missing",
         ) from exc
     except subprocess.TimeoutExpired as exc:
         raise PrimitiveError(
-            f"git log did not finish within {GIT_TIMEOUT_S}s", state="git log timed out",
+            f"git log did not finish within {GIT_TIMEOUT_S}s",
+            state="git log timed out",
         ) from exc
     if proc.returncode != 0:
         # An initialized repo with NO commits exits 128 with this specific
@@ -118,10 +131,12 @@ def log(repo_path: str, count: int = 10, days: int | None = None) -> list[dict[s
         parts = line.split("\x1f")
         if len(parts) < 4:
             continue  # defensive: a malformed line is skipped, never fatal
-        out.append({
-            "commit": parts[0],
-            "author": parts[1],
-            "date": parts[2],
-            "subject": "\x1f".join(parts[3:]),
-        })
+        out.append(
+            {
+                "commit": parts[0],
+                "author": parts[1],
+                "date": parts[2],
+                "subject": "\x1f".join(parts[3:]),
+            }
+        )
     return out

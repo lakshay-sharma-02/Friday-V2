@@ -71,6 +71,7 @@ import json
 import os
 import re
 import sys
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -99,7 +100,10 @@ def require_approval(proposal_dir: Path) -> tuple[bool, str]:
     the token APPROVED. Absent/wrong -> (False, reason)."""
     marker = proposal_dir / "APPROVED.md"
     if not marker.is_file():
-        return False, f"no APPROVED.md in {proposal_dir} - the human gate has not signed this proposal"
+        return (
+            False,
+            f"no APPROVED.md in {proposal_dir} - the human gate has not signed this proposal",
+        )
     try:
         text = marker.read_text(encoding="utf-8")
     except OSError as exc:
@@ -119,7 +123,10 @@ def validate_contract(c: Any) -> tuple[bool, str]:
     if missing:
         return False, f"contract missing non-empty field(s): {missing}"
     if c["idempotency"] not in _IDEMPOTENCY_VALUES:
-        return False, f"idempotency must be one of {sorted(_IDEMPOTENCY_VALUES)}, got {c['idempotency']!r}"
+        return (
+            False,
+            f"idempotency must be one of {sorted(_IDEMPOTENCY_VALUES)}, got {c['idempotency']!r}",
+        )
     if not _NAME_RE.match(c["name"]):
         return False, f"contract name must be '<module>.<fn>', got {c['name']!r}"
     for extra in ("redact_result", "log_transform"):
@@ -163,8 +170,11 @@ def _strip_future_import(src: str) -> str:
     drop: list[ast.ImportFrom] = []
     for stmt in tree.body:
         # a leading module docstring is fine before the future import
-        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) \
-                and isinstance(stmt.value.value, str):
+        if (
+            isinstance(stmt, ast.Expr)
+            and isinstance(stmt.value, ast.Constant)
+            and isinstance(stmt.value.value, str)
+        ):
             continue
         if isinstance(stmt, ast.ImportFrom) and stmt.module == "__future__":
             drop.append(stmt)
@@ -183,9 +193,9 @@ def _strip_future_import(src: str) -> str:
             if semi != -1:
                 # lstrip: a leading space before a module-level statement
                 # is an IndentationError
-                lines[stmt.lineno - 1] = line[semi + 1:].lstrip()
+                lines[stmt.lineno - 1] = line[semi + 1 :].lstrip()
                 continue
-        del lines[stmt.lineno - 1: stmt.end_lineno]
+        del lines[stmt.lineno - 1 : stmt.end_lineno]
     return "".join(lines)
 
 
@@ -221,9 +231,9 @@ def register(contract_name: str, impl: str) -> tuple[bool, str]:
 
 
 def _today() -> str:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
 def _annotate_rejection(proposal: Path, reason: str) -> None:
@@ -234,14 +244,13 @@ def _annotate_rejection(proposal: Path, reason: str) -> None:
     gate already annotates its own rejections; this covers the earlier
     contract-schema and impl-syntax stages. Best-effort: a broken write
     never blocks the gate."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     try:
         rationale = proposal / "rationale.md"
         existing = rationale.read_text(encoding="utf-8") if rationale.is_file() else ""
         note = (
-            f"\n## Gate rejection ({datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')})\n"
-            f"{reason}\n"
+            f"\n## Gate rejection ({datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')})\n{reason}\n"
         )
         rationale.write_text(existing.rstrip() + "\n" + note, encoding="utf-8")
     except Exception:
@@ -290,7 +299,8 @@ def approve_and_register(
         # record the failure class as a lesson event (best-effort) - the
         # lessons loop turns rejection clusters into remembered behavior
         record_lesson_event(
-            category="draft_schema", source="register_proposal",
+            category="draft_schema",
+            source="register_proposal",
             detail=f"{contract.get('name', '?') if isinstance(contract, dict) else '?'}: {err}",
             primitive=contract.get("name") if isinstance(contract, dict) else None,
         )
@@ -301,8 +311,10 @@ def approve_and_register(
     if not ok:
         _annotate_rejection(proposal, f"REJECTED: {err}")
         record_lesson_event(
-            category="draft_impl_syntax", source="register_proposal",
-            detail=f"{contract['name']}: {err}", primitive=contract["name"],
+            category="draft_impl_syntax",
+            source="register_proposal",
+            detail=f"{contract['name']}: {err}",
+            primitive=contract["name"],
         )
         return False, f"REJECTED: {err}"
 
@@ -313,7 +325,11 @@ def approve_and_register(
     )
     lines = ["automated gate (AST + sandbox):"] + [f"  {l}" for l in gate_lines]
     if not gate_ok:
-        return False, "REJECTED by the automated gate - never reached the human signature:\n" + "\n".join(lines)
+        return (
+            False,
+            "REJECTED by the automated gate - never reached the human signature:\n"
+            + "\n".join(lines),
+        )
 
     # STAGE 2 - the human signature.
     ok, err = require_approval(proposal)
@@ -323,7 +339,10 @@ def approve_and_register(
     if not ok:
         return False, msg
     verified = verify_registered(contract["name"])
-    lines += [f"registered {contract['name']}: {msg}", f"registry check: {'present' if verified else 'NOT VERIFIED (module not importable here)'}"]
+    lines += [
+        f"registered {contract['name']}: {msg}",
+        f"registry check: {'present' if verified else 'NOT VERIFIED (module not importable here)'}",
+    ]
     if goal:
         try:
             from friday.l3.executor import run_plan
@@ -340,9 +359,17 @@ def approve_and_register(
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Friday capability-gap approval gate (register an approved proposal)")
-    ap.add_argument("--proposal", required=True, help="path to a proposal dir (gates/proposed_primitives/<prim>/")
-    ap.add_argument("--goal", default=None, help="re-run this goal after registration to prove the loop closes")
+    ap = argparse.ArgumentParser(
+        description="Friday capability-gap approval gate (register an approved proposal)"
+    )
+    ap.add_argument(
+        "--proposal",
+        required=True,
+        help="path to a proposal dir (gates/proposed_primitives/<prim>/",
+    )
+    ap.add_argument(
+        "--goal", default=None, help="re-run this goal after registration to prove the loop closes"
+    )
     args = ap.parse_args(argv)
     proposal = Path(args.proposal)
     if not proposal.is_dir():

@@ -5,11 +5,9 @@ line per call), and the pure message_sent validator."""
 from __future__ import annotations
 
 import json
-import os
 import unittest
 from unittest import mock
 
-from friday import observability as obs
 from friday.errors import PrimitiveError
 from friday.l2 import checks
 from tests.helpers import EnvTestCase
@@ -59,7 +57,9 @@ class TestWindowChecks(EnvTestCase):
 
     def setUp(self):
         super().setUp()
-        self._patch = mock.patch.object(checks.window, "list_clients", return_value=list(self.CLIENTS))
+        self._patch = mock.patch.object(
+            checks.window, "list_clients", return_value=list(self.CLIENTS)
+        )
         self._patch.start()
         self.addCleanup(self._patch.stop)
 
@@ -133,7 +133,11 @@ class TestGmailChecks(EnvTestCase):
             self.assertTrue(checks.gmail_unread_exists("a@b"))
 
     def test_gmail_message_matches(self):
-        with mock.patch.object(checks, "gmail_message", return_value={"sender": "Google <no-reply@accounts.google.com>"}):
+        with mock.patch.object(
+            checks,
+            "gmail_message",
+            return_value={"sender": "Google <no-reply@accounts.google.com>"},
+        ):
             self.assertTrue(checks.gmail_message_matches("m1", "accounts.google.com"))
             self.assertFalse(checks.gmail_message_matches("m1", "someone.else"))
 
@@ -145,8 +149,11 @@ class TestGmailChecks(EnvTestCase):
         self.set_env(FRIDAY_LOG_FILE=str(log))
         with mock.patch.object(checks, "gmail_unread", return_value=[]):
             checks.gmail_unread_exists("a@b")
-        n = sum(1 for l in open(log, encoding="utf-8")
-                if json.loads(l).get("primitive") == "checks.gmail_unread_exists")
+        n = sum(
+            1
+            for l in open(log, encoding="utf-8")
+            if json.loads(l).get("primitive") == "checks.gmail_unread_exists"
+        )
         self.assertEqual(n, 1)
 
 

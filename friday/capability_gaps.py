@@ -30,7 +30,8 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import datetime, timezone
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -75,15 +76,18 @@ def record_gap(
 ) -> str:
     """Append one capability-gap record. Returns the gap_id (for tests and
     for the triage's done-tracking). Never raises - best-effort by design."""
-    gap_id = f"{time.time_ns():x}{len(goal_context) % 97:02x}"
+    # time.time_ns() alone is NOT unique on coarse-timer systems (Windows
+    # quantizes it - two rapid record_gap calls collide, so mark_processed
+    # on the first id also marks the second; found live 2026-08-17 when the
+    # suite's heartbeat test flaked on this machine). The ns prefix keeps
+    # the id roughly time-ordered; the uuid suffix guarantees uniqueness.
+    gap_id = f"{time.time_ns():x}{uuid.uuid4().hex[:8]}"
     rec: dict[str, Any] = {
         "gap_id": gap_id,
-        "timestamp": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+        "timestamp": datetime.now(UTC).isoformat(timespec="microseconds"),
         "source": source,
         "attempted_primitive": attempted_primitive,
-        "attempted_args_shape": {
-            k: _type_tag(v) for k, v in (attempted_args or {}).items()
-        },
+        "attempted_args_shape": {k: _type_tag(v) for k, v in (attempted_args or {}).items()},
         "goal_context": goal_context,
         "refusal_reason": refusal_reason,
     }

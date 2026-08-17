@@ -33,7 +33,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from friday.contracts import EXECUTOR_BLOCKED, REGISTRY
 from friday.errors import FridayError
@@ -53,7 +53,7 @@ DEFAULT_FILE_PATHS: dict[str, str] = {
 }
 DEFAULT_RECIPIENTS: dict[str, str] = {}
 DEFAULT_FACTS: list[str] = [
-    "firefox launches via window.open_app(\"firefox\").",
+    'firefox launches via window.open_app("firefox").',
 ]
 
 
@@ -198,8 +198,7 @@ def _substitute_facts_refs(value: Any, project: ProjectFacts) -> Any:
             return project.recipients[name]
         known = sorted(set(project.file_paths) | set(project.recipients))
         raise FridayError(
-            f"$facts.{name} is not a configured name "
-            f"(known names: {', '.join(known) or 'none'})"
+            f"$facts.{name} is not a configured name (known names: {', '.join(known) or 'none'})"
         )
 
     return _FACTS_REF.sub(repl, value)
@@ -224,7 +223,23 @@ def _has_unresolved_facts_ref(value: Any) -> bool:
 # The tuple is the FALLBACK; _discover_l1_modules() prefers scanning the
 # friday/l1/ directory so a primitive registered through the capability-gap
 # gate becomes planable WITHOUT editing this list.
-_L1_MODULES = ("window", "media", "browser", "dev", "digestcheck", "files", "git", "calendar", "clipboard", "screenshot", "whatsapp", "telegram", "discord", "gmail", "notify")
+_L1_MODULES = (
+    "window",
+    "media",
+    "browser",
+    "dev",
+    "digestcheck",
+    "files",
+    "git",
+    "calendar",
+    "clipboard",
+    "screenshot",
+    "whatsapp",
+    "telegram",
+    "discord",
+    "gmail",
+    "notify",
+)
 
 DEFAULT_ATTEMPTS = 3
 DEFAULT_TIMEOUT_S = 300
@@ -265,7 +280,7 @@ def _ensure_registry() -> None:
 
 
 def _checks() -> dict[str, Any]:
-    import friday.l2.checks as checks
+    from friday.l2 import checks
 
     return {
         n: getattr(checks, n)
@@ -313,9 +328,7 @@ def build_catalog() -> str:
         fn = getattr(importlib.import_module(f"friday.l1.{mod_name}"), fn_name)
         doc = inspect.getdoc(fn) or ""
         summary = doc.split(".")[0].strip() if doc else ""
-        lines.append(
-            f"- {qualified}{_sig(fn)}  [idempotency={c.idempotency.value}]"
-        )
+        lines.append(f"- {qualified}{_sig(fn)}  [idempotency={c.idempotency.value}]")
         if summary:
             lines.append(f"    {summary}.")
         if c.returns:
@@ -345,12 +358,14 @@ def build_prompt(
     defaults if absent)."""
     catalog = build_catalog()
     project = _resolve_project(facts, file_paths, recipients)
-    paths_rendered = "\n".join(
-        f"- {name}: {path}" for name, path in sorted(project.file_paths.items())
-    ) or "  (none configured)"
-    recipients_rendered = "\n".join(
-        f"- {name}: {value}" for name, value in sorted(project.recipients.items())
-    ) or "  (none configured - senders default to the credential recipient)"
+    paths_rendered = (
+        "\n".join(f"- {name}: {path}" for name, path in sorted(project.file_paths.items()))
+        or "  (none configured)"
+    )
+    recipients_rendered = (
+        "\n".join(f"- {name}: {value}" for name, value in sorted(project.recipients.items()))
+        or "  (none configured - senders default to the credential recipient)"
+    )
     facts_rendered = "\n".join(f"- {f}" for f in project.facts) or "  (none configured)"
     # the bounded, human-approved KNOWN MISTAKES block for planning (""
     # when none approved) - approved lessons shape the next plan, they
@@ -636,8 +651,7 @@ def validate_plan(plan: dict[str, Any]) -> tuple[bool, str]:
             return False, f"step {i}: unknown or unregistered primitive {primitive!r}"
         if primitive in EXECUTOR_BLOCKED:
             return False, (
-                f"step {i}: primitive {primitive!r} is blocked from execution "
-                "(EXECUTOR_BLOCKED)"
+                f"step {i}: primitive {primitive!r} is blocked from execution (EXECUTOR_BLOCKED)"
             )
         args = raw.get("args")
         if args is not None and not isinstance(args, dict):
@@ -658,12 +672,12 @@ def validate_plan(plan: dict[str, Any]) -> tuple[bool, str]:
         mod_name, _, fn_name = primitive.partition(".")
         fn = getattr(importlib.import_module(f"friday.l1.{mod_name}"), fn_name)
         if (psig := _signature(fn)) is not None:
-            for key in (args or {}):
+            for key in args or {}:
                 if key not in psig.parameters:
                     return False, f"step {i}: primitive {primitive} does not accept arg {key!r}"
         check_fn = checks[bare]
         if (csig := _signature(check_fn)) is not None:
-            for key in (v.get("args") or {}):
+            for key in v.get("args") or {}:
                 if key not in csig.parameters:
                     return False, f"step {i}: check {check!r} does not accept arg {key!r}"
         if "retries" in raw:
@@ -671,7 +685,7 @@ def validate_plan(plan: dict[str, Any]) -> tuple[bool, str]:
                 int(raw["retries"])
             except (TypeError, ValueError):
                 return False, f"step {i}: 'retries' must be an integer"
-        for field in ("backoff_s", "verify_wait_s"):
+        for opt in ("backoff_s", "verify_wait_s"):
             # Accepted at the step level (canonical) or nested inside
             # 'verify' - the LLM has emitted both; they mean the same
             # thing and the executor reads both. bool is excluded even
@@ -680,8 +694,8 @@ def validate_plan(plan: dict[str, Any]) -> tuple[bool, str]:
             # stricter than the executor (where float(True)==1.0 would
             # pass): bad plans are caught here, at planning time, where
             # they can be retried.
-            if field in raw or field in v:
-                val = raw.get(field, v.get(field))
+            if opt in raw or opt in v:
+                val = raw.get(opt, v.get(opt))
                 if not isinstance(val, (int, float)) or isinstance(val, bool) or val <= 0:
                     return False, f"step {i}: '{field}' must be a positive number"
         # Unresolved $facts.<name> references must never reach the
@@ -728,14 +742,18 @@ def plan(
     project = _resolve_project(facts, file_paths, recipients)
 
     emit_event(
-        layer="L4", primitive="plan",
-        args={"goal": goal, "attempts": attempts}, result="PENDING",
+        layer="L4",
+        primitive="plan",
+        args={"goal": goal, "attempts": attempts},
+        result="PENDING",
     )
     last_error: str | None = None
     for i in range(1, attempts + 1):
         emit_event(
-            layer="L4", primitive="plan.attempt",
-            args={"attempt": i, "max_attempts": attempts}, result="RUNNING",
+            layer="L4",
+            primitive="plan.attempt",
+            args={"attempt": i, "max_attempts": attempts},
+            result="RUNNING",
         )
         try:
             env = dev_run(
@@ -743,7 +761,8 @@ def plan(
                 # later $facts substitution can never disagree (and the
                 # config file is read once per attempt, not twice).
                 build_prompt(
-                    goal, last_error,
+                    goal,
+                    last_error,
                     facts=list(project.facts),
                     file_paths=project.file_paths,
                     recipients=project.recipients,
@@ -755,27 +774,62 @@ def plan(
             last_error = f"LLM call failed: {exc}"
             # every failed attempt is a lesson event (best-effort) - the
             # lessons loop generalizes planner failure classes over time
-            record_lesson_event(category="planner_llm_error", source="planner", detail=last_error, goal_id=goal[:80])
-            emit_event(layer="L4", primitive="plan.attempt", args={"attempt": i}, result="FAILED", exception=last_error)
+            record_lesson_event(
+                category="planner_llm_error", source="planner", detail=last_error, goal_id=goal[:80]
+            )
+            emit_event(
+                layer="L4",
+                primitive="plan.attempt",
+                args={"attempt": i},
+                result="FAILED",
+                exception=last_error,
+            )
             continue
         if env.get("is_error"):
             last_error = f"LLM reported an error: {str(env.get('result'))[:200]}"
-            record_lesson_event(category="planner_llm_error", source="planner", detail=last_error, goal_id=goal[:80])
-            emit_event(layer="L4", primitive="plan.attempt", args={"attempt": i}, result="FAILED", exception=last_error)
+            record_lesson_event(
+                category="planner_llm_error", source="planner", detail=last_error, goal_id=goal[:80]
+            )
+            emit_event(
+                layer="L4",
+                primitive="plan.attempt",
+                args={"attempt": i},
+                result="FAILED",
+                exception=last_error,
+            )
             continue
         text = env.get("result") or ""
         parsed = _extract_json(text)
         if parsed is None:
             last_error = "LLM output was not parseable JSON"
-            record_lesson_event(category="planner_unparseable", source="planner", detail=last_error, goal_id=goal[:80])
-            emit_event(layer="L4", primitive="plan.attempt", args={"attempt": i}, result="FAILED", exception=last_error)
+            record_lesson_event(
+                category="planner_unparseable",
+                source="planner",
+                detail=last_error,
+                goal_id=goal[:80],
+            )
+            emit_event(
+                layer="L4",
+                primitive="plan.attempt",
+                args={"attempt": i},
+                result="FAILED",
+                exception=last_error,
+            )
             continue
         try:
             parsed = _substitute_facts_refs(parsed, project)
         except FridayError as exc:
             last_error = f"plan references an unknown facts name: {exc}"
-            record_lesson_event(category="planner_facts_ref", source="planner", detail=last_error, goal_id=goal[:80])
-            emit_event(layer="L4", primitive="plan.attempt", args={"attempt": i}, result="FAILED", exception=last_error)
+            record_lesson_event(
+                category="planner_facts_ref", source="planner", detail=last_error, goal_id=goal[:80]
+            )
+            emit_event(
+                layer="L4",
+                primitive="plan.attempt",
+                args={"attempt": i},
+                result="FAILED",
+                exception=last_error,
+            )
             continue
         ok, err = validate_plan(parsed)
         if not ok:
@@ -788,14 +842,24 @@ def plan(
                 lesson = "planner_blocked_primitive"
             else:
                 lesson = "planner_schema"
-            record_lesson_event(category=lesson, source="planner", detail=last_error, goal_id=goal[:80])
-            emit_event(layer="L4", primitive="plan.attempt", args={"attempt": i}, result="FAILED", exception=last_error)
+            record_lesson_event(
+                category=lesson, source="planner", detail=last_error, goal_id=goal[:80]
+            )
+            emit_event(
+                layer="L4",
+                primitive="plan.attempt",
+                args={"attempt": i},
+                result="FAILED",
+                exception=last_error,
+            )
             continue
         emit_event(
-            layer="L4", primitive="plan",
-            args={"goal": goal, "steps": len(parsed["steps"])}, result="ACCEPTED",
+            layer="L4",
+            primitive="plan",
+            args={"goal": goal, "steps": len(parsed["steps"])},
+            result="ACCEPTED",
         )
-        return parsed
+        return cast(dict[str, Any], parsed)
 
     msg = f"no valid plan after {attempts} attempts: {last_error}"
     emit_event(layer="L4", primitive="plan", result="ABORT", exception=msg)

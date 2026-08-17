@@ -54,7 +54,7 @@ def _auth() -> tuple[str, str]:
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if not chat_id:
         creds = get_credentials("telegram")
-        chat_id = creds.get("chat_id")
+        chat_id = creds.get("chat_id") or ""
     return token, chat_id
 
 
@@ -84,7 +84,7 @@ def get_me() -> str:
             f"telegram getMe rejected: {resp.text[:300]}",
             state="credentials not confirmed",
         )
-    return (body.get("result") or {}).get("username", "")
+    return str((body.get("result") or {}).get("username", ""))
 
 
 @contract(
@@ -98,7 +98,9 @@ def get_me() -> str:
     "still have been sent - verify before retrying.",
     returns="dict: {message_id, chat_id, filename, api}.",
 )
-def send_document(file_path: str, to: str | None = None, caption: str | None = None) -> dict[str, Any]:
+def send_document(
+    file_path: str, to: str | None = None, caption: str | None = None
+) -> dict[str, Any]:
     """Send a local file as a document to a chat.
 
     `to` is the chat id (numeric string) or @username of the recipient chat,

@@ -15,6 +15,7 @@ Rules baked in from prior builds:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import signal
@@ -44,9 +45,7 @@ def _pgrep_socket() -> list[int]:
     """PIDs of mpv processes still bound to our IPC socket path."""
     pattern = f"mpv.*input-ipc-server={SOCKET_PATH}"
     try:
-        out = subprocess.run(
-            ["pgrep", "-f", pattern], capture_output=True, text=True, timeout=5
-        )
+        out = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True, timeout=5)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return []
     return [int(p) for p in out.stdout.split() if p.strip().isdigit()]
@@ -87,10 +86,8 @@ def _stop_process(proc: subprocess.Popen) -> None:
         return
     except subprocess.TimeoutExpired:
         pass
-    try:
+    with contextlib.suppress(ProcessLookupError):
         proc.terminate()
-    except ProcessLookupError:
-        pass
     try:
         proc.wait(timeout=3.0)
         return
@@ -129,22 +126,20 @@ def _sweep_orphans() -> list[int]:
         _proc = None
     pids = _pgrep_socket()
     for pid in pids:
-        try:
+        with contextlib.suppress(ProcessLookupError):
             os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
     survivors = [p for p in pids if not _wait_pid_gone(p, 1.5)]
+    # SIGKILL is POSIX-only - Windows has no such signal; fall back to
+    # SIGTERM there (the Windows port does not use this module yet, but
+    # the module must import and typecheck on every platform).
+    sigkill = getattr(signal, "SIGKILL", signal.SIGTERM)
     for pid in survivors:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, sigkill)
     for pid in survivors:
         _wait_pid_gone(pid, 1.5)
-    try:
+    with contextlib.suppress(FileNotFoundError, subprocess.TimeoutExpired):
         subprocess.run(["fuser", "-k", SOCKET_PATH], capture_output=True, timeout=5)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
     return pids
 
 
@@ -154,17 +149,20 @@ def _prepare_socket() -> None:
     probes while our own mpv fails to bind and silently exits."""
     _sweep_orphans()
     if os.path.exists(SOCKET_PATH):
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(SOCKET_PATH)
-        except OSError:
-            pass
 
 
 def _socket_send(payload: dict[str, Any], timeout: float = 2.0) -> dict[str, Any] | None:
     """Send one newline-delimited JSON request; return the reply, or None if
     no player is listening (connection refused / timeout / garbage)."""
+    # AF_UNIX is POSIX-only; on Windows there is no mpv Unix socket to
+    # talk to, so report 'no player' instead of raising AttributeError.
+    af_unix = getattr(socket, "AF_UNIX", None)
+    if af_unix is None:
+        return None
     try:
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s = socket.socket(af_unix, socket.SOCK_STREAM)
         s.settimeout(timeout)
         s.connect(SOCKET_PATH)
         s.sendall((json.dumps(payload) + "\n").encode())
@@ -177,7 +175,8 @@ def _socket_send(payload: dict[str, Any], timeout: float = 2.0) -> dict[str, Any
         s.close()
         if not data:
             return None
-        return json.loads(data.decode())
+        parsed = json.loads(data.decode())
+        return parsed if isinstance(parsed, dict) else None
     except (OSError, json.JSONDecodeError, TimeoutError):
         return None
 
@@ -217,7 +216,8 @@ def _launch(cmd: list[str], what: str) -> dict[str, Any]:
     global _proc
     try:
         proc = subprocess.Popen(
-            cmd, stdout=subprocess.DEVNULL,
+            cmd,
+            stdout=subprocess.DEVNULL,
             stderr=open(MPV_STDERR_LOG, "w"),
             start_new_session=True,
         )
@@ -262,7 +262,8 @@ def play_for(minutes: float, source: str, volume: int = DEFAULT_VOLUME) -> dict[
         _prepare_socket()
         result = _launch(
             [
-                "mpv", "--no-terminal",
+                "mpv",
+                "--no-terminal",
                 f"--input-ipc-server={SOCKET_PATH}",
                 f"--volume={volume}",
                 f"--length={length_s}",
@@ -295,7 +296,8 @@ def play(source: str, volume: int = DEFAULT_VOLUME) -> dict[str, Any]:
         _prepare_socket()
         result = _launch(
             [
-                "mpv", "--no-terminal",
+                "mpv",
+                "--no-terminal",
                 f"--input-ipc-server={SOCKET_PATH}",
                 f"--volume={volume}",
                 source,
@@ -318,10 +320,8 @@ def stop() -> None:
         _cancel_timer()
         _sweep_orphans()
         if os.path.exists(SOCKET_PATH):
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(SOCKET_PATH)
-            except OSError:
-                pass
 
 
 def _reply_ok(reply: dict[str, Any] | None) -> bool:
@@ -338,10 +338,10 @@ def _reply_ok(reply: dict[str, Any] | None) -> bool:
 )
 def is_playing() -> bool:
     idle = _socket_send({"command": ["get_property", "core-idle"]})
-    if not _reply_ok(idle):
+    if idle is None or not _reply_ok(idle):
         return False
     paused = _socket_send({"command": ["get_property", "pause"]})
-    if _reply_ok(paused) and paused.get("data"):
+    if paused and _reply_ok(paused) and paused.get("data"):
         return False
     return not bool(idle.get("data"))
 
@@ -394,8 +394,7 @@ def resume() -> None:
     failure_mode="Never raises: a missing or unreachable mpv player is reported "
     "as None, not an error. An mpv IPC reply that lacks a volume value is "
     "also treated as None.",
-    returns="int | None - the current volume in the 0-100 range, or None when "
-    "no player responds.",
+    returns="int | None - the current volume in the 0-100 range, or None when no player responds.",
 )
 def get_volume() -> int | None:
     """Return the current mpv playback volume (0-100), or None if no player is reachable.
@@ -407,7 +406,7 @@ def get_volume() -> int | None:
     with absence, not a crash.
     """
     reply = _socket_send({"command": ["get_property", "volume"]})
-    if not _reply_ok(reply):
+    if reply is None or not _reply_ok(reply):
         return None
     data = reply.get("data")
     if isinstance(data, (int, float)) and 0 <= data <= 100:
@@ -442,7 +441,7 @@ def get_playing_title() -> str | None:
     crash.
     """
     reply = _socket_send({"command": ["get_property", "media-title"]})
-    if not _reply_ok(reply):
+    if reply is None or not _reply_ok(reply):
         return None
     data = reply.get("data")
     if isinstance(data, str) and data.strip():

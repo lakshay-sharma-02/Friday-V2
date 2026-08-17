@@ -17,7 +17,7 @@ from pathlib import Path
 
 from friday.errors import PrimitiveError
 from friday.l1 import media, window  # (read-only accessors only)
-from friday.l1.browser import find_locator, read_page_text
+from friday.l1.browser import Locator, find_locator, read_page_text
 from friday.l1.gmail import get_message as gmail_message, list_unread as gmail_unread
 from friday.l1.whatsapp import get_me as whatsapp_identity
 from friday.observability import observe
@@ -72,7 +72,7 @@ def window_focused(cls: str) -> bool:
     """Claim: 'the currently focused window is a X'. Read-only: matches the
     active window's class/title haystack, same as the focus primitive."""
     active = window.get_active_window()
-    return bool(active) and cls.lower() in _class_haystack(active)
+    return active is not None and cls.lower() in _class_haystack(active)
 
 
 @observe(layer="L2")
@@ -97,9 +97,7 @@ def window_only_classes(classes: list[str]) -> bool:
     window_focused, which proves only WHERE focus landed and would pass on
     a partial close."""
     allowed = {c.lower() for c in (classes or [])}
-    return all(
-        str(c.get("class", "")).lower() in allowed for c in window.list_clients()
-    )
+    return all(str(c.get("class", "")).lower() in allowed for c in window.list_clients())
 
 
 @observe(layer="L2")

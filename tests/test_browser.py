@@ -10,8 +10,7 @@ import json
 import unittest
 from unittest import mock
 
-from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import TimeoutError as PlaywrightTimeout
+from playwright.sync_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeout
 
 from friday.errors import PreconditionError, PrimitiveError
 from friday.l1 import browser
@@ -53,7 +52,9 @@ class FakePage:
         self.url = ""
 
     def locator(self, what):
-        return self.resolved.get("selector", {}).get(what, FakeLocator(f"sel:{what}", visible=False))
+        return self.resolved.get("selector", {}).get(
+            what, FakeLocator(f"sel:{what}", visible=False)
+        )
 
     def get_by_label(self, what, exact=False):
         return self.resolved.get("label", {}).get(what, FakeLocator(f"label:{what}", visible=False))
@@ -125,7 +126,9 @@ class TestFindLocator(BrowserTestCase):
     def test_selector_wins_when_visible(self):
         sel = FakeLocator("sel")
         text = FakeLocator("text")
-        browser._page = FakePage(resolved={"selector": {"button.continue": sel}, "text": {"button.continue": text}})
+        browser._page = FakePage(
+            resolved={"selector": {"button.continue": sel}, "text": {"button.continue": text}}
+        )
         loc = browser.find_locator("button.continue")  # has a selector hint
         self.assertIs(loc, sel)
 

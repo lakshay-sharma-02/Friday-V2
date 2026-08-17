@@ -20,12 +20,16 @@ class _Proc:
 
 class TestSecrets(unittest.TestCase):
     def test_json_entry(self):
-        with mock.patch.object(subprocess, "run", return_value=_Proc(stdout='{"username": "u", "password": "p"}')):
+        with mock.patch.object(
+            subprocess, "run", return_value=_Proc(stdout='{"username": "u", "password": "p"}')
+        ):
             self.assertEqual(get_credentials("github"), {"username": "u", "password": "p"})
 
     def test_two_line_entry(self):
         with mock.patch.object(subprocess, "run", return_value=_Proc(stdout="myuser\nmypass\n")):
-            self.assertEqual(get_credentials("github"), {"username": "myuser", "password": "mypass"})
+            self.assertEqual(
+                get_credentials("github"), {"username": "myuser", "password": "mypass"}
+            )
 
     def test_missing_binary(self):
         with mock.patch.object(subprocess, "run", side_effect=FileNotFoundError):
@@ -33,7 +37,11 @@ class TestSecrets(unittest.TestCase):
                 get_credentials("github")
 
     def test_nonzero_exit(self):
-        with mock.patch.object(subprocess, "run", return_value=_Proc(returncode=1, stderr="entry not in password store")):
+        with mock.patch.object(
+            subprocess,
+            "run",
+            return_value=_Proc(returncode=1, stderr="entry not in password store"),
+        ):
             with self.assertRaises(PrimitiveError):
                 get_credentials("github")
 

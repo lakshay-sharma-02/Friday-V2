@@ -25,14 +25,20 @@ from tests.helpers import EnvTestCase
 # impl (it would never enter REGISTRY). Every fixture models that convention.
 CONTRACT_PREFIX = (
     "from friday.contracts import Idempotency, contract\n"
-    "@contract(precondition=\"p\", postcondition=\"q\",\n"
-    "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"bool\")\n"
+    '@contract(precondition="p", postcondition="q",\n'
+    '          idempotency=Idempotency.IDEMPOTENT, failure_mode="f", returns="bool")\n'
 )
 
 DRAFT = {
-    "contract": {"name": "files.do_thing", "precondition": "p", "postcondition": "q",
-                 "idempotency": "idempotent", "failure_mode": "f", "returns": "bool"},
-    "impl": CONTRACT_PREFIX + "def do_thing() -> bool:\n    \"\"\"Do the thing.\"\"\"\n    return True\n",
+    "contract": {
+        "name": "files.do_thing",
+        "precondition": "p",
+        "postcondition": "q",
+        "idempotency": "idempotent",
+        "failure_mode": "f",
+        "returns": "bool",
+    },
+    "impl": CONTRACT_PREFIX + 'def do_thing() -> bool:\n    """Do the thing."""\n    return True\n',
     "test": "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n",
     "rationale": "Driven by: a real refused goal.",
 }
@@ -54,12 +60,20 @@ class TestExtractJson(EnvTestCase):
 
 
 class TestDraftOne(EnvTestCase):
-    RECS = [{"gap_id": "1", "source": "executor", "attempted_primitive": "files.do_thing",
-             "goal_context": "locate the missing thing", "refusal_reason": "no registered contract"}]
+    RECS = [
+        {
+            "gap_id": "1",
+            "source": "executor",
+            "attempted_primitive": "files.do_thing",
+            "goal_context": "locate the missing thing",
+            "refusal_reason": "no registered contract",
+        }
+    ]
 
     def test_parses_llm_result(self):
-        with mock.patch("friday.l1.dev._run_claude",
-                        return_value={"result": json.dumps(DRAFT)}) as m:
+        with mock.patch(
+            "friday.l1.dev._run_claude", return_value={"result": json.dumps(DRAFT)}
+        ) as m:
             draft, reason = draft_one(self.RECS)
         m.assert_called_once()
         self.assertEqual(draft["contract"]["name"], "files.do_thing")
@@ -67,16 +81,16 @@ class TestDraftOne(EnvTestCase):
         self.assertEqual(reason, "")
 
     def test_retries_once_then_succeeds(self):
-        side = [{"result": "not json at all"},
-                {"result": json.dumps(DRAFT)}]
+        side = [{"result": "not json at all"}, {"result": json.dumps(DRAFT)}]
         with mock.patch("friday.l1.dev._run_claude", side_effect=side) as m:
             draft, _reason = draft_one(self.RECS)
         self.assertEqual(m.call_count, 2)
         self.assertEqual(draft["contract"]["idempotency"], "idempotent")
 
     def test_persistent_failure_returns_none(self):
-        with mock.patch("friday.l1.dev._run_claude",
-                        return_value={"result": "still not json"}) as m:
+        with mock.patch(
+            "friday.l1.dev._run_claude", return_value={"result": "still not json"}
+        ) as m:
             draft, reason = draft_one(self.RECS)
         self.assertIsNone(draft)
         self.assertIn("unparseable JSON", reason)  # the failure is DIAGNOSABLE
@@ -85,8 +99,9 @@ class TestDraftOne(EnvTestCase):
     def test_llm_call_exception_leaves_group_unprocessed(self):
         """A dead claude CLI must not kill the whole triage run - the group
         stays unprocessed for the next run."""
-        with mock.patch("friday.l1.dev._run_claude",
-                        side_effect=RuntimeError("claude CLI down")) as m:
+        with mock.patch(
+            "friday.l1.dev._run_claude", side_effect=RuntimeError("claude CLI down")
+        ) as m:
             draft, reason = draft_one(self.RECS)
         self.assertIsNone(draft)
         self.assertIn("LLM call failed", reason)
@@ -97,16 +112,18 @@ class TestDraftOne(EnvTestCase):
         the escape hatch when the default alias' provider is DEGRADED
         (observed live 2026-08-13). Default stays MODEL_ALIAS."""
         self.set_env(FRIDAY_TRIAGE_MODEL="oc/laguna-s-2.1-free")
-        with mock.patch("friday.l1.dev._run_claude",
-                        return_value={"result": json.dumps(DRAFT)}) as m:
+        with mock.patch(
+            "friday.l1.dev._run_claude", return_value={"result": json.dumps(DRAFT)}
+        ) as m:
             draft, _reason = draft_one(self.RECS)
         self.assertIsNotNone(draft)
         # _run_claude(task, cwd, timeout_s, model, bypass)
         self.assertEqual(m.call_args.args[3], "oc/laguna-s-2.1-free")
 
     def test_model_defaults_to_alias_without_env(self):
-        with mock.patch("friday.l1.dev._run_claude",
-                        return_value={"result": json.dumps(DRAFT)}) as m:
+        with mock.patch(
+            "friday.l1.dev._run_claude", return_value={"result": json.dumps(DRAFT)}
+        ) as m:
             draft, _reason = draft_one(self.RECS)
         self.assertIsNotNone(draft)
         self.assertEqual(m.call_args.args[3], "opus")
@@ -121,13 +138,15 @@ class TestDraftOne(EnvTestCase):
         from friday.errors import PrimitiveTimeout
 
         self.set_env(FRIDAY_TRIAGE_FALLBACK_MODELS="oc/laguna-xs")
-        side = [PrimitiveTimeout("claude -p did not finish within 300s", state="t"),
-                {"result": json.dumps(DRAFT)}]
+        side = [
+            PrimitiveTimeout("claude -p did not finish within 300s", state="t"),
+            {"result": json.dumps(DRAFT)},
+        ]
         with mock.patch("friday.l1.dev._run_claude", side_effect=side) as m:
             draft, _reason = draft_one(self.RECS)
         self.assertIsNotNone(draft)
         self.assertEqual(m.call_count, 2)
-        self.assertEqual(m.call_args_list[0].args[3], "opus")          # primary
+        self.assertEqual(m.call_args_list[0].args[3], "opus")  # primary
         self.assertEqual(m.call_args_list[1].args[3], "oc/laguna-xs")  # fallback
 
     def test_hard_failure_advances_to_fallback_model(self):
@@ -136,8 +155,10 @@ class TestDraftOne(EnvTestCase):
         from friday.errors import PrimitiveError
 
         self.set_env(FRIDAY_TRIAGE_FALLBACK_MODELS="oc/laguna-xs")
-        side = [PrimitiveError("claude exited rc=1: ", state="no execution guarantee"),
-                {"result": json.dumps(DRAFT)}]
+        side = [
+            PrimitiveError("claude exited rc=1: ", state="no execution guarantee"),
+            {"result": json.dumps(DRAFT)},
+        ]
         with mock.patch("friday.l1.dev._run_claude", side_effect=side) as m:
             draft, reason = draft_one(self.RECS)
         self.assertIsNotNone(draft)
@@ -150,8 +171,9 @@ class TestDraftOne(EnvTestCase):
         pre-chain behavior: a failed attempt retries the SAME model, then
         the group stays unprocessed - and the reason names the failed
         model so the failure is diagnosable."""
-        with mock.patch("friday.l1.dev._run_claude",
-                        side_effect=RuntimeError("claude CLI down")) as m:
+        with mock.patch(
+            "friday.l1.dev._run_claude", side_effect=RuntimeError("claude CLI down")
+        ) as m:
             draft, reason = draft_one(self.RECS)
         self.assertIsNone(draft)
         self.assertEqual(m.call_count, 3)
@@ -165,8 +187,7 @@ class TestDraftOne(EnvTestCase):
         advances only on timeout/hard failure: a model that responds is
         alive even when its draft is wrong."""
         self.set_env(FRIDAY_TRIAGE_FALLBACK_MODELS="oc/laguna-xs")
-        side = [{"result": "not json at all"},
-                {"result": json.dumps(DRAFT)}]
+        side = [{"result": "not json at all"}, {"result": json.dumps(DRAFT)}]
         with mock.patch("friday.l1.dev._run_claude", side_effect=side) as m:
             draft, _reason = draft_one(self.RECS)
         self.assertIsNotNone(draft)
@@ -180,8 +201,10 @@ class TestDraftOne(EnvTestCase):
         from friday.errors import PrimitiveError
 
         self.set_env(FRIDAY_TRIAGE_FALLBACK_MODELS="oc/laguna-xs")
-        with mock.patch("friday.l1.dev._run_claude",
-                        side_effect=PrimitiveError("claude exited rc=1: ", state="s")) as m:
+        with mock.patch(
+            "friday.l1.dev._run_claude",
+            side_effect=PrimitiveError("claude exited rc=1: ", state="s"),
+        ) as m:
             draft, reason = draft_one(self.RECS)
         self.assertIsNone(draft)
         self.assertEqual(m.call_count, 3)
@@ -234,10 +257,16 @@ class TestNormalizeName(EnvTestCase):
         fully-qualified path is normalized and then passes the checks - the
         gap is now SOLVABLE by the loop instead of rejected forever."""
         draft = {
-            "contract": {"name": "friday.l1.files.write_text", "precondition": "p",
-                         "postcondition": "q", "idempotency": "idempotent",
-                         "failure_mode": "f", "returns": "str"},
-            "impl": CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"') + "def write_text(path: str, text: str) -> str:\n    # Write.\n    open(path, 'w', encoding='utf-8').write(text)\n    return path\n",
+            "contract": {
+                "name": "friday.l1.files.write_text",
+                "precondition": "p",
+                "postcondition": "q",
+                "idempotency": "idempotent",
+                "failure_mode": "f",
+                "returns": "str",
+            },
+            "impl": CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"')
+            + "def write_text(path: str, text: str) -> str:\n    # Write.\n    open(path, 'w', encoding='utf-8').write(text)\n    return path\n",
             "test": "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n",
             "rationale": "r",
         }
@@ -250,9 +279,14 @@ class TestNormalizeName(EnvTestCase):
         to 'files.write_notes' and is still rejected by the exact-name check
         - the prefix repair must never mask a semantic defect."""
         draft = {
-            "contract": {"name": "friday.l1.files.write_notes", "precondition": "p",
-                         "postcondition": "q", "idempotency": "idempotent",
-                         "failure_mode": "f", "returns": "str"},
+            "contract": {
+                "name": "friday.l1.files.write_notes",
+                "precondition": "p",
+                "postcondition": "q",
+                "idempotency": "idempotent",
+                "failure_mode": "f",
+                "returns": "str",
+            },
             "impl": "def write_notes(path: str, text: str) -> str:\n    # Write.\n    return path\n",
             "test": "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n",
             "rationale": "r",
@@ -271,13 +305,26 @@ class TestSelfCheck(EnvTestCase):
     reaching register_proposal only to fail there (the observed pattern:
     4/4 real drafts caught at gate stage 1)."""
 
-    RECS = [{"gap_id": "1", "source": "executor", "attempted_primitive": "files.write_text",
-             "goal_context": "write a note", "refusal_reason": "no registered contract"}]
+    RECS = [
+        {
+            "gap_id": "1",
+            "source": "executor",
+            "attempted_primitive": "files.write_text",
+            "goal_context": "write a note",
+            "refusal_reason": "no registered contract",
+        }
+    ]
 
     def _broken_contract(self, name="friday.l1.files.write_notes"):
         return {
-            "contract": {"name": name, "precondition": "p", "postcondition": "q",
-                         "idempotency": "idempotent", "failure_mode": "f", "returns": "str"},
+            "contract": {
+                "name": name,
+                "precondition": "p",
+                "postcondition": "q",
+                "idempotency": "idempotent",
+                "failure_mode": "f",
+                "returns": "str",
+            },
             "impl": "def write_notes(path: str, text: str) -> str:\n    # Write.\n    return path\n",
             "test": "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n",
             "rationale": "r",
@@ -297,8 +344,14 @@ class TestSelfCheck(EnvTestCase):
         """A draft that renames the gapped primitive (write_text ->
         write_notes) passes schema but would never solve the gap - the
         exact-name check must catch it."""
-        ok = {"name": "files.write_notes", "precondition": "p", "postcondition": "q",
-              "idempotency": "idempotent", "failure_mode": "f", "returns": "str"}
+        ok = {
+            "name": "files.write_notes",
+            "precondition": "p",
+            "postcondition": "q",
+            "idempotency": "idempotent",
+            "failure_mode": "f",
+            "returns": "str",
+        }
         issues = _self_check(
             "files.write_text",
             dict(self._broken_contract(), contract=ok),
@@ -306,15 +359,15 @@ class TestSelfCheck(EnvTestCase):
         self.assertTrue(any("EXACTLY equal" in i for i in issues), issues)
 
     def test_uncompilable_impl_rejected(self):
-        bad = dict(self._broken_contract(name="files.write_text"),
-                   impl="def broken(:\n")
+        bad = dict(self._broken_contract(name="files.write_text"), impl="def broken(:\n")
         issues = _self_check("files.write_text", bad)
         self.assertTrue(any("impl" in i and "compile" in i for i in issues), issues)
 
     def test_dead_arg_and_ast_defects_rejected(self):
-        bad = dict(self._broken_contract(name="files.write_text"),
-                   impl="def write_text(path: str, text: str) -> str:\n"
-                        "    return 'hardcoded'\n")
+        bad = dict(
+            self._broken_contract(name="files.write_text"),
+            impl="def write_text(path: str, text: str) -> str:\n    return 'hardcoded'\n",
+        )
         issues = _self_check("files.write_text", bad)
         self.assertTrue(any("never used" in i for i in issues), issues)
 
@@ -325,14 +378,23 @@ class TestSelfCheck(EnvTestCase):
         gate."""
         broken = self._broken_contract()  # three-dot name, renamed primitive
         repaired = {
-            "contract": {"name": "files.write_text", "precondition": "p", "postcondition": "q",
-                         "idempotency": "idempotent", "failure_mode": "f", "returns": "str"},
-            "impl": CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"') + "def write_text(path: str, text: str) -> str:\n    # Write the text to the path.\n    open(path, 'w', encoding='utf-8').write(text)\n    return path\n",
+            "contract": {
+                "name": "files.write_text",
+                "precondition": "p",
+                "postcondition": "q",
+                "idempotency": "idempotent",
+                "failure_mode": "f",
+                "returns": "str",
+            },
+            "impl": CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"')
+            + "def write_text(path: str, text: str) -> str:\n    # Write the text to the path.\n    open(path, 'w', encoding='utf-8').write(text)\n    return path\n",
             "test": "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n",
             "rationale": "r",
         }
-        side = [{"result": json.dumps(broken)},
-                {"result": json.dumps(repaired)}]  # second attempt repaired
+        side = [
+            {"result": json.dumps(broken)},
+            {"result": json.dumps(repaired)},
+        ]  # second attempt repaired
         with mock.patch("friday.l1.dev._run_claude", side_effect=side) as m:
             draft, reason = draft_one(self.RECS)
         self.assertEqual(m.call_count, 2)
@@ -348,8 +410,9 @@ class TestSelfCheck(EnvTestCase):
         never written as a known-broken artifact, and the REASON is
         visible (self-check rejection, not an opaque failure)."""
         broken = self._broken_contract()
-        with mock.patch("friday.l1.dev._run_claude",
-                        return_value={"result": json.dumps(broken)}) as m:
+        with mock.patch(
+            "friday.l1.dev._run_claude", return_value={"result": json.dumps(broken)}
+        ) as m:
             draft, reason = draft_one(self.RECS)
         self.assertIsNone(draft)
         self.assertIn("structural self-check failed", reason)
@@ -359,9 +422,11 @@ class TestSelfCheck(EnvTestCase):
         """The self-check must not write a draft whose own test.py does not
         compile - that defect would otherwise only surface at the gate's
         sandbox run."""
-        bad = dict(self._broken_contract(name="files.write_text"),
-                   impl="def write_text(path: str, text: str) -> str:\n    # Write.\n    return path\n",
-                   test="def broken(:")
+        bad = dict(
+            self._broken_contract(name="files.write_text"),
+            impl="def write_text(path: str, text: str) -> str:\n    # Write.\n    return path\n",
+            test="def broken(:",
+        )
         issues = _self_check("files.write_text", bad)
         self.assertTrue(any("test.py does not compile" in i for i in issues), issues)
 
@@ -372,10 +437,12 @@ class TestSelfCheck(EnvTestCase):
         draft's test was rejected at the gate THREE times in a row
         (subprocess.CompletedProcess -> __import__ -> TimeoutExpired) because
         the self-check only compiled it."""
-        bad = dict(self._broken_contract(name="files.write_text"),
-                   impl=CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"') +
-                        "def write_text(path: str, text: str) -> str:\n    # Write.\n    return path\n",
-                   test="import os\nos.system('true')\n")
+        bad = dict(
+            self._broken_contract(name="files.write_text"),
+            impl=CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"')
+            + "def write_text(path: str, text: str) -> str:\n    # Write.\n    return path\n",
+            test="import os\nos.system('true')\n",
+        )
         issues = _self_check("files.write_text", bad)
         self.assertTrue(any("test AST" in i and "os.system" in i for i in issues), issues)
 
@@ -384,43 +451,67 @@ class TestSelfCheck(EnvTestCase):
         subprocess.CompletedProcess(...) is rejected by the gate's test.py
         danger check - and now by the triage self-check, so the LLM repairs it
         before the draft is ever written."""
-        bad = dict(self._broken_contract(name="files.write_text"),
-                   impl=CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"') +
-                        "def write_text(path: str, text: str) -> str:\n    # Write.\n    return path\n",
-                   test="import subprocess\nsubprocess.CompletedProcess([])\n")
+        bad = dict(
+            self._broken_contract(name="files.write_text"),
+            impl=CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"')
+            + "def write_text(path: str, text: str) -> str:\n    # Write.\n    return path\n",
+            test="import subprocess\nsubprocess.CompletedProcess([])\n",
+        )
         issues = _self_check("files.write_text", bad)
-        self.assertTrue(any("test AST" in i and "subprocess.CompletedProcess" in i for i in issues), issues)
+        self.assertTrue(
+            any("test AST" in i and "subprocess.CompletedProcess" in i for i in issues), issues
+        )
 
     def test_missing_contract_decorator_rejected_at_triage(self):
         """The clipboard round's first defect is now repaired at TRIAGE: an
         impl without the @contract decorator would never enter REGISTRY - the
         self-check feeds that back to the LLM instead of writing a dead draft."""
-        bad = dict(self._broken_contract(name="files.write_text"),
-                   impl="def write_text(path: str, text: str) -> str:\n    # Write.\n    return path\n")
+        bad = dict(
+            self._broken_contract(name="files.write_text"),
+            impl="def write_text(path: str, text: str) -> str:\n    # Write.\n    return path\n",
+        )
         issues = _self_check("files.write_text", bad)
         self.assertTrue(any("not decorated with @contract" in i for i in issues), issues)
 
     def test_undefined_log_transform_rejected_at_triage(self):
         """A contract naming a log_transform the impl never defines is a
         NameError at import - caught at triage, before the draft is written."""
-        c = {"name": "files.write_text", "precondition": "p", "postcondition": "q",
-             "idempotency": "idempotent", "failure_mode": "f", "returns": "str",
-             "log_transform": "_log_redact_meta"}
-        bad = dict(self._broken_contract(name="files.write_text"), contract=c,
-                   impl=CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"') +
-                        "def write_text(path: str, text: str) -> str:\n    # Write.\n    return path\n")
+        c = {
+            "name": "files.write_text",
+            "precondition": "p",
+            "postcondition": "q",
+            "idempotency": "idempotent",
+            "failure_mode": "f",
+            "returns": "str",
+            "log_transform": "_log_redact_meta",
+        }
+        bad = dict(
+            self._broken_contract(name="files.write_text"),
+            contract=c,
+            impl=CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"')
+            + "def write_text(path: str, text: str) -> str:\n    # Write.\n    return path\n",
+        )
         issues = _self_check("files.write_text", bad)
         self.assertTrue(any("log_transform" in i and "never defines" in i for i in issues), issues)
 
     def test_bare_builtin_raise_rejected_at_triage(self):
         """A draft raising bare RuntimeError against a contract declaring
         PrimitiveError is repaired at triage, not at human review."""
-        c = {"name": "files.write_text", "precondition": "p", "postcondition": "q",
-             "idempotency": "idempotent", "failure_mode": "PrimitiveError when the write fails.", "returns": "str"}
-        bad = dict(self._broken_contract(name="files.write_text"), contract=c,
-                   impl=CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"') +
-                        "def write_text(path: str, text: str) -> str:\n"
-                        "    raise RuntimeError('boom')\n")
+        c = {
+            "name": "files.write_text",
+            "precondition": "p",
+            "postcondition": "q",
+            "idempotency": "idempotent",
+            "failure_mode": "PrimitiveError when the write fails.",
+            "returns": "str",
+        }
+        bad = dict(
+            self._broken_contract(name="files.write_text"),
+            contract=c,
+            impl=CONTRACT_PREFIX.replace('returns="bool"', 'returns="str"')
+            + "def write_text(path: str, text: str) -> str:\n"
+            "    raise RuntimeError('boom')\n",
+        )
         issues = _self_check("files.write_text", bad)
         self.assertTrue(any("raises builtin RuntimeError" in i for i in issues), issues)
 
@@ -433,15 +524,21 @@ class TestTriage(EnvTestCase):
 
     def _seed_gap(self, gaps) -> None:
         self.set_env(FRIDAY_GAPS_FILE=str(gaps))
-        record_gap(source="executor", goal_id="locate the missing thing",
-                   attempted_primitive="files.do_thing", attempted_args={"name": "x"},
-                   goal_context="locate the missing thing", refusal_reason="no registered contract")
+        record_gap(
+            source="executor",
+            goal_id="locate the missing thing",
+            attempted_primitive="files.do_thing",
+            attempted_args={"name": "x"},
+            goal_context="locate the missing thing",
+            refusal_reason="no registered contract",
+        )
 
     def test_writes_artifacts_marks_processed_and_is_idempotent(self):
         gaps = self.mktmp() / "gaps.jsonl"
         self._seed_gap(gaps)
-        with mock.patch("friday.l1.dev._run_claude",
-                        return_value={"result": json.dumps(DRAFT)}) as m:
+        with mock.patch(
+            "friday.l1.dev._run_claude", return_value={"result": json.dumps(DRAFT)}
+        ) as m:
             written = triage()
         self.assertEqual(len(written), 1)
         d = proposal_dir("files.do_thing")
@@ -464,9 +561,13 @@ class TestTriage(EnvTestCase):
         (no duplicate proposals, no wasted calls)."""
         gaps = self.mktmp() / "gaps.jsonl"
         self.set_env(FRIDAY_GAPS_FILE=str(gaps))
-        record_gap(source="watcher", trigger_id="ambient-gap-probe-calendar",
-                   attempted_primitive="files.find_file_exact",  # real, registered
-                   goal_context="probe", refusal_reason="trigger allowlist [...]")
+        record_gap(
+            source="watcher",
+            trigger_id="ambient-gap-probe-calendar",
+            attempted_primitive="files.find_file_exact",  # real, registered
+            goal_context="probe",
+            refusal_reason="trigger allowlist [...]",
+        )
         with mock.patch("friday.l1.dev._run_claude") as m:
             written = triage()
         self.assertEqual(written, [])
@@ -497,10 +598,11 @@ class TestTriage(EnvTestCase):
         text = (d / "rationale.md").read_text(encoding="utf-8")
         self.assertIn("structural self-check: passed", text)
         # a renamed-primitive draft reports the failure honestly
-        d2 = write_proposal("files.write_text", [{"gap_id": "1"}], DRAFT)  # DRAFT names files.do_thing
+        d2 = write_proposal(
+            "files.write_text", [{"gap_id": "1"}], DRAFT
+        )  # DRAFT names files.do_thing
         text2 = (d2 / "rationale.md").read_text(encoding="utf-8")
         self.assertIn("structural self-check: FAILED", text2)
-
 
 
 class TestHelpers(EnvTestCase):

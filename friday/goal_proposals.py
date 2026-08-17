@@ -61,7 +61,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -81,10 +81,45 @@ _ALLOW_NONE: list[str] = []  # the safe default: nothing may run until granted
 # Words too generic to distinguish one goal from another - only
 # significant tokens count toward goal-overlap dedupe.
 _STOPWORDS = {
-    "the", "a", "an", "and", "or", "of", "to", "in", "for", "with",
-    "from", "my", "me", "i", "it", "at", "on", "is", "are", "was",
-    "were", "this", "that", "then", "any", "all", "new", "your", "you",
-    "s", "t", "if", "do", "be", "by", "as", "its", "them", "their",
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "of",
+    "to",
+    "in",
+    "for",
+    "with",
+    "from",
+    "my",
+    "me",
+    "i",
+    "it",
+    "at",
+    "on",
+    "is",
+    "are",
+    "was",
+    "were",
+    "this",
+    "that",
+    "then",
+    "any",
+    "all",
+    "new",
+    "your",
+    "you",
+    "s",
+    "t",
+    "if",
+    "do",
+    "be",
+    "by",
+    "as",
+    "its",
+    "them",
+    "their",
 }
 
 # Fraction of the smaller goal's significant tokens that must overlap an
@@ -161,7 +196,7 @@ def _parse_ts(value: Any) -> datetime | None:
     except ValueError:
         return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -171,7 +206,7 @@ def _in_window(ts: Any, window: timedelta | None) -> bool:
     dt = _parse_ts(ts)
     if dt is None:
         return True  # cannot prove staleness - keep it
-    return datetime.now(timezone.utc) - dt <= window
+    return datetime.now(UTC) - dt <= window
 
 
 def _normalize_goal(goal: Any) -> str:
@@ -211,10 +246,7 @@ def existing_triggers() -> list[dict[str, Any]]:
 
 
 def _sig_tokens(goal: str) -> set[str]:
-    return {
-        t for t in re.split(r"[^a-z0-9]+", goal.lower())
-        if len(t) >= 3 and t not in _STOPWORDS
-    }
+    return {t for t in re.split(r"[^a-z0-9]+", goal.lower()) if len(t) >= 3 and t not in _STOPWORDS}
 
 
 def _goal_covered(goal: str, triggers: list[dict[str, Any]]) -> bool:
@@ -244,7 +276,7 @@ def _goal_covered(goal: str, triggers: list[dict[str, Any]]) -> bool:
 
 
 def existing_trigger_ids() -> set[str]:
-    return {t.get("id") for t in existing_triggers() if isinstance(t.get("id"), str)}
+    return {str(tid) for t in existing_triggers() if isinstance(tid := t.get("id"), str)}
 
 
 # ------------------------------------------------------------------ mine
@@ -295,16 +327,16 @@ def mine(
             covered += 1
             continue
         try:
-            c["last_failed_at"] = max(
-                ts for ts in c["timestamps"] if _parse_ts(ts) is not None
-            )
+            c["last_failed_at"] = max(ts for ts in c["timestamps"] if _parse_ts(ts) is not None)
         except ValueError:
             c["last_failed_at"] = c["timestamps"][-1]
         # WATCH-layer L0 failures for this exact goal are direct evidence;
         # everything else is the global failure-signature summary.
         c["l0_evidence"] = [
-            d for d in l0
-            if d.get("layer") == "WATCH" and d.get("primitive") == "trigger"
+            d
+            for d in l0
+            if d.get("layer") == "WATCH"
+            and d.get("primitive") == "trigger"
             and _normalize_goal((d.get("args") or {}).get("goal")) == key
         ]
         candidates.append(c)
@@ -331,10 +363,7 @@ def l0_failure_summary(
         key = (str(d.get("layer")), str(d.get("primitive")), exc)
         counts[key] = counts.get(key, 0) + 1
     top = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:limit]
-    return [
-        {"layer": k[0], "primitive": k[1], "exception": k[2], "count": v}
-        for k, v in top
-    ]
+    return [{"layer": k[0], "primitive": k[1], "exception": k[2], "count": v} for k, v in top]
 
 
 # ------------------------------------------------------------------ draft
@@ -386,7 +415,7 @@ def _draft_llm(cluster: dict[str, Any]) -> dict[str, Any] | None:
     from friday.l1.dev import MODEL_ALIAS, _run_claude
 
     evidence = "\n".join(
-        f"- {ts} {tid}" for ts, tid in zip(cluster["timestamps"], cluster["task_ids"])
+        f"- {ts} {tid}" for ts, tid in zip(cluster["timestamps"], cluster["task_ids"], strict=True)
     )
     prompt = _DRAFT_TMPL.format(n=cluster["occurrences"], evidence=evidence)
     try:
@@ -475,22 +504,25 @@ def _write_proposal(cluster: dict[str, Any], trigger: dict[str, Any]) -> Path:
     )
     draft_note = trigger.get("_draft_note")
     note_row = f"\nLLM draft note: {draft_note}\n" if draft_note else ""
-    l0_rows = "\n".join(
-        f"- {e.get('timestamp', '?')[:19]} WATCH trigger FAILED: "
-        f"{str((e.get('extra') or {}).get('status') or e.get('result'))} "
-        f"{str(e.get('exception') or '')[:120]}"
-        for e in cluster.get("l0_evidence", [])[-6:]
-    ) or "  (no matching WATCH-layer L0 failures)"
-    rationale = f"""# Proposed trigger: {trigger['id']}
+    l0_rows = (
+        "\n".join(
+            f"- {e.get('timestamp', '?')[:19]} WATCH trigger FAILED: "
+            f"{(e.get('extra') or {}).get('status') or e.get('result')!s} "
+            f"{str(e.get('exception') or '')[:120]}"
+            for e in cluster.get("l0_evidence", [])[-6:]
+        )
+        or "  (no matching WATCH-layer L0 failures)"
+    )
+    rationale = f"""# Proposed trigger: {trigger["id"]}
 
 STATUS: PROPOSED - NOT approved, and INERT. This trigger is proposed by
 Friday from its own failure history; nothing runs until YOU approve it.
 
 ## The goal (verbatim quoted evidence - never rewritten)
 
-> {trigger['goal']}
+> {trigger["goal"]}
 
-## WARNING: this goal has FAILED {cluster['occurrences']} time(s)
+## WARNING: this goal has FAILED {cluster["occurrences"]} time(s)
 
 It is proposed precisely BECAUSE it kept failing - review WHY before you
 ever enable it. It is not silently scheduled; the human gate is the whole
@@ -498,10 +530,10 @@ point of this stage.
 
 ## Evidence
 
-- failed {cluster['occurrences']} time(s): {', '.join(cluster['task_ids'])}
-- last failure: {cluster.get('last_failed_at', '?')}
+- failed {cluster["occurrences"]} time(s): {", ".join(cluster["task_ids"])}
+- last failure: {cluster.get("last_failed_at", "?")}
 - failure timestamps:
-{chr(10).join('  - ' + ts for ts in cluster['timestamps'])}
+{chr(10).join("  - " + ts for ts in cluster["timestamps"])}
 
 WATCH-layer L0 failures for this exact goal:
 {l0_rows}
@@ -558,7 +590,9 @@ def propose(
             continue  # covered - never re-propose a goal already proposed
         taken.add(trigger["id"])
         if dry_run:
-            print(f"  WOULD propose {trigger['id']} ({c['occurrences']} failures): {c['goal'][:60]}")
+            print(
+                f"  WOULD propose {trigger['id']} ({c['occurrences']} failures): {c['goal'][:60]}"
+            )
         else:
             _write_proposal(c, trigger)
         written.append(str(d))
@@ -566,12 +600,22 @@ def propose(
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Friday goals-proposal stage (mine failures -> inert trigger proposals)")
+    ap = argparse.ArgumentParser(
+        description="Friday goals-proposal stage (mine failures -> inert trigger proposals)"
+    )
     ap.add_argument("--limit", type=int, default=None, help="max proposals to write")
-    ap.add_argument("--days", type=int, default=DEFAULT_DAYS, help="failure window in days (0 = all)")
-    ap.add_argument("--min-recurrence", type=int, default=MIN_RECURRENCE, help="min failed runs for a cluster")
-    ap.add_argument("--dry-run", action="store_true", help="print what would be proposed, write nothing")
-    ap.add_argument("--llm", action="store_true", help="LLM-draft schedules/allowlists (off by default - cost)")
+    ap.add_argument(
+        "--days", type=int, default=DEFAULT_DAYS, help="failure window in days (0 = all)"
+    )
+    ap.add_argument(
+        "--min-recurrence", type=int, default=MIN_RECURRENCE, help="min failed runs for a cluster"
+    )
+    ap.add_argument(
+        "--dry-run", action="store_true", help="print what would be proposed, write nothing"
+    )
+    ap.add_argument(
+        "--llm", action="store_true", help="LLM-draft schedules/allowlists (off by default - cost)"
+    )
     args = ap.parse_args(argv)
 
     clusters = mine(days=args.days, min_recurrence=args.min_recurrence)
@@ -583,11 +627,15 @@ def main(argv: list[str] | None = None) -> int:
     for s in summary[:5]:
         print(f"  {s['count']:3d}  {s['layer']}/{s['primitive']}  {s['exception'][:70]}")
     written = propose(
-        limit=args.limit, days=args.days,
+        limit=args.limit,
+        days=args.days,
         min_recurrence=args.min_recurrence,
-        use_llm=args.llm, dry_run=args.dry_run,
+        use_llm=args.llm,
+        dry_run=args.dry_run,
     )
-    print(f"{'would propose' if args.dry_run else 'proposed'}: {len(written)} -> {_proposals_dir()}")
+    print(
+        f"{'would propose' if args.dry_run else 'proposed'}: {len(written)} -> {_proposals_dir()}"
+    )
     return 0
 
 

@@ -26,12 +26,15 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 
 from friday.contracts import Idempotency, contract
 from friday.errors import PreconditionError, PrimitiveError, PrimitiveTimeout
 
 DEFAULT_TIMEOUT = 10.0
-DEFAULT_OUTPUT = "/tmp/friday_screenshot.png"
+# tempfile.gettempdir() is /tmp on Linux (unchanged behavior) and the OS
+# temp dir on Windows, so the default output path is portable.
+DEFAULT_OUTPUT = os.path.join(tempfile.gettempdir(), "friday_screenshot.png")
 
 
 def _check_result(proc: subprocess.CompletedProcess, what: str) -> None:
@@ -63,9 +66,7 @@ def _window_geometry(selector: str) -> str:
 
         win = get_active_window()
         if not win:
-            raise PreconditionError(
-                "no active window to capture - the desktop is empty"
-            )
+            raise PreconditionError("no active window to capture - the desktop is empty")
         at = win.get("at") or []
         size = win.get("size") or []
         if not (at and size):
@@ -85,9 +86,7 @@ def _window_geometry(selector: str) -> str:
             size = c.get("size") or []
             if at and size:
                 return f"{at[0]},{at[1]} {size[0]}x{size[1]}"
-    raise PreconditionError(
-        f"no window matches selector {selector!r} - nothing to capture"
-    )
+    raise PreconditionError(f"no window matches selector {selector!r} - nothing to capture")
 
 
 @contract(
@@ -115,21 +114,19 @@ def capture(
     """
     if not isinstance(output_path, str) or not output_path.strip():
         raise PreconditionError("output_path must be a non-empty string")
-    if not output_path.startswith("/"):
-        raise PreconditionError(
-            f"output_path must be absolute, got {output_path!r}"
-        )
+    if not os.path.isabs(output_path):
+        raise PreconditionError(f"output_path must be absolute, got {output_path!r}")
     parent = os.path.dirname(output_path)
     if not os.path.isdir(parent):
-        raise PreconditionError(
-            f"output directory does not exist: {parent!r}"
-        )
+        raise PreconditionError(f"output directory does not exist: {parent!r}")
 
     norm = target.strip().lower()
     if norm in ("full", "fullscreen", "desktop", "screen", "whole screen"):
         try:
             proc = subprocess.run(
-                ["grim", output_path], capture_output=True, timeout=DEFAULT_TIMEOUT,
+                ["grim", output_path],
+                capture_output=True,
+                timeout=DEFAULT_TIMEOUT,
             )
         except TimeoutError as exc:
             # subprocess.TimeoutExpired subclasses TimeoutError - catching
@@ -141,22 +138,28 @@ def capture(
             ) from exc
         except FileNotFoundError as exc:
             raise PrimitiveError(
-                "grim not found - install grim (pacman -S grim) to capture "
-                "the screen on Wayland",
+                "grim not found - install grim (pacman -S grim) to capture the screen on Wayland",
                 state="screenshot not captured",
             ) from exc
         _check_result(proc, "full-screen capture")
         return output_path
 
-    if norm in ("active", "active window", "active-window", "current window",
-                "focused window", "focused"):
+    if norm in (
+        "active",
+        "active window",
+        "active-window",
+        "current window",
+        "focused window",
+        "focused",
+    ):
         geometry = _window_geometry("active")
     else:
         geometry = _window_geometry(target)
     try:
         proc = subprocess.run(
             ["grim", "-g", geometry, output_path],
-            capture_output=True, timeout=DEFAULT_TIMEOUT,
+            capture_output=True,
+            timeout=DEFAULT_TIMEOUT,
         )
     except TimeoutError as exc:
         raise PrimitiveTimeout(
@@ -165,8 +168,7 @@ def capture(
         ) from exc
     except FileNotFoundError as exc:
         raise PrimitiveError(
-            "grim not found - install grim (pacman -S grim) to capture "
-            "the screen on Wayland",
+            "grim not found - install grim (pacman -S grim) to capture the screen on Wayland",
             state="screenshot not captured",
         ) from exc
     _check_result(proc, f"window capture ({target!r})")

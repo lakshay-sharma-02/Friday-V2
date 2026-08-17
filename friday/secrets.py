@@ -39,8 +39,7 @@ def get_credentials(service: str) -> dict[str, str]:
         ) from exc
     if proc.returncode != 0:
         raise PrimitiveError(
-            f"pass show friday/{service} failed: "
-            f"{proc.stderr.strip() or 'no such entry'}",
+            f"pass show friday/{service} failed: {proc.stderr.strip() or 'no such entry'}",
             state="no credentials retrieved",
         )
     try:
@@ -53,4 +52,4 @@ def get_credentials(service: str) -> dict[str, str]:
         raise PrimitiveError(
             f"friday/{service} entry is neither JSON nor two-line user/pass",
             state="no credentials parsed",
-        )
+        ) from None

@@ -80,6 +80,9 @@ exclude = [
     "dist",
     "node_modules",
     "venv",
+    # Proof scripts, gate/demo runners and archived LLM draft proposals -
+    # artifacts, not shipped code (they never enter the installed package).
+    "gates",
 ]
 
 [tool.ruff.lint]
@@ -101,27 +104,47 @@ select = [
     "RUF",    # Ruff-specific rules
 ]
 ignore = [
-    "E501",   # line-length handled by formatter
+    "E501",    # line-length handled by formatter
     "PLR2004", # magic number
+    # Deliberate codebase patterns (each documented where it occurs):
+    "E402",    # gate-registered blocks append imports mid-module (files.py
+               # find_newest, gmail.py send_document); see the registration
+               # header comments
+    "E741",    # ambiguous-name lint (tests use single-letter loop vars)
+    "PLC0415", # local imports inside functions - circular-import avoidance
+               # (screenshot._window_geometry, executor)
+    "PLW0603", # module-level singletons via global (browser._pw, media._proc,
+               # observability._RUN_ID, gmail/_token_cache)
+    "PLW1510", # subprocess.run without check= - the primitives deliberately
+               # inspect returncode and raise FridayError instead of
+               # CalledProcessError (the gate's subprocess shapes)
+    "RUF012",  # mutable class attributes used as test fixtures / registries
+    "PLR0911",  # too many return statements - validator functions (planner
+                 # validate_plan, automated_gate checks) are deliberately
+                 # early-return-heavy
+    "PLR0912", # too many branches - same validator functions
+    "PLR0915", # too many statements - same validator functions
+    "SIM105",   # try/except-pass vs contextlib.suppress - the two remaining
+                 # sites (media.py wait/kill loops) have control flow in the
+                 # try body, so the rewrite is not offered by ruff
+    "SIM115",   # open() without context manager - the remaining site
+                 # (media.py Popen stderr) deliberately keeps the fd open for
+                 # the child process; the test sites ruff can fix are fixed
+    "SIM117",   # nested with-statements - the test idiom
+                 # `with mock.patch(...): with assertRaises(...) as ctx:`
+                 # (ctx used after the block) has no autofix; rewriting ~25
+                 # sites by hand for a style rule is not housekeeping
 ]
 
 [tool.ruff.lint.isort]
 known-first-party = ["friday"]
 combine-as-imports = true
 
-[tool.ruff.lint.isort.section-names]
-future = ["future"]
-standard-library = ["standard-library"]
-third-party = ["third-party"]
-first-party = ["first-party"]
-local-folder = ["local-folder"]
-
 [tool.ruff.lint.per-file-ignores]
 "friday/__init__.py" = ["F401", "F811"]
 "tests/**" = ["SLF001"]  # private-member-access
 
 [tool.ruff.lint.pylint]
-max-attributes = 10
 max-args = 10
 max-branches = 20
 max-locals = 30
@@ -133,7 +156,6 @@ max-complexity = 12
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-indent-width = 4
 skip-magic-trailing-comma = false
 
 # ------------------------------------------------------------ MyPy
@@ -162,10 +184,6 @@ module = [
     "requests.*",
 ]
 ignore_missing_imports = true
-
-[tool.mypy.files]
-# Strict for saturday
-strict = ["friday"]
 
 # ------------------------------------------------------------ Pytest
 [tool.pytest.ini_options]
@@ -208,14 +226,6 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "type: ignore",
     "@overload",
-]
-
-# ------------------------------------------------------------ Setuptools
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["friday*"]
-
-# ------------------------------------------------------------ PyBuild
-[tool.pybuild]
-name = "Friday V8"
-version = "0.8.0"
+]# ------------------------------------------------------------ Setuptools
+# Package list is declared explicitly above ([tool.setuptools] packages =
+# ["friday", ...]); no packages.find auto-discovery is used.

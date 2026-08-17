@@ -5,6 +5,7 @@ substitution/collisions), prompt assembly, JSON extraction."""
 from __future__ import annotations
 
 import json
+import os
 import unittest
 
 from friday.errors import FridayError
@@ -17,7 +18,11 @@ GOOD_PLAN = {
         {
             "primitive": "files.find_file",
             "args": {"name": "receipt", "directory": "/tmp"},
-            "verify": {"check": "checks.file_exists", "args": {"path": "$steps.1.result.path"}, "expect": True},
+            "verify": {
+                "check": "checks.file_exists",
+                "args": {"path": "$steps.1.result.path"},
+                "expect": True,
+            },
         }
     ],
 }
@@ -45,8 +50,16 @@ class TestValidatePlan(EnvTestCase):
         self.assertIn("unknown or unregistered", err)
 
     def test_blocked_primitive(self):
-        p = {"goal": "x", "steps": [{"primitive": "window.shutdown", "args": {},
-                                     "verify": {"check": "checks.window_client_count", "args": {}, "expect": 0}}]}
+        p = {
+            "goal": "x",
+            "steps": [
+                {
+                    "primitive": "window.shutdown",
+                    "args": {},
+                    "verify": {"check": "checks.window_client_count", "args": {}, "expect": 0},
+                }
+            ],
+        }
         ok, err = planner.validate_plan(p)
         self.assertFalse(ok)
         self.assertIn("EXECUTOR_BLOCKED", err)
@@ -111,30 +124,29 @@ class TestCatalog(EnvTestCase):
         """REGRESSION guard: every contract-registered primitive must be
         planable (in the catalog produced by build_catalog). This catches
         failures in _discover_l1_modules or the contract decorator."""
-        from friday.contracts import REGISTRY, EXECUTOR_BLOCKED
+        from friday.contracts import EXECUTOR_BLOCKED, REGISTRY
+
         planner._ensure_registry()
         cat = planner.build_catalog()
         for qualified in REGISTRY:
             if qualified in EXECUTOR_BLOCKED:
-                self.assertNotIn(qualified, cat,
-                    f"{qualified} is blocked but appears in catalog")
+                self.assertNotIn(qualified, cat, f"{qualified} is blocked but appears in catalog")
             else:
-                self.assertIn(qualified, cat,
+                self.assertIn(
+                    qualified,
+                    cat,
                     f"{qualified} is registered but missing from catalog - "
-                    "check _discover_l1_modules or the module import")
+                    "check _discover_l1_modules or the module import",
+                )
 
     def test_calendar_and_screenshot_are_planable(self):
         """REGRESSION test for calendar and screenshot modules.
         These were missing from _L1_MODULES fallback tuple."""
-        from friday.contracts import REGISTRY
         planner._ensure_registry()
         cat = planner.build_catalog()
-        self.assertIn("calendar.list_upcoming", cat,
-            "calendar.list_upcoming must be planable")
-        self.assertIn("calendar.add_event", cat,
-            "calendar.add_event must be planable")
-        self.assertIn("screenshot.capture", cat,
-            "screenshot.capture must be planable")
+        self.assertIn("calendar.list_upcoming", cat, "calendar.list_upcoming must be planable")
+        self.assertIn("calendar.add_event", cat, "calendar.add_event must be planable")
+        self.assertIn("screenshot.capture", cat, "screenshot.capture must be planable")
 
     def test_discovery_finds_new_module_files(self):
         """REGRESSION (2026-08-13, found live by cycle 2): the default base
@@ -169,15 +181,21 @@ class TestFacts(EnvTestCase):
     def test_load_and_resolve_paths(self):
         d = self.mktmp()
         f = d / "facts.json"
-        f.write_text(json.dumps({"file_paths": {"downloads": "~/Downloads"}, "recipients": {"wa": "123"}}), encoding="utf-8")
+        f.write_text(
+            json.dumps({"file_paths": {"downloads": "~/Downloads"}, "recipients": {"wa": "123"}}),
+            encoding="utf-8",
+        )
         facts = planner.load_project_facts(f)
-        self.assertTrue(facts.file_paths["downloads"].startswith("/"))
+        self.assertTrue(os.path.isabs(facts.file_paths["downloads"]))
+        self.assertTrue(facts.file_paths["downloads"].endswith("Downloads"))
         self.assertEqual(facts.recipients["wa"], "123")
 
     def test_collision_raises(self):
         d = self.mktmp()
         f = d / "facts.json"
-        f.write_text(json.dumps({"file_paths": {"dup": "x"}, "recipients": {"dup": "y"}}), encoding="utf-8")
+        f.write_text(
+            json.dumps({"file_paths": {"dup": "x"}, "recipients": {"dup": "y"}}), encoding="utf-8"
+        )
         with self.assertRaises(FridayError):
             planner.load_project_facts(f)
 
@@ -193,7 +211,9 @@ class TestFacts(EnvTestCase):
         f = d / "facts.json"
         f.write_text(json.dumps({"file_paths": {"readme": "README.md"}}), encoding="utf-8")
         project = planner.load_project_facts(f)
-        out = planner._substitute_facts_refs({"a": {"p": "$facts.readme"}, "b": ["$facts.readme"]}, project)
+        out = planner._substitute_facts_refs(
+            {"a": {"p": "$facts.readme"}, "b": ["$facts.readme"]}, project
+        )
         self.assertTrue(out["a"]["p"].endswith("README.md"))
         self.assertEqual(out["a"]["p"], out["b"][0])
 

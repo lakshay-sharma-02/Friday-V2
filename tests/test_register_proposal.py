@@ -27,10 +27,10 @@ GOOD_CONTRACT = {
 }
 GOOD_IMPL = (
     "from friday.contracts import Idempotency, contract\n"
-    "@contract(precondition=\"p\", postcondition=\"q\",\n"
-    "          idempotency=Idempotency.IDEMPOTENT, failure_mode=\"f\", returns=\"bool\")\n"
+    '@contract(precondition="p", postcondition="q",\n'
+    '          idempotency=Idempotency.IDEMPOTENT, failure_mode="f", returns="bool")\n'
     "def new_prim() -> bool:\n"
-    "    \"\"\"Do it.\"\"\"\n"
+    '    """Do it."""\n'
     "    return True\n"
 )
 GOOD_TEST = (
@@ -168,7 +168,7 @@ class TestRegister(EnvTestCase):
         impl = (
             "from __future__ import annotations; MARKER = 1\n"
             "def new_prim() -> bool:\n"
-            '    return MARKER == 1\n'
+            "    return MARKER == 1\n"
         )
         ok, msg = register("demo.new_prim", impl)
         self.assertTrue(ok, msg)
@@ -230,7 +230,9 @@ class TestApproveAndRegister(EnvTestCase):
     def test_gate_rejects_bad_contract_even_when_signed(self):
         d = self._proposal_dir()
         (d / "APPROVED.md").write_text("APPROVED\n", encoding="utf-8")
-        (d / "contract.json").write_text(json.dumps(dict(GOOD_CONTRACT, idempotency="nope")), encoding="utf-8")
+        (d / "contract.json").write_text(
+            json.dumps(dict(GOOD_CONTRACT, idempotency="nope")), encoding="utf-8"
+        )
         ok, msg = approve_and_register(d)
         self.assertFalse(ok)
         self.assertIn("REJECTED", msg)

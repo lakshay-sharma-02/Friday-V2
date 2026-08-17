@@ -14,9 +14,17 @@ Idempotency classes (from the V8 master plan):
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any, TypeVar
+
+# Generic bound so a @contract-decorated primitive KEEPS its real signature
+# for typecheckers - a bare-Callable decorator would make every primitive
+# (and its return type) Any, which is how the first strict-mypy run failed
+# (list_clients() was Any, so every caller of it was 'returning Any').
+F = TypeVar("F", bound=Callable[..., Any])
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
 
 from friday.observability import observe
 
@@ -57,7 +65,7 @@ def contract(
     returns: str = "",
     redact_result: bool = False,
     log_transform: Callable[[Any], Any] | None = None,
-) -> Callable:
+) -> Callable[[F], F]:
     """Decorator that registers a Contract for the wrapped primitive.
 
     redact_result=True: the primitive's returned value is written to the
@@ -70,7 +78,7 @@ def contract(
     untouched. See friday.observability.observe.
     """
 
-    def deco(fn: Callable) -> Callable:
+    def deco(fn: F) -> F:
         if fn.__name__.startswith("_"):
             raise TypeError(
                 f"contract() must decorate a public primitive, got private "
@@ -96,10 +104,12 @@ def contract(
         # L0: wrap every contract-registered primitive with the observability
         # decorator. One choke point instruments all primitives - Gate 2's
         # explicit requirement (no per-call-site instrumentation).
-        wrapped: Callable[..., Any] = observe(
-            redact_result=redact_result, log_transform=log_transform
-        )(fn)
-        setattr(wrapped, "__contract__", c)
+        # observe is itself generic over F, so the wrapped function keeps
+        # its declared signature for typecheckers
+        wrapped: F = observe(redact_result=redact_result, log_transform=log_transform)(fn)
+        # runtime attribute the executor checks before dispatch; type:
+        # ignore because F is bound to Callable, which has no such attr
+        wrapped.__contract__ = c  # type: ignore[attr-defined]
         return wrapped
 
     return deco

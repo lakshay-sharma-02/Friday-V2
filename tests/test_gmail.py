@@ -20,7 +20,12 @@ from tests.helpers import EnvTestCase
 class TestLogRedactMailMeta(unittest.TestCase):
     def test_redacts_sender_and_subject_keeps_ids(self):
         rows = [
-            {"message_id": "m1", "sender": "Google <x@accounts.google.com>", "subject": "Security alert", "date": "Sat"},
+            {
+                "message_id": "m1",
+                "sender": "Google <x@accounts.google.com>",
+                "subject": "Security alert",
+                "date": "Sat",
+            },
             {"message_id": "m2", "sender": "a@b", "subject": "s", "date": "Sun"},
         ]
         out = _log_redact_mail_meta(rows)
@@ -42,7 +47,9 @@ class TestLogRedactMailMeta(unittest.TestCase):
 
 class TestHeader(unittest.TestCase):
     def test_case_insensitive(self):
-        payload = {"headers": [{"name": "From", "value": "x@y"}, {"name": "Subject", "value": "hi"}]}
+        payload = {
+            "headers": [{"name": "From", "value": "x@y"}, {"name": "Subject", "value": "hi"}]
+        }
         self.assertEqual(_header(payload, "from"), "x@y")
         self.assertEqual(_header(payload, "SUBJECT"), "hi")
 
@@ -60,7 +67,10 @@ class TestBodyText(unittest.TestCase):
         data = base64.urlsafe_b64encode(b"the plain part").decode()
         payload = {
             "parts": [
-                {"mimeType": "text/html", "body": {"data": base64.urlsafe_b64encode(b"<b>html</b>").decode()}},
+                {
+                    "mimeType": "text/html",
+                    "body": {"data": base64.urlsafe_b64encode(b"<b>html</b>").decode()},
+                },
                 {"mimeType": "text/plain", "body": {"data": data}},
             ]
         }
@@ -82,15 +92,23 @@ class TestSummarizeFlow(EnvTestCase):
     in the L0 log (the redaction discipline from the Task-7 bring-up)."""
 
     def _msg(self, **kw):
-        base = {"message_id": "m1", "sender": "a@b", "subject": "Subj",
-                "date": "D", "snippet": "", "body": "Hello body"}
+        base = {
+            "message_id": "m1",
+            "sender": "a@b",
+            "subject": "Subj",
+            "date": "D",
+            "snippet": "",
+            "body": "Hello body",
+        }
         base.update(kw)
         return base
 
     @contextmanager
     def _patched(self, llm_result, msg=None):
-        with mock.patch("friday.l1.gmail.get_message", return_value=msg or self._msg()) as gm, \
-             mock.patch("friday.l1.dev._run_claude", return_value=llm_result) as rc:
+        with (
+            mock.patch("friday.l1.gmail.get_message", return_value=msg or self._msg()) as gm,
+            mock.patch("friday.l1.dev._run_claude", return_value=llm_result) as rc,
+        ):
             yield gm, rc
 
     def test_summary_from_string_result(self):
@@ -111,9 +129,8 @@ class TestSummarizeFlow(EnvTestCase):
         self.assertIn("no readable body or snippet", str(ctx.exception))
 
     def test_empty_llm_summary_raises(self):
-        with self._patched({"result": "   "}):
-            with self.assertRaises(PrimitiveError) as ctx:
-                gmail.summarize("m1")
+        with self._patched({"result": "   "}), self.assertRaises(PrimitiveError) as ctx:
+            gmail.summarize("m1")
         self.assertIn("no usable summary", str(ctx.exception))
 
     def test_summary_body_never_reaches_l0_log(self):
@@ -154,11 +171,11 @@ class TestSendDocument(EnvTestCase):
 
     def test_sends_attachment_and_returns_meta(self):
         pdf = self._pdf()
-        with mock.patch("friday.l1.gmail._access_token", return_value="tok"), \
-             mock.patch("friday.l1.gmail.requests.post", return_value=self._resp()) as post:
-            out = gmail.send_document(
-                str(pdf), to="me@example.com", subject="Receipt", body="hi"
-            )
+        with (
+            mock.patch("friday.l1.gmail._access_token", return_value="tok"),
+            mock.patch("friday.l1.gmail.requests.post", return_value=self._resp()) as post,
+        ):
+            out = gmail.send_document(str(pdf), to="me@example.com", subject="Receipt", body="hi")
         self.assertEqual(out["message_id"], "msg-1")
         self.assertEqual(out["thread_id"], "th-1")
         self.assertEqual(out["to"], "me@example.com")
@@ -177,10 +194,14 @@ class TestSendDocument(EnvTestCase):
         message_id stays visible so the trace identifies the send."""
         log = self.mktmp() / "log.jsonl"
         self.set_env(FRIDAY_LOG_FILE=str(log))
-        with mock.patch("friday.l1.gmail._access_token", return_value="tok"), \
-             mock.patch("friday.l1.gmail.requests.post", return_value=self._resp()):
+        with (
+            mock.patch("friday.l1.gmail._access_token", return_value="tok"),
+            mock.patch("friday.l1.gmail.requests.post", return_value=self._resp()),
+        ):
             gmail.send_document(str(self._pdf()), to="me@example.com")
-        lines = [json.loads(l) for l in open(log, encoding="utf-8").read().splitlines() if l.strip()]
+        lines = [
+            json.loads(l) for l in open(log, encoding="utf-8").read().splitlines() if l.strip()
+        ]
         send_line = [l for l in lines if l["primitive"] == "gmail.send_document"][-1]
         self.assertEqual(send_line["result"]["to"], "<redacted>")
         self.assertEqual(send_line["result"]["message_id"], "msg-1")
@@ -197,21 +218,27 @@ class TestSendDocument(EnvTestCase):
         2026-08-11 re-consent) would otherwise resolve the empty string to
         a real recipient and the send would proceed to an unmocked HTTP
         POST - this test must stay hermetic against live pass state."""
-        with mock.patch("friday.l1.gmail._access_token", return_value="tok"), \
-             mock.patch("friday.l1.gmail._default_to", return_value=None):
+        with (
+            mock.patch("friday.l1.gmail._access_token", return_value="tok"),
+            mock.patch("friday.l1.gmail._default_to", return_value=None),
+        ):
             with self.assertRaises(PreconditionError):
                 gmail.send_document(str(self._pdf()), to="")
 
     def test_default_recipient_env(self):
-        with mock.patch.dict("os.environ", {"GMAIL_DEFAULT_TO": "self@example.com"}), \
-             mock.patch("friday.l1.gmail._access_token", return_value="tok"), \
-             mock.patch("friday.l1.gmail.requests.post", return_value=self._resp()):
+        with (
+            mock.patch.dict("os.environ", {"GMAIL_DEFAULT_TO": "self@example.com"}),
+            mock.patch("friday.l1.gmail._access_token", return_value="tok"),
+            mock.patch("friday.l1.gmail.requests.post", return_value=self._resp()),
+        ):
             out = gmail.send_document(str(self._pdf()))
         self.assertEqual(out["to"], "self@example.com")
 
     def test_api_error_surfaces_primitive_error(self):
-        with mock.patch("friday.l1.gmail._access_token", return_value="tok"), \
-             mock.patch("friday.l1.gmail.requests.post", return_value=self._resp(403)):
+        with (
+            mock.patch("friday.l1.gmail._access_token", return_value="tok"),
+            mock.patch("friday.l1.gmail.requests.post", return_value=self._resp(403)),
+        ):
             with self.assertRaises(PrimitiveError) as ctx:
                 gmail.send_document(str(self._pdf()), to="me@example.com")
         self.assertIn("403", str(ctx.exception))

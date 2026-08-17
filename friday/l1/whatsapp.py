@@ -101,8 +101,7 @@ def _default_phone() -> str:
 
 
 @contract(
-    precondition="access token and phone_number_id are configured and the "
-    "token is valid.",
+    precondition="access token and phone_number_id are configured and the token is valid.",
     postcondition="Returns the phone number the token belongs to; nothing is "
     "sent. Confirms the credential path end-to-end before any messaging.",
     idempotency=Idempotency.IDEMPOTENT,
@@ -167,7 +166,7 @@ def upload_document(file_path: str) -> str:
             f"whatsapp media upload returned no id: {resp.text[:300]}",
             state="nothing sent",
         )
-    return media_id
+    return str(media_id)
 
 
 @contract(
@@ -181,7 +180,9 @@ def upload_document(file_path: str) -> str:
     "response is lost, the message may still have been sent - verify before retrying.",
     returns="dict: {message_id, to, filename, api}.",
 )
-def send_document(file_path: str, to: str | None = None, caption: str | None = None) -> dict[str, Any]:
+def send_document(
+    file_path: str, to: str | None = None, caption: str | None = None
+) -> dict[str, Any]:
     to = to or _default_phone()
     if not re.fullmatch(r"\d{10,15}", to):
         raise PreconditionError(
@@ -194,7 +195,7 @@ def send_document(file_path: str, to: str | None = None, caption: str | None = N
     doc: dict[str, Any] = {"id": media_id, "filename": Path(file_path).name}
     if caption:
         doc["caption"] = caption
-    payload = {
+    payload: dict[str, Any] = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "document",
@@ -239,7 +240,7 @@ def send_text(text: str, to: str | None = None) -> dict[str, Any]:
     if not text:
         raise PreconditionError("send_text requires non-empty text")
     token, phone_id = _auth()
-    payload = {
+    payload: dict[str, Any] = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "text",

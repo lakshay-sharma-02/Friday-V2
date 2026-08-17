@@ -26,11 +26,45 @@ from friday.lessons import record_lesson_event
 # Words too generic to distinguish a mechanism claim (a phrase made only
 # of these proves nothing about which repo the mechanism lives in).
 _STOPWORDS = {
-    "the", "and", "for", "with", "from", "that", "this", "these", "its",
-    "their", "your", "our", "pattern", "approach", "mechanism", "into",
-    "across", "using", "used", "use", "via", "then", "over", "about",
-    "within", "part", "piece", "style", "way", "one", "two", "plus",
-    "helper", "logic", "code", "work", "model", "system", "tool",
+    "the",
+    "and",
+    "for",
+    "with",
+    "from",
+    "that",
+    "this",
+    "these",
+    "its",
+    "their",
+    "your",
+    "our",
+    "pattern",
+    "approach",
+    "mechanism",
+    "into",
+    "across",
+    "using",
+    "used",
+    "use",
+    "via",
+    "then",
+    "over",
+    "about",
+    "within",
+    "part",
+    "piece",
+    "style",
+    "way",
+    "one",
+    "two",
+    "plus",
+    "helper",
+    "logic",
+    "code",
+    "work",
+    "model",
+    "system",
+    "tool",
 }
 
 # "Friday's cloudflare worker pattern" -> owner=friday, phrase=...
@@ -45,9 +79,15 @@ _POSSESSIVE = re.compile(
 
 # Normalize LLM typography before matching: typographic apostrophes and
 # non-breaking/smart hyphens (U+2019/2018/2011/2010/00AD) -> ASCII.
-_QUOTE_FIX = str.maketrans({
-    "\u2019": "'", "\u2018": "'", "\u2011": "-", "\u2010": "-", "\u00ad": "-",
-})
+_QUOTE_FIX = str.maketrans(
+    {
+        "\u2019": "'",
+        "\u2018": "'",
+        "\u2011": "-",
+        "\u2010": "-",
+        "\u00ad": "-",
+    }
+)
 
 # File-like / dotted mechanism names: gmail.summarize, sync.sh, watcher.py
 _DOTTED = re.compile(r"[A-Za-z0-9_\-]+(?:\.[A-Za-z0-9_\-]+){1,4}")
@@ -88,12 +128,13 @@ def _claims(digest: str, repos: dict[str, str]) -> list[tuple[str, str]]:
 
 def _phrase_tokens(phrase: str) -> list[str]:
     return [
-        t for t in re.split(r"[^a-z0-9]+", phrase.lower())
-        if len(t) >= 3 and t not in _STOPWORDS
+        t for t in re.split(r"[^a-z0-9]+", phrase.lower()) if len(t) >= 3 and t not in _STOPWORDS
     ]
 
 
-def _verify_phrase(owner: str, phrase: str, content_by_repo: dict[str, str]) -> tuple[str, list[str]]:
+def _verify_phrase(
+    owner: str, phrase: str, content_by_repo: dict[str, str]
+) -> tuple[str, list[str]]:
     """Return (status, elsewhere): status in {OK, SKIP, FLAG}."""
     tokens = _phrase_tokens(phrase)
     if not tokens:
@@ -102,8 +143,7 @@ def _verify_phrase(owner: str, phrase: str, content_by_repo: dict[str, str]) -> 
     if phrase.lower() in owner_content or any(t in owner_content for t in tokens):
         return ("OK", [])
     elsewhere = [
-        r for r, c in content_by_repo.items()
-        if r != owner and any(t in c for t in tokens)
+        r for r, c in content_by_repo.items() if r != owner and any(t in c for t in tokens)
     ]
     return ("FLAG", elsewhere)
 
@@ -135,9 +175,7 @@ def verify_attribution(digest: str, context: dict[str, Any]) -> str:
         raise PreconditionError("verify_attribution requires a non-empty 'context' dict")
 
     repos = _repo_tokens(context)
-    content_by_repo = {
-        token: _content_str(context[key]).lower() for token, key in repos.items()
-    }
+    content_by_repo = {token: _content_str(context[key]).lower() for token, key in repos.items()}
 
     norm = digest.translate(_QUOTE_FIX)
     claims = _claims(norm, repos)
@@ -154,7 +192,8 @@ def verify_attribution(digest: str, context: dict[str, Any]) -> str:
             loc = (
                 f" (its tokens appear in {', '.join(r.title() for r in elsewhere)}'s "
                 "content instead)"
-                if elsewhere else ""
+                if elsewhere
+                else ""
             )
             flags.append(
                 f"- UNVERIFIED attribution: '{phrase}' attributed to "
@@ -171,7 +210,9 @@ def verify_attribution(digest: str, context: dict[str, Any]) -> str:
             continue
         seen.add(key)
         if not any(key in c for c in content_by_repo.values()):
-            flags.append(f"- UNVERIFIED mechanism: '{dm}' not found in any repo's gathered content.")
+            flags.append(
+                f"- UNVERIFIED mechanism: '{dm}' not found in any repo's gathered content."
+            )
 
     # A flagged attribution is the raw material of the lessons loop: record
     # the fabrication class (best-effort - a broken lessons file must never
@@ -183,7 +224,8 @@ def verify_attribution(digest: str, context: dict[str, Any]) -> str:
     # never "fix" this with in-process dedupe.
     if flags:
         record_lesson_event(
-            category="digest_misattribution", source="digestcheck",
+            category="digest_misattribution",
+            source="digestcheck",
             detail=flags[0][2:],  # the first unverified claim, without the '- ' prefix
         )
 
@@ -195,9 +237,7 @@ def verify_attribution(digest: str, context: dict[str, Any]) -> str:
             "value either)."
         )
     elif flags:
-        status_line = (
-            "The following attributions could NOT be confirmed mechanically:"
-        )
+        status_line = "The following attributions could NOT be confirmed mechanically:"
     else:
         status_line = (
             f"All {confirmed} attributed mechanism(s) confirmed in the named "

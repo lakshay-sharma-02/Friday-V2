@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import unittest
 
-from friday.contracts import Idempotency, REGISTRY
+from friday.contracts import REGISTRY, Idempotency
 from friday.errors import PreconditionError
 from friday.l1.digestcheck import verify_attribution
 from tests.helpers import EnvTestCase

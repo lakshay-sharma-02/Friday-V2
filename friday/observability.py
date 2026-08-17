@@ -19,6 +19,7 @@ Config (env vars):
 
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import functools
 import inspect
@@ -28,9 +29,10 @@ import sys
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar, cast
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -92,11 +94,19 @@ def reset_run_id() -> None:
     with _log_lock:
         _RUN_ID = _DEFAULT_RUN_ID
 
+
 # Keys whose values are never written to the log, even in args/results.
 # 'pass' is deliberately absent - it would over-match harmless keys like
 # allow_bypass_permissions.
 _SENSITIVE_KEYS = (
-    "password", "passwd", "pwd", "token", "secret", "api_key", "apikey", "authorization",
+    "password",
+    "passwd",
+    "pwd",
+    "token",
+    "secret",
+    "api_key",
+    "apikey",
+    "authorization",
 )
 
 _MAX_STR = 500
@@ -234,7 +244,7 @@ def emit_event(
         "result": result,
         "exception": exception,
         "duration_ms": 0.0,
-        "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+        "timestamp": datetime.now(UTC).isoformat(timespec="milliseconds"),
     }
     if extra:
         rec["extra"] = extra
@@ -257,10 +267,10 @@ def _emit(record: dict[str, Any]) -> None:
             with open(path, "a", encoding="utf-8") as fh:
                 fh.write(line + "\n")
     except Exception as exc:
-        try:
-            print(f"[friday-observability] log write failed ({exc}); dropping line", file=sys.stderr)
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            print(
+                f"[friday-observability] log write failed ({exc}); dropping line", file=sys.stderr
+            )
 
 
 def observe(
@@ -302,7 +312,7 @@ def observe(
                         "result": None,
                         "exception": f"{type(exc).__name__}: {exc}",
                         "duration_ms": round((time.perf_counter() - started) * 1000, 3),
-                        "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                        "timestamp": datetime.now(UTC).isoformat(timespec="milliseconds"),
                     }
                 )
                 raise
@@ -318,11 +328,11 @@ def observe(
                     ),
                     "exception": None,
                     "duration_ms": round((time.perf_counter() - started) * 1000, 3),
-                    "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                    "timestamp": datetime.now(UTC).isoformat(timespec="milliseconds"),
                 }
             )
             return result
 
-        return wrapper
+        return cast(F, wrapper)
 
     return deco

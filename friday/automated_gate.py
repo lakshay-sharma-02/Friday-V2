@@ -129,7 +129,7 @@ import os
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -151,13 +151,44 @@ DEFAULT_SANDBOX_TIMEOUT_S = 30
 # deliberately, not by default. test_automated_gate asserts the observed
 # real imports stay within the allowlist.
 _OBSERVED_STDLIB = frozenset(
-    {"__future__", "base64", "fnmatch", "json", "os", "re", "signal", "socket",
-     "subprocess", "threading", "time", "pathlib", "typing"}
+    {
+        "__future__",
+        "base64",
+        "contextlib",
+        "fnmatch",
+        "json",
+        "os",
+        "re",
+        "signal",
+        "socket",
+        "subprocess",
+        "tempfile",
+        "threading",
+        "time",
+        "pathlib",
+        "typing",
+    }
 )
+# 'contextlib' added 2026-08-17 (contextlib.suppress in browser.py/media.py
+# wait/kill loops - the SIM105 lint fixes); 'tempfile' added 2026-08-17:
+# screenshot.capture's default output path is built from
+# tempfile.gettempdir() so the primitive (and its tests) are
+# Windows-portable. Both pure-compute, no side effects of their own.
 _OBSERVED_THIRD_PARTY = frozenset({"requests", "playwright"})
 _EXTRA_SAFE_STDLIB = frozenset(
-    {"collections", "dataclasses", "datetime", "email", "enum", "functools",
-     "io", "itertools", "math", "string", "uuid"}
+    {
+        "collections",
+        "dataclasses",
+        "datetime",
+        "email",
+        "enum",
+        "functools",
+        "io",
+        "itertools",
+        "math",
+        "string",
+        "uuid",
+    }
 )
 # 'email' was added deliberately for the hand-built gmail.send_document
 # proposal (2026-08-11): pure MIME message/attachment construction for the
@@ -181,17 +212,37 @@ _CAPTURE_TOOLS = frozenset({"grim", "slurp", "import"})
 # execution and shell. No reusable list existed in the repo - this set is
 # the derived, documented mirror.
 _DANGER_BUILTINS = frozenset({"exec", "eval", "compile", "__import__", "input"})
-_DANGER_ATTRS = frozenset({
-    "os.system", "os.popen", "os.fork", "os.startfile",
-    "os.spawnl", "os.spawnle", "os.spawnlp", "os.spawnlpe",
-    "os.spawnv", "os.spawnve", "os.spawnvp", "os.spawnvpe",
-    "os.execl", "os.execle", "os.execlp", "os.execlpe",
-    "os.execv", "os.execve", "os.execvp", "os.execvpe",
-    "pty.spawn",
-    # the paid, side-effecting claude subprocess - a draft or its test
-    # must never reach it
-    "dev.run", "dev.run_shell", "friday.l1.dev.run", "friday.l1.dev.run_shell",
-})
+_DANGER_ATTRS = frozenset(
+    {
+        "os.system",
+        "os.popen",
+        "os.fork",
+        "os.startfile",
+        "os.spawnl",
+        "os.spawnle",
+        "os.spawnlp",
+        "os.spawnlpe",
+        "os.spawnv",
+        "os.spawnve",
+        "os.spawnvp",
+        "os.spawnvpe",
+        "os.execl",
+        "os.execle",
+        "os.execlp",
+        "os.execlpe",
+        "os.execv",
+        "os.execve",
+        "os.execvp",
+        "os.execvpe",
+        "pty.spawn",
+        # the paid, side-effecting claude subprocess - a draft or its test
+        # must never reach it
+        "dev.run",
+        "dev.run_shell",
+        "friday.l1.dev.run",
+        "friday.l1.dev.run_shell",
+    }
+)
 
 
 # --------------------------------------------------------------- AST checks
@@ -242,18 +293,41 @@ def check_imports(source: str) -> list[str]:
 # resolvable literal paths are caught - a path built at runtime (variables,
 # tempfile calls) is not caught by this AST check (documented limit;
 # full OS-level isolation remains aspirational).
-_FS_WRITE_OS = frozenset({
-    "os.remove", "os.unlink", "os.rmdir", "os.mkdir", "os.makedirs",
-    "os.rename", "os.replace", "os.open",
-})
-_FS_WRITE_SHUTIL = frozenset({
-    "shutil.move", "shutil.copy", "shutil.copy2", "shutil.copytree",
-    "shutil.rmtree", "shutil.copyfile",
-})
-_PATH_WRITE_METHODS = frozenset({
-    "write_text", "write_bytes", "touch", "unlink", "mkdir", "rename",
-    "replace", "rmdir", "open",
-})
+_FS_WRITE_OS = frozenset(
+    {
+        "os.remove",
+        "os.unlink",
+        "os.rmdir",
+        "os.mkdir",
+        "os.makedirs",
+        "os.rename",
+        "os.replace",
+        "os.open",
+    }
+)
+_FS_WRITE_SHUTIL = frozenset(
+    {
+        "shutil.move",
+        "shutil.copy",
+        "shutil.copy2",
+        "shutil.copytree",
+        "shutil.rmtree",
+        "shutil.copyfile",
+    }
+)
+_PATH_WRITE_METHODS = frozenset(
+    {
+        "write_text",
+        "write_bytes",
+        "touch",
+        "unlink",
+        "mkdir",
+        "rename",
+        "replace",
+        "rmdir",
+        "open",
+    }
+)
 
 
 def _path_literal(node: ast.AST) -> str | None:
@@ -262,8 +336,10 @@ def _path_literal(node: ast.AST) -> str | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     if isinstance(node, ast.Call):
-        if node.args and isinstance(node.func, ast.Name) and node.func.id in (
-            "Path", "PurePath", "PurePosixPath", "PureWindowsPath"
+        if (
+            node.args
+            and isinstance(node.func, ast.Name)
+            and node.func.id in ("Path", "PurePath", "PurePosixPath", "PureWindowsPath")
         ):
             return _path_literal(node.args[0])
         return None
@@ -300,9 +376,12 @@ def check_fs_scope(source: str) -> list[str]:
             continue
         fn = node.func
         if isinstance(fn, ast.Name) and fn.id == "open":
-            if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant) \
-                    and isinstance(node.args[1].value, str) \
-                    and any(c in node.args[1].value for c in "wax+"):
+            if (
+                len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and isinstance(node.args[1].value, str)
+                and any(c in node.args[1].value for c in "wax+")
+            ):
                 p = _path_literal(node.args[0])
                 if p and _unsafe_path(p):
                     issues.append(
@@ -319,8 +398,7 @@ def check_fs_scope(source: str) -> list[str]:
                 # false-flagged. Unresolvable flags stay conservative (flagged).
                 if dotted == "os.open" and len(node.args) >= 2:
                     flag_names = {
-                        a.attr for a in ast.walk(node.args[1])
-                        if isinstance(a, ast.Attribute)
+                        a.attr for a in ast.walk(node.args[1]) if isinstance(a, ast.Attribute)
                     }
                     if not (flag_names & {"O_WRONLY", "O_RDWR", "O_APPEND", "O_CREAT", "O_TRUNC"}):
                         continue  # read-only os.open - allowed
@@ -339,8 +417,11 @@ def check_fs_scope(source: str) -> list[str]:
                     for kw in node.keywords:
                         if kw.arg == "mode":
                             mode = kw.value
-                    if not (isinstance(mode, ast.Constant) and isinstance(mode.value, str)
-                            and any(c in mode.value for c in "wax+")):
+                    if not (
+                        isinstance(mode, ast.Constant)
+                        and isinstance(mode.value, str)
+                        and any(c in mode.value for c in "wax+")
+                    ):
                         continue  # Path.open without a write mode is a read
                 p = _path_literal(fn.value)
                 if p and _unsafe_path(p):
@@ -407,9 +488,7 @@ def _is_safe_subprocess_run(node: ast.Call) -> bool:
     cmd = node.args[0]
     if not isinstance(cmd, (ast.List, ast.Tuple)):
         return False
-    all_literal = all(
-        isinstance(e, ast.Constant) and isinstance(e.value, str) for e in cmd.elts
-    )
+    all_literal = all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in cmd.elts)
     if not all_literal:
         # CAPTURE shape: the first element must be a literal tool binary
         # from the small allowlist; the rest may be runtime args. A
@@ -418,8 +497,11 @@ def _is_safe_subprocess_run(node: ast.Call) -> bool:
         if not cmd.elts:
             return False
         first = cmd.elts[0]
-        if not (isinstance(first, ast.Constant) and isinstance(first.value, str)
-                and first.value in _CAPTURE_TOOLS):
+        if not (
+            isinstance(first, ast.Constant)
+            and isinstance(first.value, str)
+            and first.value in _CAPTURE_TOOLS
+        ):
             return False
     capture_ok = False
     stdout_devnull = False
@@ -430,9 +512,7 @@ def _is_safe_subprocess_run(node: ast.Call) -> bool:
             if not (isinstance(kw.value, ast.Constant) and kw.value.value is False):
                 return False
         elif kw.arg == "capture_output":
-            capture_ok = (
-                isinstance(kw.value, ast.Constant) and kw.value.value is True
-            )
+            capture_ok = isinstance(kw.value, ast.Constant) and kw.value.value is True
         elif kw.arg == "stdout":
             stdout_devnull = (
                 isinstance(kw.value, ast.Attribute)
@@ -474,9 +554,9 @@ def check_danger(source: str) -> list[str]:
             issues.append(f"calls {fn.id}() - arbitrary-execution builtin")
         elif isinstance(fn, ast.Attribute):
             dotted = _dotted_name(fn)
-            if dotted in _DANGER_ATTRS:
-                issues.append(f"calls {dotted}() - dangerous/arbitrary execution")
-            elif dotted.startswith("subprocess.") and not _is_safe_subprocess_run(node):
+            if dotted in _DANGER_ATTRS or (
+                dotted.startswith("subprocess.") and not _is_safe_subprocess_run(node)
+            ):
                 issues.append(f"calls {dotted}() - dangerous/arbitrary execution")
     return issues
 
@@ -488,8 +568,11 @@ def _fn_params(source: str, fn_name: str) -> list[str]:
     fn = _find_function(source, fn_name)
     if fn is None:
         return []
-    return [a.arg for a in fn.args.args + fn.args.posonlyargs + fn.args.kwonlyargs
-            if a.arg not in ("self", "cls")]
+    return [
+        a.arg
+        for a in fn.args.args + fn.args.posonlyargs + fn.args.kwonlyargs
+        if a.arg not in ("self", "cls")
+    ]
 
 
 def _find_function(source: str, fn_name: str) -> ast.FunctionDef | None:
@@ -520,8 +603,11 @@ def check_dead_args(source: str, fn_name: str) -> list[str]:
     fn = _find_function(source, fn_name)
     if fn is None:
         return []
-    params = [a.arg for a in fn.args.args + fn.args.posonlyargs + fn.args.kwonlyargs
-              if a.arg not in ("self", "cls")]
+    params = [
+        a.arg
+        for a in fn.args.args + fn.args.posonlyargs + fn.args.kwonlyargs
+        if a.arg not in ("self", "cls")
+    ]
     used = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
     return [f"parameter {p!r} is declared but never used" for p in params if p not in used]
 
@@ -532,14 +618,37 @@ def check_dead_args(source: str, fn_name: str) -> list[str]:
 # builtin against a contract declaring a Friday error class fails its own
 # contract on first real failure - observed live 2026-08-14: the clipboard
 # draft raised RuntimeError against a failure_mode declaring PrimitiveError.
-_BUILTIN_EXC_NAMES = frozenset({
-    "ArithmeticError", "AssertionError", "AttributeError", "EOFError", "Exception",
-    "ImportError", "IndexError", "KeyError", "LookupError", "MemoryError",
-    "NameError", "NotImplementedError", "OSError", "OverflowError",
-    "RecursionError", "ReferenceError", "RuntimeError", "StopIteration",
-    "SyntaxError", "SystemError", "TimeoutError", "TypeError", "UnicodeError",
-    "ValueError", "ZeroDivisionError", "IOError", "EnvironmentError",
-})
+_BUILTIN_EXC_NAMES = frozenset(
+    {
+        "ArithmeticError",
+        "AssertionError",
+        "AttributeError",
+        "EOFError",
+        "Exception",
+        "ImportError",
+        "IndexError",
+        "KeyError",
+        "LookupError",
+        "MemoryError",
+        "NameError",
+        "NotImplementedError",
+        "OSError",
+        "OverflowError",
+        "RecursionError",
+        "ReferenceError",
+        "RuntimeError",
+        "StopIteration",
+        "SyntaxError",
+        "SystemError",
+        "TimeoutError",
+        "TypeError",
+        "UnicodeError",
+        "ValueError",
+        "ZeroDivisionError",
+        "IOError",
+        "EnvironmentError",
+    }
+)
 
 
 def check_contract_decorator(source: str, fn_name: str) -> list[str]:
@@ -552,8 +661,9 @@ def check_contract_decorator(source: str, fn_name: str) -> list[str]:
     if fn is None:
         return []  # the missing-function check reports that separately
     for d in fn.decorator_list:
-        if (isinstance(d, ast.Call) and isinstance(d.func, ast.Name) and d.func.id == "contract") or \
-                (isinstance(d, ast.Name) and d.id == "contract"):
+        if (
+            isinstance(d, ast.Call) and isinstance(d.func, ast.Name) and d.func.id == "contract"
+        ) or (isinstance(d, ast.Name) and d.id == "contract"):
             return []
     return [
         f"{fn_name}() is not decorated with @contract(...) - the impl would never "
@@ -594,7 +704,8 @@ def check_raise_classes(source: str, contract: dict[str, Any]) -> list[str]:
     exception name appears in the contract's own text is allowed (the contract
     declares it)."""
     contract_text = " ".join(
-        str(contract.get(k, "")) for k in ("failure_mode", "precondition", "postcondition", "returns")
+        str(contract.get(k, ""))
+        for k in ("failure_mode", "precondition", "postcondition", "returns")
     ).lower()
     issues: list[str] = []
     try:
@@ -620,9 +731,7 @@ def check_raise_classes(source: str, contract: dict[str, Any]) -> list[str]:
     return issues
 
 
-def check_impl_ast(
-    source: str, fn_name: str, contract: dict[str, Any] | None = None
-) -> list[str]:
+def check_impl_ast(source: str, fn_name: str, contract: dict[str, Any] | None = None) -> list[str]:
     """The full static pass: imports, danger calls, sandbox-escaping
     writes, contract function, dead arguments - plus, when the contract is
     supplied (the gate and the triage self-check both pass it), the
@@ -837,9 +946,7 @@ def _uses_bounded_subprocess(source: str) -> bool:
         tree = ast.parse(source)
     except SyntaxError:
         return False
-    return any(
-        isinstance(n, ast.Call) and _is_safe_subprocess_run(n) for n in ast.walk(tree)
-    )
+    return any(isinstance(n, ast.Call) and _is_safe_subprocess_run(n) for n in ast.walk(tree))
 
 
 def _build_probe_family(fn_name: str, params: list[str]) -> str:
@@ -891,34 +998,59 @@ def run_build_verify(
         # and the contracted fn takes no args (read_text() shape) - otherwise
         # honest not-applicable, never probed blind.
         if not params and _uses_bounded_subprocess(impl_src):
-            probes = [
-                {"kind": "subread", "mock": {"returncode": 0, "stdout": "probe text\n"}, "expect": "str"},
-                {"kind": "subread", "mock": {"returncode": 1, "stderr": "tool failed"}, "expect": "friday_or_str"},
+            probes: list[dict[str, Any]] = [
+                {
+                    "kind": "subread",
+                    "mock": {"returncode": 0, "stdout": "probe text\n"},
+                    "expect": "str",
+                },
+                {
+                    "kind": "subread",
+                    "mock": {"returncode": 1, "stderr": "tool failed"},
+                    "expect": "friday_or_str",
+                },
                 {"kind": "subread", "mock": {"raise": "TimeoutError"}, "expect": "friday_or_str"},
             ]
             try:
                 with tempfile.TemporaryDirectory(prefix="friday_buildverify_") as td:
                     sandbox = Path(td)
                     spec_path = sandbox / "probes.json"
-                    spec_path.write_text(json.dumps({"fn": fn_name, "probes": probes}), encoding="utf-8")
+                    spec_path.write_text(
+                        json.dumps({"fn": fn_name, "probes": probes}), encoding="utf-8"
+                    )
                     runner = sandbox / "build_runner.py"
                     runner.write_text(_BUILD_RUNNER, encoding="utf-8")
                     existing = "1" if (L1_DIR / f"{module}.py").is_file() else "0"
                     cmd = [
-                        sys.executable, str(runner), str(PROJECT_ROOT),
-                        str((proposal / "impl.py").resolve()), module, existing, str(spec_path),
+                        sys.executable,
+                        str(runner),
+                        str(PROJECT_ROOT),
+                        str((proposal / "impl.py").resolve()),
+                        module,
+                        existing,
+                        str(spec_path),
                     ]
                     try:
                         proc = subprocess.run(
-                            cmd, capture_output=True, text=True,
-                            timeout=timeout_s, cwd=str(sandbox), env=_sanitized_env(sandbox),
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=timeout_s,
+                            cwd=str(sandbox),
+                            env=_sanitized_env(sandbox),
                         )
                     except subprocess.TimeoutExpired:
-                        return "reject", ["build-verify: REJECT - timed out while probing the mocked tool"]
+                        return "reject", [
+                            "build-verify: REJECT - timed out while probing the mocked tool"
+                        ]
                     out = proc.stdout + "\n" + proc.stderr
                     fails = [l for l in out.splitlines() if l.startswith("PROBE_FAIL")]
                     if proc.returncode != 0 or fails:
-                        detail = fails[0] if fails else (out.strip().splitlines()[-1] if out.strip() else "unknown")
+                        detail = (
+                            fails[0]
+                            if fails
+                            else (out.strip().splitlines()[-1] if out.strip() else "unknown")
+                        )
                         return "reject", [f"build-verify: REJECT - {detail}"]
                     return "pass", [
                         "build-verify: PASS - subprocess-read probes (mocked tool): "
@@ -943,54 +1075,104 @@ def run_build_verify(
         with tempfile.TemporaryDirectory(prefix="friday_buildverify_") as td:
             sandbox = Path(td)
 
-            def _args(**kw):
+            def _args(**kw: object) -> dict[str, Any]:
                 return {k: v for k, v in kw.items() if k in params}
 
             if family == "read":
                 target = sandbox / "report.pdf"
                 target.write_text("probe target", encoding="utf-8")
                 probes = [
-                    {"args": _args(name="report.pdf", directory=str(sandbox)), "expect_path": str(target)},
-                    {"args": _args(name="definitely-not-present-xyz.pdf", directory=str(sandbox)), "expect": "str"},
-                    {"args": _args(name="x", directory=str(sandbox / "no-such-dir")), "allow_friday_error": True},
+                    {
+                        "args": _args(name="report.pdf", directory=str(sandbox)),
+                        "expect_path": str(target),
+                    },
+                    {
+                        "args": _args(
+                            name="definitely-not-present-xyz.pdf", directory=str(sandbox)
+                        ),
+                        "expect": "str",
+                    },
+                    {
+                        "args": _args(name="x", directory=str(sandbox / "no-such-dir")),
+                        "allow_friday_error": True,
+                    },
                 ]
             else:  # write family
                 target1 = sandbox / "notes.md"
                 target2 = sandbox / "log.txt"
                 probes = [
-                    {"kind": "write", "calls": [
-                        {"args": _args(path=str(target1), text="hello"), "expect_content": "hello"},
-                        {"args": _args(path=str(target1), text="goodbye"), "expect_content": "goodbye"},
-                    ]},
+                    {
+                        "kind": "write",
+                        "calls": [
+                            {
+                                "args": _args(path=str(target1), text="hello"),
+                                "expect_content": "hello",
+                            },
+                            {
+                                "args": _args(path=str(target1), text="goodbye"),
+                                "expect_content": "goodbye",
+                            },
+                        ],
+                    },
                 ]
                 if "append" in params:
-                    probes.append({"kind": "write", "calls": [
-                        {"args": _args(path=str(target2), text="line1\n"), "expect_content": "line1\n"},
-                        {"args": _args(path=str(target2), text="line2\n", append=True), "expect_content": "line1\nline2\n"},
-                    ]})
+                    probes.append(
+                        {
+                            "kind": "write",
+                            "calls": [
+                                {
+                                    "args": _args(path=str(target2), text="line1\n"),
+                                    "expect_content": "line1\n",
+                                },
+                                {
+                                    "args": _args(path=str(target2), text="line2\n", append=True),
+                                    "expect_content": "line1\nline2\n",
+                                },
+                            ],
+                        }
+                    )
                 # missing-parent must raise FridayError or return, never a
                 # raw OSError/TypeError (the contract says PreconditionError)
-                probes.append({"kind": "error", "args": _args(path=str(sandbox / "no-such-dir" / "f.txt"), text="x"), "allow_friday_error": True})
+                probes.append(
+                    {
+                        "kind": "error",
+                        "args": _args(path=str(sandbox / "no-such-dir" / "f.txt"), text="x"),
+                        "allow_friday_error": True,
+                    }
+                )
             spec_path = sandbox / "probes.json"
             spec_path.write_text(json.dumps({"fn": fn_name, "probes": probes}), encoding="utf-8")
             runner = sandbox / "build_runner.py"
             runner.write_text(_BUILD_RUNNER, encoding="utf-8")
             existing = "1" if (L1_DIR / f"{module}.py").is_file() else "0"
             cmd = [
-                sys.executable, str(runner), str(PROJECT_ROOT),
-                str((proposal / "impl.py").resolve()), module, existing, str(spec_path),
+                sys.executable,
+                str(runner),
+                str(PROJECT_ROOT),
+                str((proposal / "impl.py").resolve()),
+                module,
+                existing,
+                str(spec_path),
             ]
             try:
                 proc = subprocess.run(
-                    cmd, capture_output=True, text=True,
-                    timeout=timeout_s, cwd=str(sandbox), env=_sanitized_env(sandbox),
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_s,
+                    cwd=str(sandbox),
+                    env=_sanitized_env(sandbox),
                 )
             except subprocess.TimeoutExpired:
                 return "reject", ["build-verify: REJECT - timed out while probing the real target"]
             out = proc.stdout + "\n" + proc.stderr
             fails = [l for l in out.splitlines() if l.startswith("PROBE_FAIL")]
             if proc.returncode != 0 or fails:
-                detail = fails[0] if fails else (out.strip().splitlines()[-1] if out.strip() else "unknown")
+                detail = (
+                    fails[0]
+                    if fails
+                    else (out.strip().splitlines()[-1] if out.strip() else "unknown")
+                )
                 return "reject", [f"build-verify: REJECT - {detail}"]
             if family == "write":
                 return "pass", [
@@ -1132,8 +1314,13 @@ def check_registration(
     module = contract_name.partition(".")[0]
     existing = "1" if (L1_DIR / f"{module}.py").is_file() else "0"
     cmd = [
-        sys.executable, "<runner>", str(PROJECT_ROOT),
-        str(Path(impl_path).resolve()), module, existing, contract_name,
+        sys.executable,
+        "<runner>",
+        str(PROJECT_ROOT),
+        str(Path(impl_path).resolve()),
+        module,
+        existing,
+        contract_name,
     ]
     try:
         with tempfile.TemporaryDirectory(prefix="friday_regcheck_") as td:
@@ -1142,8 +1329,12 @@ def check_registration(
             runner.write_text(_REGISTRATION_RUNNER, encoding="utf-8")
             cmd[1] = str(runner)
             proc = subprocess.run(
-                cmd, capture_output=True, text=True,
-                timeout=timeout_s, cwd=str(sandbox), env=_sanitized_env(sandbox),
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                cwd=str(sandbox),
+                env=_sanitized_env(sandbox),
             )
     except subprocess.TimeoutExpired:
         return False, f"registration check timed out after {timeout_s}s"
@@ -1154,8 +1345,17 @@ def check_registration(
     return True, "draft registers the contracted name"
 
 
-_STRIP_MARKERS = ("TOKEN", "SECRET", "PASSWORD", "PASSWD", "API_KEY", "APIKEY",
-                  "PRIVATE_KEY", "PASSPHRASE", "KEY")
+_STRIP_MARKERS = (
+    "TOKEN",
+    "SECRET",
+    "PASSWORD",
+    "PASSWD",
+    "API_KEY",
+    "APIKEY",
+    "PRIVATE_KEY",
+    "PASSPHRASE",
+    "KEY",
+)
 
 
 def _sanitized_env(sandbox_dir: Path) -> dict[str, str]:
@@ -1164,10 +1364,7 @@ def _sanitized_env(sandbox_dir: Path) -> dict[str, str]:
     the FRIDAY_* logging/triage paths redirected to temp files. Network is
     not hard-blocked (documented limit); with no credentials present the
     live primitives cannot authenticate anyway."""
-    env = {
-        k: v for k, v in os.environ.items()
-        if not any(m in k.upper() for m in _STRIP_MARKERS)
-    }
+    env = {k: v for k, v in os.environ.items() if not any(m in k.upper() for m in _STRIP_MARKERS)}
     for key in list(env):
         up = key.upper()
         if up.startswith(("FRIDAY_", "WHATSAPP_", "TELEGRAM_", "DISCORD_", "GITHUB_")):
@@ -1184,8 +1381,9 @@ def _sanitized_env(sandbox_dir: Path) -> dict[str, str]:
     env["TMPDIR"] = env["TMP"] = env["TEMP"] = str(sandbox_dir)
     # The sandbox must never be able to invoke the claude CLI (a paid,
     # side-effecting subprocess) from an LLM-generated test.
-    kept = [s for s in env.get("PATH", "").split(os.pathsep)
-            if s and not (Path(s) / "claude").is_file()]
+    kept = [
+        s for s in env.get("PATH", "").split(os.pathsep) if s and not (Path(s) / "claude").is_file()
+    ]
     env["PATH"] = os.pathsep.join(kept)
     return env
 
@@ -1205,9 +1403,13 @@ def run_sandbox_test(
     module = contract_name.partition(".")[0]
     existing = "1" if (L1_DIR / f"{module}.py").is_file() else "0"
     cmd = [
-        sys.executable, "<runner>", str(PROJECT_ROOT),
-        str(Path(impl_path).resolve()), str(Path(test_path).resolve()),
-        module, existing,
+        sys.executable,
+        "<runner>",
+        str(PROJECT_ROOT),
+        str(Path(impl_path).resolve()),
+        str(Path(test_path).resolve()),
+        module,
+        existing,
     ]
     try:
         with tempfile.TemporaryDirectory(prefix="friday_sandbox_") as td:
@@ -1216,8 +1418,12 @@ def run_sandbox_test(
             runner.write_text(_SANDBOX_RUNNER, encoding="utf-8")
             cmd[1] = str(runner)
             proc = subprocess.run(
-                cmd, capture_output=True, text=True,
-                timeout=timeout_s, cwd=str(sandbox), env=_sanitized_env(sandbox),
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                cwd=str(sandbox),
+                env=_sanitized_env(sandbox),
             )
     except subprocess.TimeoutExpired:
         return False, f"sandbox test run timed out after {timeout_s}s"
@@ -1249,12 +1455,16 @@ def run_automated_gate(
         # short-circuit: an AST-rejected draft is NEVER executed, not even
         # its own sandbox test - running a dangerous draft is itself a risk
         lines += [f"AST REJECT: {i}" for i in issues]
-        lines.append("sandbox: SKIPPED - the draft was rejected at AST, so its test was not executed")
+        lines.append(
+            "sandbox: SKIPPED - the draft was rejected at AST, so its test was not executed"
+        )
         # record the failure class as a lesson event - the raw material of
         # the lessons loop (best-effort, never breaks the gate)
         record_lesson_event(
-            category="draft_ast", source="automated_gate",
-            detail=f"{contract['name']}: {issues[0]}", primitive=contract["name"],
+            category="draft_ast",
+            source="automated_gate",
+            detail=f"{contract['name']}: {issues[0]}",
+            primitive=contract["name"],
         )
         _append_report(proposal / "rationale.md", lines)
         return False, lines
@@ -1276,8 +1486,10 @@ def run_automated_gate(
     if not reg_ok:
         lines.append(f"registration: REJECT - {reg_summary}")
         record_lesson_event(
-            category="draft_no_register", source="automated_gate",
-            detail=f"{contract['name']}: {reg_summary}", primitive=contract["name"],
+            category="draft_no_register",
+            source="automated_gate",
+            detail=f"{contract['name']}: {reg_summary}",
+            primitive=contract["name"],
         )
         _append_report(proposal / "rationale.md", lines)
         return False, lines
@@ -1294,8 +1506,10 @@ def run_automated_gate(
         lines += [f"test.py AST REJECT: {i}" for i in test_issues]
         lines.append("sandbox: SKIPPED - the test file itself was rejected at AST")
         record_lesson_event(
-            category="draft_ast", source="automated_gate",
-            detail=f"{contract['name']} test.py: {test_issues[0]}", primitive=contract["name"],
+            category="draft_ast",
+            source="automated_gate",
+            detail=f"{contract['name']} test.py: {test_issues[0]}",
+            primitive=contract["name"],
         )
         _append_report(proposal / "rationale.md", lines)
         return False, lines
@@ -1307,8 +1521,10 @@ def run_automated_gate(
     else:
         lines.append(f"sandbox: REJECT - {sandbox_summary}")
         record_lesson_event(
-            category="draft_test_fail", source="automated_gate",
-            detail=f"{contract['name']}: {sandbox_summary}", primitive=contract["name"],
+            category="draft_test_fail",
+            source="automated_gate",
+            detail=f"{contract['name']}: {sandbox_summary}",
+            primitive=contract["name"],
         )
         _append_report(proposal / "rationale.md", lines)
         return False, lines
@@ -1321,7 +1537,8 @@ def run_automated_gate(
     lines += bv_lines
     if bv_status == "reject":
         record_lesson_event(
-            category="draft_build_verify_fail", source="automated_gate",
+            category="draft_build_verify_fail",
+            source="automated_gate",
             detail=f"{contract['name']}: {bv_lines[0] if bv_lines else 'build-verify rejected'}",
             primitive=contract["name"],
         )
@@ -1345,7 +1562,7 @@ def _append_report(rationale: Path, lines: list[str]) -> None:
     block = [
         "",
         "## Automated gate (friday/automated_gate.py)",
-        f"- run: {datetime.now(timezone.utc).isoformat(timespec='seconds')}",
+        f"- run: {datetime.now(UTC).isoformat(timespec='seconds')}",
         *(f"- {line}" for line in lines),
         "",
         "The automated gate catches STRUCTURAL defects only - it does not",

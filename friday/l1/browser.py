@@ -14,13 +14,14 @@ not allowed to look "done".
 
 from __future__ import annotations
 
-import json
+import contextlib
 import os
 import re
 import signal
 import subprocess
 import time
 from pathlib import Path
+from typing import Any, cast
 
 from playwright.sync_api import (
     Error as PlaywrightError,
@@ -56,10 +57,8 @@ def _sweep_orphans() -> int:
         return 0
     pids = [int(p) for p in out.stdout.split() if p.strip().isdigit()]
     for pid in pids:
-        try:
+        with contextlib.suppress(ProcessLookupError):
             os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
     if pids:
         time.sleep(1.0)
     return len(pids)
@@ -116,6 +115,7 @@ def goto(url: str, timeout_ms: int = DEFAULT_NAV_TIMEOUT_MS) -> dict[str, str]:
     if not url.startswith(("http://", "https://")):
         raise PreconditionError("goto requires an http(s) URL")
     _ensure_launched()
+    assert _page is not None  # _ensure_launched guarantees a live page
     try:
         _page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
     except (PlaywrightTimeout, PlaywrightError) as exc:
@@ -137,7 +137,7 @@ def read_page_text() -> str:
     if _page is None:
         raise PrimitiveError("no browser page; call goto() first", state="no browser running")
     try:
-        return _page.evaluate("() => document.body ? document.body.innerText : ''")
+        return str(_page.evaluate("() => document.body ? document.body.innerText : ''"))
     except PlaywrightError as exc:
         raise PrimitiveError(f"read_page_text failed: {exc}", state="page may be closed") from exc
 
@@ -179,8 +179,10 @@ def find_locator(what: str, wait_ms: int = 2000) -> Locator:
 
     for role in _ROLES:
         tried.append(f"role:{role}(name~{what})")
+        # the playwright stubs type role as a Literal; _ROLES is a runtime
+        # allowlist of valid roles, so the cast is safe
         loc = _first_visible(
-            _page.get_by_role(role, name=re.compile(re.escape(what), re.I)), wait_ms
+            _page.get_by_role(cast(Any, role), name=re.compile(re.escape(what), re.I)), wait_ms
         )
         if loc:
             return loc
@@ -206,7 +208,8 @@ def find_locator(what: str, wait_ms: int = 2000) -> Locator:
 )
 def click(what: str, timeout_ms: int = 10_000) -> dict[str, str]:
     loc = find_locator(what)
-    before = _page.url if _page else ""
+    assert _page is not None  # find_locator raises when no page is live
+    before = _page.url
     try:
         loc.click(timeout=timeout_ms)
     except PlaywrightTimeout as exc:
@@ -289,10 +292,9 @@ def _settle_navigation(timeout_ms: int) -> None:
     """Wait (bounded) for a navigation started by a click to settle, so the
     returned url and any L2 check run against the new page, not mid-flight.
     Never raises - a still-loading page is left for L2 polling to handle."""
-    try:
+    assert _page is not None  # called only after a click on a live page
+    with contextlib.suppress(PlaywrightTimeout, PlaywrightError):
         _page.wait_for_load_state("domcontentloaded", timeout=min(timeout_ms, 10_000))
-    except (PlaywrightTimeout, PlaywrightError):
-        pass
 
 
 @contract(
@@ -307,6 +309,7 @@ def upload_file(what: str | None, path: str, timeout_ms: int = 10_000) -> dict[s
     if not path or not os.path.exists(path):
         raise PreconditionError(f"upload_file requires an existing file path, got {path!r}")
     _ensure_launched()
+    assert _page is not None  # _ensure_launched guarantees a live page
     selector = what or "input[type=file]"
     try:
         loc = _page.locator(selector).first
@@ -323,7 +326,7 @@ def upload_file(what: str | None, path: str, timeout_ms: int = 10_000) -> dict[s
 
 @contract(
     precondition="pass is installed and a friday/<service> entry exists "
-    "(e.g. `pass insert -m friday/gmail` storing JSON {\"username\", \"password\"}).",
+    '(e.g. `pass insert -m friday/gmail` storing JSON {"username", "password"}).',
     postcondition="Makes no state changes.",
     idempotency=Idempotency.IDEMPOTENT,
     failure_mode="PrimitiveError if pass is missing, the entry is missing, or the entry is not "
@@ -349,9 +352,7 @@ def credentials(service: str) -> dict[str, str]:
     "resulting state with L2.",
     returns="dict: {service, url}.",
 )
-def login(
-    service: str, username_sel: str, password_sel: str, submit_sel: str
-) -> dict[str, str]:
+def login(service: str, username_sel: str, password_sel: str, submit_sel: str) -> dict[str, str]:
     creds = credentials(service)
     # _fill_field (NOT type_text): the credential VALUES are secrets and
     # must never be written to the log as a typed 'text' argument. login's

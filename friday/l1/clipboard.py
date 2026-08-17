@@ -50,12 +50,15 @@ def read_text() -> str:
             # Wayland session (or no display env at all - wl-paste is the
             # modern default; the tool error is surfaced as PrimitiveError)
             proc = subprocess.run(
-                ["wl-paste"], capture_output=True, timeout=5,
+                ["wl-paste"],
+                capture_output=True,
+                timeout=5,
             )
         else:
             proc = subprocess.run(
                 ["xclip", "-selection", "clipboard", "-o"],
-                capture_output=True, timeout=5,
+                capture_output=True,
+                timeout=5,
             )
     except (TimeoutError, FileNotFoundError) as exc:
         # subprocess.TimeoutExpired subclasses TimeoutError - catching the
@@ -111,14 +114,21 @@ def write_text(text: str) -> str:
             # Wayland (or no display env at all - wl-copy is the modern default);
             # a missing tool surfaces as PrimitiveError through the except below.
             proc = subprocess.run(
-                ["wl-copy"], input=text, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, text=True, timeout=5,
+                ["wl-copy"],
+                input=text,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=5,
             )
         else:
             proc = subprocess.run(
-                ["xclip", "-selection", "clipboard"], input=text,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                text=True, timeout=5,
+                ["xclip", "-selection", "clipboard"],
+                input=text,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=5,
             )
     except (TimeoutError, FileNotFoundError) as exc:
         # subprocess.TimeoutExpired subclasses TimeoutError - catching the base

@@ -48,7 +48,7 @@ class TestDevGate(EnvTestCase):
     def test_run_shell_bypass_flag_reaches_claude(self):
         self.set_env(FRIDAY_ALLOW_DANGEROUS="1")
         dev.run_shell(".", "echo hi", allow_bypass_permissions=True)
-        (args, kwargs) = self.calls[0]
+        (args, _) = self.calls[0]
         self.assertTrue(args[-1])  # bypass arg True
 
     def test_run_shell_rejects_empty_command(self):
@@ -58,7 +58,9 @@ class TestDevGate(EnvTestCase):
 
     def test_run_shell_bad_envelope_raises(self):
         self.set_env(FRIDAY_ALLOW_DANGEROUS="1")
-        with mock.patch.object(dev, "_run_claude", return_value={"result": "not json", "is_error": False}):
+        with mock.patch.object(
+            dev, "_run_claude", return_value={"result": "not json", "is_error": False}
+        ):
             with self.assertRaises(PrimitiveError):
                 dev.run_shell(".", "echo hi")
 
@@ -72,8 +74,9 @@ class TestClaudeTimeout(EnvTestCase):
         (with its state), NOT crash with 'PrimitiveTimeout() takes no
         keyword arguments' - the exception class previously inherited
         FridayError's bare init while the raise sites passed state=."""
-        with mock.patch("friday.l1.dev.subprocess.run",
-                        side_effect=subprocess.TimeoutExpired("claude", 180)):
+        with mock.patch(
+            "friday.l1.dev.subprocess.run", side_effect=subprocess.TimeoutExpired("claude", 180)
+        ):
             with self.assertRaises(PrimitiveTimeout) as ctx:
                 dev._run_claude("task", None, 180, "opus", False)
         self.assertIsNotNone(ctx.exception.state)
@@ -84,7 +87,9 @@ class TestDigest(EnvTestCase):
     def setUp(self):
         super().setUp()
         self.calls = []
-        fake = mock.Mock(side_effect=lambda *a, **k: self.calls.append((a, k)) or {"result": "digest text"})
+        fake = mock.Mock(
+            side_effect=lambda *a, **k: self.calls.append((a, k)) or {"result": "digest text"}
+        )
         self.p = mock.patch.object(dev, "_run_claude", fake)
         self.p.start()
         self.addCleanup(self.p.stop)
@@ -95,7 +100,7 @@ class TestDigest(EnvTestCase):
 
     def test_digest_builds_labeled_context_prompt(self):
         dev.digest({"friday git log": ["2026-08-01 feat: x"], "changelog": "notes"})
-        (args, kwargs) = self.calls[0]
+        (args, _) = self.calls[0]
         task = args[0]
         self.assertIn("[friday git log]", task)
         self.assertIn("2026-08-01 feat: x", task)

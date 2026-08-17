@@ -49,8 +49,12 @@ def _scan(base: Path, needle: str, recursive: bool) -> list[Path]:
     itself surfaces as OSError for the caller to convert."""
     if recursive:
         matches = sorted(
-            (Path(dirpath) / fn for dirpath, _dirs, files in os.walk(base, followlinks=False)
-             for fn in files if needle in fn.lower()),
+            (
+                Path(dirpath) / fn
+                for dirpath, _dirs, files in os.walk(base, followlinks=False)
+                for fn in files
+                if needle in fn.lower()
+            ),
             key=str,
         )
     else:
@@ -182,7 +186,17 @@ def read_text(path: str, max_chars: int = 8000) -> dict[str, Any]:
 # recipe, not a status doc); PLAN_STATUS.md is caught by "*status*".
 STATUS_DOC_PATTERNS = ("*status*", "*roadmap*", "*devlog*", "*changelog*", "*future*", "*todo*")
 
-_EXCLUDE_DIRS = {".git", "node_modules", "target", ".venv", "__pycache__", "dist", "build", ".next", "var"}
+_EXCLUDE_DIRS = {
+    ".git",
+    "node_modules",
+    "target",
+    ".venv",
+    "__pycache__",
+    "dist",
+    "build",
+    ".next",
+    "var",
+}
 
 
 @contract(
@@ -291,10 +305,9 @@ def write_text(path: str, text: str, *, append: bool = False) -> str:
 # the convention the read-family build-verify probe enforces, and the
 # shape the download-alert trigger plan can feed straight into
 # whatsapp.send_document ($steps.N.result).
-from friday.contracts import Idempotency, contract
-from friday.errors import PreconditionError
-import os
 from pathlib import Path
+
+from friday.contracts import Idempotency, contract
 
 
 @contract(

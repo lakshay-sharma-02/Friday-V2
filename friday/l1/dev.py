@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from typing import Any
+from typing import Any, cast
 
 from friday.contracts import Idempotency, contract
 from friday.errors import PreconditionError, PrimitiveError, PrimitiveTimeout
@@ -82,7 +82,7 @@ def _run_claude(
             state="no execution guarantee",
         )
     try:
-        return json.loads(proc.stdout)
+        return cast(dict[str, Any], json.loads(proc.stdout))
     except json.JSONDecodeError as exc:
         raise PrimitiveError(
             "claude did not return JSON; raw output attached in 'state'",

@@ -56,7 +56,9 @@ class TestNotifySend(EnvTestCase):
                 notify.notify_send("t")
 
     def test_timeout(self):
-        with mock.patch.object(notify.subprocess, "run", side_effect=subprocess.TimeoutExpired("notify-send", 15)):
+        with mock.patch.object(
+            notify.subprocess, "run", side_effect=subprocess.TimeoutExpired("notify-send", 15)
+        ):
             with self.assertRaises(PrimitiveError):
                 notify.notify_send("t")
 

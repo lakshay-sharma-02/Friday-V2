@@ -25,26 +25,38 @@ class TestReplyOk(unittest.TestCase):
 
 class TestIsPlaying(EnvTestCase):
     def test_playing_when_not_idle_and_not_paused(self):
-        with mock.patch.object(media, "_socket_send", side_effect=[
-            {"error": "success", "data": False},  # core-idle False -> not idle
-            {"error": "success", "data": False},  # pause False
-        ]):
+        with mock.patch.object(
+            media,
+            "_socket_send",
+            side_effect=[
+                {"error": "success", "data": False},  # core-idle False -> not idle
+                {"error": "success", "data": False},  # pause False
+            ],
+        ):
             self.assertTrue(media.is_playing())
 
     def test_idle_means_stopped(self):
         # is_playing still probes pause after an idle=True reply - both
         # replies must be provided.
-        with mock.patch.object(media, "_socket_send", side_effect=[
-            {"error": "success", "data": True},   # core-idle True -> stopped
-            {"error": "success", "data": False},  # pause probe (still made)
-        ]):
+        with mock.patch.object(
+            media,
+            "_socket_send",
+            side_effect=[
+                {"error": "success", "data": True},  # core-idle True -> stopped
+                {"error": "success", "data": False},  # pause probe (still made)
+            ],
+        ):
             self.assertFalse(media.is_playing())
 
     def test_paused_means_not_playing(self):
-        with mock.patch.object(media, "_socket_send", side_effect=[
-            {"error": "success", "data": False},
-            {"error": "success", "data": True},  # pause True
-        ]):
+        with mock.patch.object(
+            media,
+            "_socket_send",
+            side_effect=[
+                {"error": "success", "data": False},
+                {"error": "success", "data": True},  # pause True
+            ],
+        ):
             self.assertFalse(media.is_playing())
 
     def test_no_player_returns_false(self):
@@ -80,7 +92,9 @@ class TestOrphanSweep(EnvTestCase):
             self.assertEqual(media._pgrep_socket(), [123, 456])
 
     def test_pgrep_timeout_returns_empty(self):
-        with mock.patch.object(media.subprocess, "run", side_effect=subprocess.TimeoutExpired("pgrep", 5)):
+        with mock.patch.object(
+            media.subprocess, "run", side_effect=subprocess.TimeoutExpired("pgrep", 5)
+        ):
             self.assertEqual(media._pgrep_socket(), [])
 
     def test_pgrep_missing_binary_returns_empty(self):
@@ -90,9 +104,11 @@ class TestOrphanSweep(EnvTestCase):
     def test_sweep_with_no_orphans_is_noop(self):
         # Pin _proc to None: _sweep_orphans would otherwise try to stop a
         # stale module-global player if a future test ever set one.
-        with mock.patch.object(media, "_proc", None), \
-             mock.patch.object(media, "_pgrep_socket", return_value=[]), \
-             mock.patch.object(media.subprocess, "run", side_effect=FileNotFoundError):
+        with (
+            mock.patch.object(media, "_proc", None),
+            mock.patch.object(media, "_pgrep_socket", return_value=[]),
+            mock.patch.object(media.subprocess, "run", side_effect=FileNotFoundError),
+        ):
             self.assertEqual(media._sweep_orphans(), [])
 
 
@@ -118,8 +134,11 @@ class TestLaunchAndWaitSocket(EnvTestCase):
 
     def test_launch_mpv_missing_raises_and_leaves_proc(self):
         sentinel = mock.Mock()  # a pre-existing handle, e.g. a prior player
-        with self._OPEN, mock.patch.object(media, "_proc", sentinel), \
-             mock.patch.object(media.subprocess, "Popen", side_effect=FileNotFoundError):
+        with (
+            self._OPEN,
+            mock.patch.object(media, "_proc", sentinel),
+            mock.patch.object(media.subprocess, "Popen", side_effect=FileNotFoundError),
+        ):
             with self.assertRaises(PrimitiveError) as ctx:
                 media._launch(["mpv"], "test")
             self.assertIs(media._proc, sentinel)  # unchanged by the failed launch
@@ -127,20 +146,26 @@ class TestLaunchAndWaitSocket(EnvTestCase):
 
     def test_launch_success(self):
         proc = mock.Mock(pid=4242)
-        with self._OPEN, mock.patch.object(media, "_proc", None), \
-             mock.patch.object(media.subprocess, "Popen", return_value=proc), \
-             mock.patch.object(media, "_wait_socket", return_value=True):
+        with (
+            self._OPEN,
+            mock.patch.object(media, "_proc", None),
+            mock.patch.object(media.subprocess, "Popen", return_value=proc),
+            mock.patch.object(media, "_wait_socket", return_value=True),
+        ):
             out = media._launch(["mpv", "x"], "test")
             self.assertEqual(out, {"pid": 4242, "socket": media.SOCKET_PATH})
             self.assertIs(media._proc, proc)  # the live handle is kept for stop()
 
     def test_launch_socket_never_ready_stops_and_sweeps(self):
         proc = mock.Mock(pid=999)
-        with self._OPEN, mock.patch.object(media, "_proc", None), \
-             mock.patch.object(media.subprocess, "Popen", return_value=proc), \
-             mock.patch.object(media, "_wait_socket", return_value=False), \
-             mock.patch.object(media, "_stop_process") as stop, \
-             mock.patch.object(media, "_sweep_orphans") as sweep:
+        with (
+            self._OPEN,
+            mock.patch.object(media, "_proc", None),
+            mock.patch.object(media.subprocess, "Popen", return_value=proc),
+            mock.patch.object(media, "_wait_socket", return_value=False),
+            mock.patch.object(media, "_stop_process") as stop,
+            mock.patch.object(media, "_sweep_orphans") as sweep,
+        ):
             with self.assertRaises(PrimitiveError) as ctx:
                 media._launch(["mpv", "x"], "test")
         self.assertIn("never became ready", str(ctx.exception))

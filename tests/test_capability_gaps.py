@@ -5,7 +5,6 @@ leak values. All gap files are redirected to temp paths (FRIDAY_GAPS_FILE)."""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest import mock
 
@@ -26,9 +25,19 @@ def _plan_file(directory: Path, name: str) -> dict:
     """A hermetic find_file plan with fast failure timing."""
     return {
         "goal": "locate " + name,
-        "steps": [{"primitive": "files.find_file", "args": {"name": name, "directory": str(directory)},
-                   "verify": {"check": "checks.file_exists", "args": {"path": "$steps.1.result.path"}, "expect": True},
-                   "verify_wait_s": 0.1, "backoff_s": 0.05}],
+        "steps": [
+            {
+                "primitive": "files.find_file",
+                "args": {"name": name, "directory": str(directory)},
+                "verify": {
+                    "check": "checks.file_exists",
+                    "args": {"path": "$steps.1.result.path"},
+                    "expect": True,
+                },
+                "verify_wait_s": 0.1,
+                "backoff_s": 0.05,
+            }
+        ],
     }
 
 
@@ -43,9 +52,15 @@ class TestExecutorGaps(EnvTestCase):
         self.set_env(FRIDAY_GAPS_FILE=str(gaps))
         plan = {
             "goal": "locate the missing artifact",
-            "steps": [{"primitive": "files.do_thing", "args": {"name": "x", "recursive": False},
-                       "verify": {"check": "checks.file_exists", "args": {}, "expect": True},
-                       "verify_wait_s": 0.1, "backoff_s": 0.05}],
+            "steps": [
+                {
+                    "primitive": "files.do_thing",
+                    "args": {"name": "x", "recursive": False},
+                    "verify": {"check": "checks.file_exists", "args": {}, "expect": True},
+                    "verify_wait_s": 0.1,
+                    "backoff_s": 0.05,
+                }
+            ],
         }
         with self.assertRaises(FridayError) as ctx:
             run_plan(plan)
@@ -66,9 +81,18 @@ class TestExecutorGaps(EnvTestCase):
         """A primitive whose MODULE does not exist is the same class of gap."""
         gaps = self.mktmp() / "gaps.jsonl"
         self.set_env(FRIDAY_GAPS_FILE=str(gaps))
-        plan = {"goal": "g", "steps": [{"primitive": "bogus.do_thing", "args": {},
-                                        "verify": {"check": "checks.file_exists", "args": {}, "expect": True},
-                                        "verify_wait_s": 0.1, "backoff_s": 0.05}]}
+        plan = {
+            "goal": "g",
+            "steps": [
+                {
+                    "primitive": "bogus.do_thing",
+                    "args": {},
+                    "verify": {"check": "checks.file_exists", "args": {}, "expect": True},
+                    "verify_wait_s": 0.1,
+                    "backoff_s": 0.05,
+                }
+            ],
+        }
         with self.assertRaises(FridayError):
             run_plan(plan)
         self.assertEqual(len(self._gaps()), 1)
@@ -79,9 +103,22 @@ class TestExecutorGaps(EnvTestCase):
         traceable; the triage human decides whether to dismiss it."""
         gaps = self.mktmp() / "gaps.jsonl"
         self.set_env(FRIDAY_GAPS_FILE=str(gaps))
-        plan = {"goal": "shut down", "steps": [{"primitive": "window.shutdown", "args": {},
-                                                "verify": {"check": "checks.window_has_class", "args": {"cls": "x"}, "expect": True},
-                                                "verify_wait_s": 0.1, "backoff_s": 0.05}]}
+        plan = {
+            "goal": "shut down",
+            "steps": [
+                {
+                    "primitive": "window.shutdown",
+                    "args": {},
+                    "verify": {
+                        "check": "checks.window_has_class",
+                        "args": {"cls": "x"},
+                        "expect": True,
+                    },
+                    "verify_wait_s": 0.1,
+                    "backoff_s": 0.05,
+                }
+            ],
+        }
         with self.assertRaises(FridayError):
             run_plan(plan)
         self.assertEqual(len(self._gaps()), 1)
@@ -101,15 +138,33 @@ class TestExecutorGaps(EnvTestCase):
         """The recorded shape is type tags only - secrets never ride a gap."""
         gaps = self.mktmp() / "gaps.jsonl"
         self.set_env(FRIDAY_GAPS_FILE=str(gaps))
-        record_gap(source="executor", goal_id="g", attempted_primitive="x.send",
-                   attempted_args={"secret": "hunter2", "n": 5, "lst": [1, 2, 3], "flag": True, "none": None},
-                   goal_context="send it", refusal_reason="r")
+        record_gap(
+            source="executor",
+            goal_id="g",
+            attempted_primitive="x.send",
+            attempted_args={
+                "secret": "hunter2",
+                "n": 5,
+                "lst": [1, 2, 3],
+                "flag": True,
+                "none": None,
+            },
+            goal_context="send it",
+            refusal_reason="r",
+        )
         raw = gaps.read_text(encoding="utf-8")
         self.assertNotIn("hunter2", raw)
         g = all_gaps()[0]
-        self.assertEqual(g["attempted_args_shape"], {
-            "secret": "str:7", "n": "int", "lst": "list:3", "flag": "bool", "none": "none",
-        })
+        self.assertEqual(
+            g["attempted_args_shape"],
+            {
+                "secret": "str:7",
+                "n": "int",
+                "lst": "list:3",
+                "flag": "bool",
+                "none": "none",
+            },
+        )
 
 
 class TestWatcherGaps(EnvTestCase):
@@ -119,14 +174,27 @@ class TestWatcherGaps(EnvTestCase):
         gaps = self.mktmp() / "gaps.jsonl"
         tasks = self.mktmp() / "tasks.jsonl"
         self.set_env(FRIDAY_GAPS_FILE=str(gaps), FRIDAY_TASKS_FILE=str(tasks))
-        plan = {"goal": "send something", "steps": [
-            {"primitive": "whatsapp.send_text", "args": {"text": "hi", "to": "1"},
-             "verify": {"check": "checks.message_sent",
-                        "args": {"platform": "whatsapp", "message_id": "wamid.x"}, "expect": True}},
-        ]}
-        t = {"id": "allow-x", "goal": "send something",
-             "schedule": {"type": "time", "at": "00:00"}, "notify": False,
-             "allow": ["gmail.*"]}
+        plan = {
+            "goal": "send something",
+            "steps": [
+                {
+                    "primitive": "whatsapp.send_text",
+                    "args": {"text": "hi", "to": "1"},
+                    "verify": {
+                        "check": "checks.message_sent",
+                        "args": {"platform": "whatsapp", "message_id": "wamid.x"},
+                        "expect": True,
+                    },
+                },
+            ],
+        }
+        t = {
+            "id": "allow-x",
+            "goal": "send something",
+            "schedule": {"type": "time", "at": "00:00"},
+            "notify": False,
+            "allow": ["gmail.*"],
+        }
         with mock.patch("friday.l4.planner.plan", return_value=plan):
             ok, detail = _run_trigger(t, {})
         self.assertFalse(ok)
@@ -144,12 +212,28 @@ class TestWatcherGaps(EnvTestCase):
         gaps = self.mktmp() / "gaps.jsonl"
         tasks = self.mktmp() / "tasks.jsonl"
         self.set_env(FRIDAY_GAPS_FILE=str(gaps), FRIDAY_TASKS_FILE=str(tasks))
-        plan = {"goal": "g", "steps": [
-            {"primitive": "whatsapp.send_text", "args": {}, "verify": {"check": "checks.message_sent", "args": {}, "expect": True}},
-            {"primitive": "notify.notify_send", "args": {}, "verify": {"check": "checks.message_sent", "args": {}, "expect": True}},
-        ]}
-        t = {"id": "a", "goal": "g", "schedule": {"type": "time", "at": "00:00"},
-             "notify": False, "allow": ["gmail.*"]}
+        plan = {
+            "goal": "g",
+            "steps": [
+                {
+                    "primitive": "whatsapp.send_text",
+                    "args": {},
+                    "verify": {"check": "checks.message_sent", "args": {}, "expect": True},
+                },
+                {
+                    "primitive": "notify.notify_send",
+                    "args": {},
+                    "verify": {"check": "checks.message_sent", "args": {}, "expect": True},
+                },
+            ],
+        }
+        t = {
+            "id": "a",
+            "goal": "g",
+            "schedule": {"type": "time", "at": "00:00"},
+            "notify": False,
+            "allow": ["gmail.*"],
+        }
         with mock.patch("friday.l4.planner.plan", return_value=plan):
             _run_trigger(t, {})
         prims = sorted(g["attempted_primitive"] for g in all_gaps())
@@ -161,8 +245,12 @@ class TestWatcherGaps(EnvTestCase):
         self.set_env(FRIDAY_GAPS_FILE=str(gaps), FRIDAY_TASKS_FILE=str(tasks))
         d = self.mktmp()
         (d / "alpha.txt").write_text("x", encoding="utf-8")
-        t = {"id": "ok", "plan": _plan_file(d, "alpha"),
-             "schedule": {"type": "time", "at": "00:00"}, "notify": False}
+        t = {
+            "id": "ok",
+            "plan": _plan_file(d, "alpha"),
+            "schedule": {"type": "time", "at": "00:00"},
+            "notify": False,
+        }
         ok, _ = _run_trigger(t, {})
         self.assertTrue(ok)
         self.assertEqual(all_gaps(), [])
@@ -172,10 +260,20 @@ class TestProcessing(EnvTestCase):
     def test_mark_processed_is_idempotent(self):
         gaps = self.mktmp() / "gaps.jsonl"
         self.set_env(FRIDAY_GAPS_FILE=str(gaps))
-        id1 = record_gap(source="executor", goal_id="g", attempted_primitive="a.b",
-                         goal_context="g", refusal_reason="r")
-        id2 = record_gap(source="watcher", trigger_id="t", attempted_primitive="c.d",
-                         goal_context="g", refusal_reason="r")
+        id1 = record_gap(
+            source="executor",
+            goal_id="g",
+            attempted_primitive="a.b",
+            goal_context="g",
+            refusal_reason="r",
+        )
+        id2 = record_gap(
+            source="watcher",
+            trigger_id="t",
+            attempted_primitive="c.d",
+            goal_context="g",
+            refusal_reason="r",
+        )
         self.assertEqual(len(unprocessed_gaps()), 2)
         mark_processed([id1])
         mark_processed([id1])  # idempotent
@@ -193,6 +291,11 @@ class TestProcessing(EnvTestCase):
     def test_record_never_raises_on_unwritable_file(self):
         d = self.mktmp()
         self.set_env(FRIDAY_GAPS_FILE=str(d))  # a DIRECTORY - writes must fail silently
-        record_gap(source="executor", goal_id="g", attempted_primitive="a.b",
-                   goal_context="g", refusal_reason="r")
+        record_gap(
+            source="executor",
+            goal_id="g",
+            attempted_primitive="a.b",
+            goal_context="g",
+            refusal_reason="r",
+        )
         self.assertEqual(all_gaps(), [])

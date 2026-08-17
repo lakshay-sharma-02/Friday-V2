@@ -30,9 +30,7 @@ DEFAULT_TIMEOUT_MS = 5000
     "non-zero; PreconditionError on empty title.",
     returns="dict: {title, body, sent}.",
 )
-def notify_send(
-    title: str, body: str = "", timeout_ms: int = DEFAULT_TIMEOUT_MS
-) -> dict[str, Any]:
+def notify_send(title: str, body: str = "", timeout_ms: int = DEFAULT_TIMEOUT_MS) -> dict[str, Any]:
     if not title or not title.strip():
         raise PreconditionError("notify_send requires a non-empty title")
     cmd = [NOTIFY_SEND, "-t", str(int(timeout_ms))]

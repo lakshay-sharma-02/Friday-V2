@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from friday.contracts import Idempotency, REGISTRY
+from friday.contracts import REGISTRY, Idempotency
 from friday.errors import PreconditionError
 from friday.l1.files import find_file_exact, find_recent_doc, read_text
 from tests.helpers import EnvTestCase

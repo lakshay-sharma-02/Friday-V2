@@ -10,13 +10,10 @@ masquerade as a free week."""
 from __future__ import annotations
 
 import json
-import unittest
 from unittest import mock
 
-from friday import l1
-from friday.l1 import calendar
 from friday.errors import PrimitiveError
-
+from friday.l1 import calendar
 from tests.helpers import EnvTestCase
 
 
@@ -33,7 +30,9 @@ class TestAuth(EnvTestCase):
         calendar._token_cache.update({"access_token": None, "expires_at": 0.0})
 
     def test_missing_credentials_raise(self):
-        with mock.patch("friday.l1.calendar.get_credentials", side_effect=PrimitiveError("no pass")):
+        with mock.patch(
+            "friday.l1.calendar.get_credentials", side_effect=PrimitiveError("no pass")
+        ):
             with self.assertRaises(PrimitiveError) as ctx:
                 calendar._access_token()
         self.assertIn("credentials missing", str(ctx.exception))
@@ -97,8 +96,10 @@ class TestListUpcoming(EnvTestCase):
     def test_returns_parsed_events(self):
         resp = mock.Mock(status_code=200)
         resp.json.return_value = self._events()
-        with mock.patch("friday.l1.calendar._access_token", return_value="tok"), \
-             mock.patch("friday.l1.calendar.requests.get", return_value=resp) as get:
+        with (
+            mock.patch("friday.l1.calendar._access_token", return_value="tok"),
+            mock.patch("friday.l1.calendar.requests.get", return_value=resp) as get,
+        ):
             out = calendar.list_upcoming(days=7)
         self.assertEqual([e["event_id"] for e in out], ["ev-1", "ev-2"])
         self.assertEqual(out[0]["summary"], "Standup")
@@ -122,9 +123,10 @@ class TestListUpcoming(EnvTestCase):
         good.json.return_value = {"items": []}
         tok_resp = mock.Mock(status_code=200)
         tok_resp.json.return_value = {"access_token": "fresh", "expires_in": 3600}
-        with mock.patch("friday.l1.calendar.requests.get",
-                        side_effect=[stale, good]) as get, \
-             mock.patch("friday.l1.calendar.requests.post", return_value=tok_resp):
+        with (
+            mock.patch("friday.l1.calendar.requests.get", side_effect=[stale, good]) as get,
+            mock.patch("friday.l1.calendar.requests.post", return_value=tok_resp),
+        ):
             out = calendar.list_upcoming()
         self.assertEqual(out, [])
         self.assertEqual(get.call_count, 2)
@@ -133,8 +135,10 @@ class TestListUpcoming(EnvTestCase):
 
     def test_api_error_raises_not_empty(self):
         resp = mock.Mock(status_code=403, text="calendar API not enabled")
-        with mock.patch("friday.l1.calendar._access_token", return_value="tok"), \
-             mock.patch("friday.l1.calendar.requests.get", return_value=resp):
+        with (
+            mock.patch("friday.l1.calendar._access_token", return_value="tok"),
+            mock.patch("friday.l1.calendar.requests.get", return_value=resp),
+        ):
             with self.assertRaises(PrimitiveError) as ctx:
                 calendar.list_upcoming()
         self.assertIn("calendar API error", str(ctx.exception))
@@ -152,10 +156,14 @@ class TestListUpcoming(EnvTestCase):
         self.set_env(FRIDAY_LOG_FILE=str(log))
         resp = mock.Mock(status_code=200)
         resp.json.return_value = self._events()
-        with mock.patch("friday.l1.calendar._access_token", return_value="tok"), \
-             mock.patch("friday.l1.calendar.requests.get", return_value=resp):
+        with (
+            mock.patch("friday.l1.calendar._access_token", return_value="tok"),
+            mock.patch("friday.l1.calendar.requests.get", return_value=resp),
+        ):
             calendar.list_upcoming(days=7)
-        lines = [json.loads(l) for l in open(log, encoding="utf-8").read().splitlines() if l.strip()]
+        lines = [
+            json.loads(l) for l in open(log, encoding="utf-8").read().splitlines() if l.strip()
+        ]
         cal_line = [l for l in lines if l["primitive"] == "calendar.list_upcoming"][-1]
         self.assertEqual(cal_line["result"][0]["summary"], "<redacted>")
         self.assertEqual(cal_line["result"][0]["event_id"], "ev-1")
@@ -174,18 +182,20 @@ class TestAddEvent(EnvTestCase):
         calendar._token_cache.update({"access_token": None, "expires_at": 0.0})
 
     def _post(self, status: int, text: str) -> mock.Mock:
-        resp = mock.Mock(status_code=status, text=text)
-        return resp
+        return mock.Mock(status_code=status, text=text)
 
     def test_creates_event(self):
         resp = self._post(200, "")
         resp.json.return_value = {
-            "id": "ev-9", "status": "confirmed",
+            "id": "ev-9",
+            "status": "confirmed",
             "start": {"dateTime": "2026-08-15T09:00:00Z"},
             "end": {"dateTime": "2026-08-15T09:30:00Z"},
         }
-        with mock.patch("friday.l1.calendar._access_token", return_value="tok"), \
-             mock.patch("friday.l1.calendar.requests.post", return_value=resp) as post:
+        with (
+            mock.patch("friday.l1.calendar._access_token", return_value="tok"),
+            mock.patch("friday.l1.calendar.requests.post", return_value=resp) as post,
+        ):
             out = calendar.add_event("Standup", "2026-08-15T09:00:00Z", "2026-08-15T09:30:00Z")
         self.assertEqual(out["event_id"], "ev-9")
         self.assertEqual(out["summary"], "Standup")
@@ -220,9 +230,11 @@ class TestAddEvent(EnvTestCase):
         means the refresh token only carries calendar.readonly - the error
         must name the fix (re-run consent with the events scope), never a
         generic 'failed (403)'."""
-        resp = self._post(403, "{\"error\": {\"message\": \"Insufficient Permission\"}}")
-        with mock.patch("friday.l1.calendar._access_token", return_value="tok"), \
-             mock.patch("friday.l1.calendar.requests.post", return_value=resp):
+        resp = self._post(403, '{"error": {"message": "Insufficient Permission"}}')
+        with (
+            mock.patch("friday.l1.calendar._access_token", return_value="tok"),
+            mock.patch("friday.l1.calendar.requests.post", return_value=resp),
+        ):
             with self.assertRaises(PrimitiveError) as ctx:
                 calendar.add_event("X", "2026-08-15T09:00:00Z", "2026-08-15T09:30:00Z")
         msg = str(ctx.exception)
@@ -234,8 +246,10 @@ class TestAddEvent(EnvTestCase):
         """A 403 that is NOT a scope problem (e.g. calendar API disabled)
         stays a generic failure - the scope guard must not over-claim."""
         resp = self._post(403, "calendar API not enabled for this project")
-        with mock.patch("friday.l1.calendar._access_token", return_value="tok"), \
-             mock.patch("friday.l1.calendar.requests.post", return_value=resp):
+        with (
+            mock.patch("friday.l1.calendar._access_token", return_value="tok"),
+            mock.patch("friday.l1.calendar.requests.post", return_value=resp),
+        ):
             with self.assertRaises(PrimitiveError) as ctx:
                 calendar.add_event("X", "2026-08-15T09:00:00Z", "2026-08-15T09:30:00Z")
         self.assertIn("calendar.add_event failed (403)", str(ctx.exception))
@@ -243,8 +257,10 @@ class TestAddEvent(EnvTestCase):
 
     def test_500_api_error_raises(self):
         resp = self._post(500, "internal error")
-        with mock.patch("friday.l1.calendar._access_token", return_value="tok"), \
-             mock.patch("friday.l1.calendar.requests.post", return_value=resp):
+        with (
+            mock.patch("friday.l1.calendar._access_token", return_value="tok"),
+            mock.patch("friday.l1.calendar.requests.post", return_value=resp),
+        ):
             with self.assertRaises(PrimitiveError) as ctx:
                 calendar.add_event("X", "2026-08-15T09:00:00Z", "2026-08-15T09:30:00Z")
         self.assertIn("calendar.add_event failed (500)", str(ctx.exception))

@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import subprocess
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from friday.contracts import REGISTRY, Idempotency
@@ -34,7 +34,8 @@ def _make_repo(base: Path, commits: list[tuple[str, str]]) -> Path:
         env["GIT_COMMITTER_DATE"] = iso_date
         subprocess.run(
             ["git", "-C", str(repo), "commit", "-q", "-m", subject],
-            check=True, env=env,
+            check=True,
+            env=env,
         )
     return repo
 
@@ -47,17 +48,21 @@ class TestGitLog(EnvTestCase):
         # the `--since N days ago` boundary as real time moves past it
         # (observed flake: 'middle fix' at 2026-07-20 flips in/out of a
         # 25-day window on 2026-08-14, the exact 25-day anniversary).
-        now = datetime.now(timezone.utc)
-        self.repo = _make_repo(self.mktmp(), [
-            ("oldest work", (now - timedelta(days=40)).isoformat()),
-            ("middle fix", (now - timedelta(days=20)).isoformat()),
-            ("newest feature", (now - timedelta(days=5)).isoformat()),
-        ])
+        now = datetime.now(UTC)
+        self.repo = _make_repo(
+            self.mktmp(),
+            [
+                ("oldest work", (now - timedelta(days=40)).isoformat()),
+                ("middle fix", (now - timedelta(days=20)).isoformat()),
+                ("newest feature", (now - timedelta(days=5)).isoformat()),
+            ],
+        )
 
     def test_log_returns_entries_newest_first(self):
         rows = git_log(str(self.repo), count=10)
-        self.assertEqual([r["subject"] for r in rows],
-                         ["newest feature", "middle fix", "oldest work"])
+        self.assertEqual(
+            [r["subject"] for r in rows], ["newest feature", "middle fix", "oldest work"]
+        )
         first = rows[0]
         self.assertEqual(first["author"], "Tester")
         self.assertTrue(len(first["commit"]) >= 7)  # short hash

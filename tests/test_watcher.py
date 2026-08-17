@@ -4,6 +4,7 @@ honest failure recording, and notification resilience."""
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import unittest
@@ -12,7 +13,15 @@ from pathlib import Path
 from unittest import mock
 
 from friday.errors import FridayError, PrimitiveError
-from friday.watcher import _emit_heartbeat, _make_plan, _new_files, _run_trigger, _time_due, load_config, run_watcher
+from friday.watcher import (
+    _emit_heartbeat,
+    _make_plan,
+    _new_files,
+    _run_trigger,
+    _time_due,
+    load_config,
+    run_watcher,
+)
 from tests.helpers import EnvTestCase
 
 
@@ -20,10 +29,20 @@ def _plan(directory, name):
     """A deterministic find_file plan with fast failure timing."""
     return {
         "goal": "locate " + name,
-        "steps": [{"primitive": "files.find_file", "args": {"name": name, "directory": str(directory)},
-                   "verify": {"check": "checks.file_exists", "args": {"path": "$steps.1.result.path"}, "expect": True},
-                   # fast timing: failure paths must not poll for 8s
-                   "verify_wait_s": 0.1, "backoff_s": 0.05}],
+        "steps": [
+            {
+                "primitive": "files.find_file",
+                "args": {"name": name, "directory": str(directory)},
+                "verify": {
+                    "check": "checks.file_exists",
+                    "args": {"path": "$steps.1.result.path"},
+                    "expect": True,
+                },
+                # fast timing: failure paths must not poll for 8s
+                "verify_wait_s": 0.1,
+                "backoff_s": 0.05,
+            }
+        ],
     }
 
 
@@ -34,56 +53,112 @@ class TestConfigValidation(EnvTestCase):
         return f
 
     def test_valid_config(self):
-        f = self._write({"triggers": [
-            {"id": "a", "goal": "g", "schedule": {"type": "time", "at": "09:00", "days": ["mon", "Tue"]}},
-            {"id": "b", "plan": {"goal": "p", "steps": []}, "schedule": {"type": "file", "directory": "/tmp", "name": ".pdf"}},
-        ]})
+        f = self._write(
+            {
+                "triggers": [
+                    {
+                        "id": "a",
+                        "goal": "g",
+                        "schedule": {"type": "time", "at": "09:00", "days": ["mon", "Tue"]},
+                    },
+                    {
+                        "id": "b",
+                        "plan": {"goal": "p", "steps": []},
+                        "schedule": {"type": "file", "directory": "/tmp", "name": ".pdf"},
+                    },
+                ]
+            }
+        )
         triggers = load_config(f)
         self.assertEqual([t["id"] for t in triggers], ["a", "b"])
 
     def test_missing_id(self):
         with self.assertRaises(FridayError):
-            load_config(self._write({"triggers": [{"goal": "g", "schedule": {"type": "time", "at": "09:00"}}]}))
+            load_config(
+                self._write(
+                    {"triggers": [{"goal": "g", "schedule": {"type": "time", "at": "09:00"}}]}
+                )
+            )
 
     def test_duplicate_id(self):
         with self.assertRaises(FridayError):
-            load_config(self._write({"triggers": [
-                {"id": "a", "goal": "g", "schedule": {"type": "time", "at": "09:00"}},
-                {"id": "a", "goal": "g2", "schedule": {"type": "time", "at": "10:00"}},
-            ]}))
+            load_config(
+                self._write(
+                    {
+                        "triggers": [
+                            {"id": "a", "goal": "g", "schedule": {"type": "time", "at": "09:00"}},
+                            {"id": "a", "goal": "g2", "schedule": {"type": "time", "at": "10:00"}},
+                        ]
+                    }
+                )
+            )
 
     def test_missing_goal_and_plan(self):
         with self.assertRaises(FridayError):
-            load_config(self._write({"triggers": [{"id": "a", "schedule": {"type": "time", "at": "09:00"}}]}))
+            load_config(
+                self._write(
+                    {"triggers": [{"id": "a", "schedule": {"type": "time", "at": "09:00"}}]}
+                )
+            )
 
     def test_bad_schedule_type(self):
         with self.assertRaises(FridayError):
-            load_config(self._write({"triggers": [{"id": "a", "goal": "g", "schedule": {"type": "cron"}}]}))
+            load_config(
+                self._write({"triggers": [{"id": "a", "goal": "g", "schedule": {"type": "cron"}}]})
+            )
 
     def test_bad_at(self):
         with self.assertRaises(FridayError):
-            load_config(self._write({"triggers": [{"id": "a", "goal": "g", "schedule": {"type": "time", "at": "25:00"}}]}))
+            load_config(
+                self._write(
+                    {
+                        "triggers": [
+                            {"id": "a", "goal": "g", "schedule": {"type": "time", "at": "25:00"}}
+                        ]
+                    }
+                )
+            )
 
     def test_invalid_days_rejected_at_load(self):
         """Regression: an unknown day name must fail at load, not crash the
         daemon loop with an unhandled KeyError at fire time."""
         with self.assertRaises(FridayError) as ctx:
-            load_config(self._write({"triggers": [
-                {"id": "a", "goal": "g", "schedule": {"type": "time", "at": "09:00", "days": ["funday"]}}
-            ]}))
+            load_config(
+                self._write(
+                    {
+                        "triggers": [
+                            {
+                                "id": "a",
+                                "goal": "g",
+                                "schedule": {"type": "time", "at": "09:00", "days": ["funday"]},
+                            }
+                        ]
+                    }
+                )
+            )
         self.assertIn("unknown day", str(ctx.exception))
 
     def test_days_must_be_list(self):
         with self.assertRaises(FridayError):
-            load_config(self._write({"triggers": [
-                {"id": "a", "goal": "g", "schedule": {"type": "time", "at": "09:00", "days": "mon"}}
-            ]}))
+            load_config(
+                self._write(
+                    {
+                        "triggers": [
+                            {
+                                "id": "a",
+                                "goal": "g",
+                                "schedule": {"type": "time", "at": "09:00", "days": "mon"},
+                            }
+                        ]
+                    }
+                )
+            )
 
     def test_file_schedule_needs_directory(self):
         with self.assertRaises(FridayError):
-            load_config(self._write({"triggers": [
-                {"id": "a", "goal": "g", "schedule": {"type": "file"}}
-            ]}))
+            load_config(
+                self._write({"triggers": [{"id": "a", "goal": "g", "schedule": {"type": "file"}}]})
+            )
 
     def test_bad_json(self):
         f = self.mktmp() / "w.json"
@@ -109,7 +184,8 @@ class TestConfigValidation(EnvTestCase):
         allowed = digest.get("allow")
         plan_prims = {s["primitive"] for s in digest["plan"]["steps"]}
         self.assertEqual(
-            plan_prims, set(allowed or []),
+            plan_prims,
+            set(allowed or []),
             "every plan primitive must be on the trigger allowlist",
         )
 
@@ -126,7 +202,9 @@ class TestConfigValidation(EnvTestCase):
         reminder = next((t for t in triggers if t["id"] == "sunday-digest-reminder"), None)
         self.assertIsNotNone(reminder, "committed config must carry the reminder trigger")
         self.assertTrue(reminder.get("enabled", True))
-        self.assertEqual(reminder.get("notify"), False, "must not double-ping (plan is itself a notify)")
+        self.assertEqual(
+            reminder.get("notify"), False, "must not double-ping (plan is itself a notify)"
+        )
         ok, err = validate_plan(reminder["plan"])
         self.assertTrue(ok, f"committed reminder plan must validate: {err}")
         self.assertEqual(
@@ -178,8 +256,11 @@ class TestConfigValidation(EnvTestCase):
         # no unprocessed gaps may remain for either retired probe's primitive
         if unprocessed_gaps():
             self.assertTrue(
-                all(g.get("attempted_primitive") not in ("calendar.list_upcoming", "gmail.send_document")
-                    for g in unprocessed_gaps()),
+                all(
+                    g.get("attempted_primitive")
+                    not in ("calendar.list_upcoming", "gmail.send_document")
+                    for g in unprocessed_gaps()
+                ),
                 "no unprocessed gaps for retired-probe primitives",
             )
 
@@ -195,10 +276,10 @@ class TestConfigValidation(EnvTestCase):
         DISABLED (email-send lifecycle precedent), files.write_text must be
         registered, and any straggler gaps for it must be consumed as SOLVED
         by triage - never re-drafted."""
-        from friday.capability_gaps import all_gaps, unprocessed_gaps
-        from friday.watcher import DEFAULT_CONFIG
-
         import importlib.util
+
+        from friday.capability_gaps import unprocessed_gaps
+        from friday.watcher import DEFAULT_CONFIG
 
         self.assertIsNotNone(
             importlib.util.find_spec("friday.l1.files"),
@@ -219,7 +300,8 @@ class TestConfigValidation(EnvTestCase):
             f"{pid} must be DISABLED after files.write_text registered (2026-08-13 lifecycle)",
         )
         self.assertEqual(
-            t["plan"]["steps"][0]["primitive"], "files.write_text",
+            t["plan"]["steps"][0]["primitive"],
+            "files.write_text",
             f"{pid} must still name the primitive it probed",
         )
         # a straggler gap for the now-registered primitive is consumed as
@@ -310,7 +392,13 @@ class TestFileDue(EnvTestCase):
         self.assertEqual(_new_files(t, seen), [str(base / "b.txt")])
 
     def test_missing_directory_is_not_due(self):
-        self.assertEqual(_new_files({"id": "f", "schedule": {"type": "file", "directory": "/nonexistent", "name": "x"}}, set()), [])
+        self.assertEqual(
+            _new_files(
+                {"id": "f", "schedule": {"type": "file", "directory": "/nonexistent", "name": "x"}},
+                set(),
+            ),
+            [],
+        )
 
 
 class TestRunWatcher(EnvTestCase):
@@ -321,10 +409,31 @@ class TestRunWatcher(EnvTestCase):
         (time_dir / "alpha.txt").write_text("x", encoding="utf-8")
         (file_dir / "beta.txt").write_text("x", encoding="utf-8")
         cfg = d / "w.json"
-        cfg.write_text(json.dumps({"triggers": [
-            {"id": "run-time", "plan": _plan(time_dir, "alpha"), "schedule": {"type": "time", "at": "00:00"}, "notify": False},
-            {"id": "run-file", "plan": _plan(file_dir, "beta"), "schedule": {"type": "file", "directory": str(file_dir), "name": "beta"}, "notify": False},
-        ]}), encoding="utf-8")
+        cfg.write_text(
+            json.dumps(
+                {
+                    "triggers": [
+                        {
+                            "id": "run-time",
+                            "plan": _plan(time_dir, "alpha"),
+                            "schedule": {"type": "time", "at": "00:00"},
+                            "notify": False,
+                        },
+                        {
+                            "id": "run-file",
+                            "plan": _plan(file_dir, "beta"),
+                            "schedule": {
+                                "type": "file",
+                                "directory": str(file_dir),
+                                "name": "beta",
+                            },
+                            "notify": False,
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         tasks = d / "tasks.jsonl"
         self.set_env(FRIDAY_TASKS_FILE=str(tasks))
         run_watcher(str(cfg), once=True)
@@ -341,9 +450,21 @@ class TestRunWatcher(EnvTestCase):
         (time_dir := d / "time").mkdir()
         cfg = d / "w.json"
         # find_file for a name that does not exist -> step ABORTs
-        cfg.write_text(json.dumps({"triggers": [
-            {"id": "fail-time", "plan": _plan(time_dir, "no-such-file"), "schedule": {"type": "time", "at": "00:00"}, "notify": False},
-        ]}), encoding="utf-8")
+        cfg.write_text(
+            json.dumps(
+                {
+                    "triggers": [
+                        {
+                            "id": "fail-time",
+                            "plan": _plan(time_dir, "no-such-file"),
+                            "schedule": {"type": "time", "at": "00:00"},
+                            "notify": False,
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         tasks = d / "tasks.jsonl"
         self.set_env(FRIDAY_TASKS_FILE=str(tasks))
         run_watcher(str(cfg), once=True)
@@ -357,12 +478,26 @@ class TestRunWatcher(EnvTestCase):
         (time_dir := d / "time").mkdir()
         (time_dir / "alpha.txt").write_text("x", encoding="utf-8")
         cfg = d / "w.json"
-        cfg.write_text(json.dumps({"triggers": [
-            {"id": "notify-time", "plan": _plan(time_dir, "alpha"), "schedule": {"type": "time", "at": "00:00"}, "notify": True},
-        ]}), encoding="utf-8")
+        cfg.write_text(
+            json.dumps(
+                {
+                    "triggers": [
+                        {
+                            "id": "notify-time",
+                            "plan": _plan(time_dir, "alpha"),
+                            "schedule": {"type": "time", "at": "00:00"},
+                            "notify": True,
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         tasks = d / "tasks.jsonl"
         self.set_env(FRIDAY_TASKS_FILE=str(tasks))
-        with mock.patch("friday.watcher.notify_send", side_effect=PrimitiveError("no daemon", state="x")):
+        with mock.patch(
+            "friday.watcher.notify_send", side_effect=PrimitiveError("no daemon", state="x")
+        ):
             run_watcher(str(cfg), once=True)
         recs = [json.loads(l) for l in open(tasks, encoding="utf-8") if l.strip()]
         self.assertTrue(recs[0]["gate6_passed"])
@@ -386,10 +521,21 @@ class TestFiredState(EnvTestCase):
         (d / "time").mkdir()
         (d / "time" / "alpha.txt").write_text("x", encoding="utf-8")
         cfg = d / "w.json"
-        cfg.write_text(json.dumps({"triggers": [
-            {"id": "daily", "plan": _plan(d / "time", "alpha"),
-             "schedule": {"type": "time", "at": "00:00"}, "notify": False},
-        ]}), encoding="utf-8")
+        cfg.write_text(
+            json.dumps(
+                {
+                    "triggers": [
+                        {
+                            "id": "daily",
+                            "plan": _plan(d / "time", "alpha"),
+                            "schedule": {"type": "time", "at": "00:00"},
+                            "notify": False,
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         tasks = d / "tasks.jsonl"
         fired = d / "fired.json"
         self.set_env(FRIDAY_TASKS_FILE=str(tasks), FRIDAY_FIRED_FILE=str(fired))
@@ -408,8 +554,8 @@ class TestFiredState(EnvTestCase):
         cfg, tasks, fired = self._setup(self.mktmp())
         today = datetime.now().date().isoformat()
         fired.write_text(json.dumps({"daily": today}), encoding="utf-8")
-        run_watcher(str(cfg), once=True)   # restart 1
-        run_watcher(str(cfg), once=True)   # restart 2
+        run_watcher(str(cfg), once=True)  # restart 1
+        run_watcher(str(cfg), once=True)  # restart 2
         self.assertEqual(self._records(tasks), [])  # already fired today - never re-fires
         self.assertEqual(json.loads(fired.read_text())["daily"], today)
 
@@ -438,7 +584,7 @@ class TestFiredState(EnvTestCase):
     def test_daemon_mode_persists_and_survives_restart(self):
         """Daemon mode: first run fires + persists; a restarted daemon on
         the same day does not re-fire."""
-        cfg, tasks, fired = self._setup(self.mktmp())
+        cfg, tasks, _ = self._setup(self.mktmp())
 
         def _run_once() -> None:
             calls = {"n": 0}
@@ -448,12 +594,14 @@ class TestFiredState(EnvTestCase):
                 if calls["n"] >= 1:
                     raise KeyboardInterrupt
 
-            with mock.patch("friday.watcher.time.monotonic", return_value=1000.0), \
-                 mock.patch("friday.watcher.time.sleep", side_effect=fake_sleep):
+            with (
+                mock.patch("friday.watcher.time.monotonic", return_value=1000.0),
+                mock.patch("friday.watcher.time.sleep", side_effect=fake_sleep),
+            ):
                 run_watcher(str(cfg), once=False, poll_s=0.01)
 
-        _run_once()   # daemon start: fires + persists
-        _run_once()   # restart same day: must NOT re-fire
+        _run_once()  # daemon start: fires + persists
+        _run_once()  # restart same day: must NOT re-fire
         self.assertEqual(len(self._records(tasks)), 1)
 
 
@@ -467,10 +615,21 @@ class TestRetryOnFailure(EnvTestCase):
         d = self.mktmp()
         (d / "time").mkdir()  # alpha.txt absent -> find_file ABORTs -> FAILED
         cfg = d / "w.json"
-        cfg.write_text(json.dumps({"triggers": [
-            {"id": "daily", "plan": _plan(d / "time", "no-such-file"),
-             "schedule": {"type": "time", "at": "00:00"}, "notify": False},
-        ]}), encoding="utf-8")
+        cfg.write_text(
+            json.dumps(
+                {
+                    "triggers": [
+                        {
+                            "id": "daily",
+                            "plan": _plan(d / "time", "no-such-file"),
+                            "schedule": {"type": "time", "at": "00:00"},
+                            "notify": False,
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         tasks = d / "tasks.jsonl"
         fired = d / "fired.json"
         self.set_env(FRIDAY_TASKS_FILE=str(tasks), FRIDAY_FIRED_FILE=str(fired))
@@ -487,10 +646,21 @@ class TestRetryOnFailure(EnvTestCase):
         (d / "time").mkdir()
         (d / "time" / "alpha.txt").write_text("x", encoding="utf-8")
         cfg = d / "w.json"
-        cfg.write_text(json.dumps({"triggers": [
-            {"id": "daily", "plan": _plan(d / "time", "alpha"),
-             "schedule": {"type": "time", "at": "00:00"}, "notify": False},
-        ]}), encoding="utf-8")
+        cfg.write_text(
+            json.dumps(
+                {
+                    "triggers": [
+                        {
+                            "id": "daily",
+                            "plan": _plan(d / "time", "alpha"),
+                            "schedule": {"type": "time", "at": "00:00"},
+                            "notify": False,
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         tasks = d / "tasks.jsonl"
         fired = d / "fired.json"
         self.set_env(FRIDAY_TASKS_FILE=str(tasks), FRIDAY_FIRED_FILE=str(fired))
@@ -512,14 +682,35 @@ class TestRetryOnFailure(EnvTestCase):
         fired = d / "fired.json"
         self.set_env(FRIDAY_TASKS_FILE=str(tasks), FRIDAY_FIRED_FILE=str(fired))
         cfg = d / "w.json"
-        cfg.write_text(json.dumps({"triggers": [
-            {"id": "daily",
-             "plan": {"goal": "g", "steps": [
-                 {"primitive": "whatsapp.send_text", "args": {},
-                  "verify": {"check": "checks.message_sent", "args": {}, "expect": True}}]},
-             "schedule": {"type": "time", "at": "00:00"}, "notify": False,
-             "allow": ["gmail.*"]},
-        ]}), encoding="utf-8")
+        cfg.write_text(
+            json.dumps(
+                {
+                    "triggers": [
+                        {
+                            "id": "daily",
+                            "plan": {
+                                "goal": "g",
+                                "steps": [
+                                    {
+                                        "primitive": "whatsapp.send_text",
+                                        "args": {},
+                                        "verify": {
+                                            "check": "checks.message_sent",
+                                            "args": {},
+                                            "expect": True,
+                                        },
+                                    }
+                                ],
+                            },
+                            "schedule": {"type": "time", "at": "00:00"},
+                            "notify": False,
+                            "allow": ["gmail.*"],
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         run_watcher(str(cfg), once=True)
         run_watcher(str(cfg), once=True)  # restart same day
         recs = [json.loads(l) for l in open(tasks, encoding="utf-8") if l.strip()]
@@ -535,11 +726,24 @@ class TestRetryOnFailure(EnvTestCase):
         (d / "time").mkdir()
         (d / "time" / "alpha.txt").write_text("x", encoding="utf-8")
         cfg = d / "w.json"
-        cfg.write_text(json.dumps({"triggers": [
-            {"id": "daily", "plan": _plan(d / "time", "alpha"),
-             "schedule": {"type": "time", "at": "00:00"}, "notify": False},
-        ]}), encoding="utf-8")
-        self.set_env(FRIDAY_TASKS_FILE=str(d / "tasks.jsonl"), FRIDAY_FIRED_FILE=str(d / "fired.json"))
+        cfg.write_text(
+            json.dumps(
+                {
+                    "triggers": [
+                        {
+                            "id": "daily",
+                            "plan": _plan(d / "time", "alpha"),
+                            "schedule": {"type": "time", "at": "00:00"},
+                            "notify": False,
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.set_env(
+            FRIDAY_TASKS_FILE=str(d / "tasks.jsonl"), FRIDAY_FIRED_FILE=str(d / "fired.json")
+        )
         clock = {"t": 1000.0}
         attempts: list[float] = []
         sleeps = {"n": 0}
@@ -557,13 +761,15 @@ class TestRetryOnFailure(EnvTestCase):
             attempts.append(clock["t"])
             return False, {"trigger": "daily", "status": "FAILED"}
 
-        with mock.patch("friday.watcher._run_trigger", side_effect=fake_run), \
-             mock.patch("friday.watcher.RETRY_BACKOFF_S", 100.0), \
-             mock.patch("friday.watcher.time.monotonic", side_effect=fake_monotonic), \
-             mock.patch("friday.watcher.time.sleep", side_effect=fake_sleep):
+        with (
+            mock.patch("friday.watcher._run_trigger", side_effect=fake_run),
+            mock.patch("friday.watcher.RETRY_BACKOFF_S", 100.0),
+            mock.patch("friday.watcher.time.monotonic", side_effect=fake_monotonic),
+            mock.patch("friday.watcher.time.sleep", side_effect=fake_sleep),
+        ):
             run_watcher(str(cfg), once=False, poll_s=0.01)
         self.assertGreater(len(attempts), 1, "a FAILED trigger must be retried")
-        for a, b in zip(attempts, attempts[1:]):
+        for a, b in itertools.pairwise(attempts):
             self.assertGreaterEqual(b - a, 100.0, "retries must respect RETRY_BACKOFF_S")
         self.assertLess(len(attempts), 20, "backoff must bound retries (not every poll)")
 
@@ -586,7 +792,11 @@ class TestPlanCaching(EnvTestCase):
 
     def test_inline_plan_never_calls_llm(self):
         cache = {}
-        t = {"id": "x", "plan": {"goal": "p", "steps": []}, "schedule": {"type": "time", "at": "09:00"}}
+        t = {
+            "id": "x",
+            "plan": {"goal": "p", "steps": []},
+            "schedule": {"type": "time", "at": "09:00"},
+        }
         with mock.patch("friday.l4.planner.plan") as m:
             p = _make_plan(t, cache, "r1")
         m.assert_not_called()
@@ -599,8 +809,12 @@ class TestPlanCaching(EnvTestCase):
         self.set_env(FRIDAY_TASKS_FILE=str(tasks))
         failing = _plan(time_dir, "no-such-file")  # step ABORTs -> run_plan raises
         cache = {}
-        t = {"id": "nc", "goal": "locate no-such-file",
-             "schedule": {"type": "time", "at": "00:00"}, "notify": False}
+        t = {
+            "id": "nc",
+            "goal": "locate no-such-file",
+            "schedule": {"type": "time", "at": "00:00"},
+            "notify": False,
+        }
         with mock.patch("friday.l4.planner.plan", return_value=failing) as m:
             _run_trigger(t, cache)
             _run_trigger(t, cache)
@@ -619,10 +833,20 @@ class TestHeartbeat(EnvTestCase):
         self.set_env(FRIDAY_GAPS_FILE=str(gaps))
         from friday.capability_gaps import record_gap
 
-        record_gap(source="executor", goal_id="g", attempted_primitive="a.b",
-                   goal_context="g", refusal_reason="r")
-        record_gap(source="watcher", trigger_id="t", attempted_primitive="c.d",
-                   goal_context="g", refusal_reason="r")
+        record_gap(
+            source="executor",
+            goal_id="g",
+            attempted_primitive="a.b",
+            goal_context="g",
+            refusal_reason="r",
+        )
+        record_gap(
+            source="watcher",
+            trigger_id="t",
+            attempted_primitive="c.d",
+            goal_context="g",
+            refusal_reason="r",
+        )
         with mock.patch("friday.watcher.emit_event") as m:
             _emit_heartbeat(5.0, "morning-gmail-summary", "2026-08-10T09:00:00+00:00")
         call = m.call_args
@@ -644,15 +868,25 @@ class TestHeartbeat(EnvTestCase):
         self.set_env(FRIDAY_GAPS_FILE=str(gaps))
         from friday.capability_gaps import mark_processed, record_gap
 
-        g1 = record_gap(source="executor", goal_id="g", attempted_primitive="a.b",
-                        goal_context="g", refusal_reason="r")
-        g2 = record_gap(source="watcher", trigger_id="t", attempted_primitive="c.d",
-                        goal_context="g", refusal_reason="r")
+        g1 = record_gap(
+            source="executor",
+            goal_id="g",
+            attempted_primitive="a.b",
+            goal_context="g",
+            refusal_reason="r",
+        )
+        _g2 = record_gap(
+            source="watcher",
+            trigger_id="t",
+            attempted_primitive="c.d",
+            goal_context="g",
+            refusal_reason="r",
+        )
         mark_processed([g1])  # one consumed, one still pending
         with mock.patch("friday.watcher.emit_event") as m:
             _emit_heartbeat(1.0, None, None)
         args = m.call_args.kwargs["args"]
-        self.assertEqual(args["capability_gaps"], 2)   # total never shrinks
+        self.assertEqual(args["capability_gaps"], 2)  # total never shrinks
         self.assertEqual(args["gaps_pending_triage"], 1)  # only g2 awaits triage
 
     def test_emit_heartbeat_never_fires_without_trigger(self):
@@ -683,9 +917,11 @@ class TestHeartbeat(EnvTestCase):
             if calls["n"] >= stop_after:
                 raise KeyboardInterrupt
 
-        with mock.patch("friday.watcher.time.monotonic", side_effect=fake_monotonic), \
-             mock.patch("friday.watcher.time.sleep", side_effect=fake_sleep), \
-             mock.patch("friday.watcher.emit_event") as m:
+        with (
+            mock.patch("friday.watcher.time.monotonic", side_effect=fake_monotonic),
+            mock.patch("friday.watcher.time.sleep", side_effect=fake_sleep),
+            mock.patch("friday.watcher.emit_event") as m,
+        ):
             run_watcher(str(cfg), once=False, poll_s=0.01, heartbeat_s=heartbeat_s)
         return m
 
@@ -729,9 +965,21 @@ class TestAllowList(EnvTestCase):
         for bad in ("gmail.*", ["gmail.*", 3], [""], ["  "], 42, {"a": 1}):
             with self.assertRaises(FridayError, msg=f"allow={bad!r}"):
                 f = self.mktmp() / "w.json"
-                f.write_text(json.dumps({"triggers": [
-                    {"id": "a", "goal": "g", "schedule": {"type": "time", "at": "09:00"}, "allow": bad}
-                ]}), encoding="utf-8")
+                f.write_text(
+                    json.dumps(
+                        {
+                            "triggers": [
+                                {
+                                    "id": "a",
+                                    "goal": "g",
+                                    "schedule": {"type": "time", "at": "09:00"},
+                                    "allow": bad,
+                                }
+                            ]
+                        }
+                    ),
+                    encoding="utf-8",
+                )
                 load_config(f)
 
     def test_plan_with_disallowed_prim_is_refused_not_executed(self):
@@ -745,23 +993,38 @@ class TestAllowList(EnvTestCase):
         # (FRIDAY_GAPS_FILE was not isolated) - 5 leaked records, timestamps
         # matching this test's runs. Assert the temp file got them instead.
         # a plan that would SEND a message - must never run from this trigger
-        plan = {"goal": "send something", "steps": [
-            {"primitive": "whatsapp.send_text", "args": {"text": "hi", "to": "1"},
-             "verify": {"check": "checks.message_sent",
-                         "args": {"platform": "whatsapp", "message_id": "wamid.x"}, "expect": True}},
-        ]}
-        t = {"id": "allow-x", "goal": "send something",
-             "schedule": {"type": "time", "at": "00:00"}, "notify": False,
-             "allow": ["gmail.*"]}
-        with mock.patch("friday.l4.planner.plan", return_value=plan) as m, \
-             mock.patch("friday.watcher.run_plan") as run:
+        plan = {
+            "goal": "send something",
+            "steps": [
+                {
+                    "primitive": "whatsapp.send_text",
+                    "args": {"text": "hi", "to": "1"},
+                    "verify": {
+                        "check": "checks.message_sent",
+                        "args": {"platform": "whatsapp", "message_id": "wamid.x"},
+                        "expect": True,
+                    },
+                },
+            ],
+        }
+        t = {
+            "id": "allow-x",
+            "goal": "send something",
+            "schedule": {"type": "time", "at": "00:00"},
+            "notify": False,
+            "allow": ["gmail.*"],
+        }
+        with (
+            mock.patch("friday.l4.planner.plan", return_value=plan) as _m,
+            mock.patch("friday.watcher.run_plan") as run,
+        ):
             cache: dict = {}
             ok, detail = _run_trigger(t, cache)
         self.assertFalse(ok)
         self.assertEqual(detail["status"], "REFUSED")
         self.assertEqual(detail["forbidden"], ["whatsapp.send_text"])
-        run.assert_not_called()       # refused before any execution
-        self.assertEqual(cache, {})   # refused plan popped, replanned next firing
+        run.assert_not_called()  # refused before any execution
+        self.assertEqual(cache, {})  # refused plan popped, replanned next firing
         recs = [json.loads(l) for l in open(tasks, encoding="utf-8") if l.strip()]
         self.assertEqual(len(recs), 1)
         self.assertFalse(recs[0]["gate6_passed"])  # honest failure, never deleted
@@ -778,11 +1041,22 @@ class TestAllowList(EnvTestCase):
         (time_dir := d / "time").mkdir()
         (time_dir / "alpha.txt").write_text("x", encoding="utf-8")
         cfg = d / "w.json"
-        cfg.write_text(json.dumps({"triggers": [
-            {"id": "allow-ok", "plan": _plan(time_dir, "alpha"),
-             "schedule": {"type": "time", "at": "00:00"}, "notify": False,
-             "allow": ["files.*"]},
-        ]}), encoding="utf-8")
+        cfg.write_text(
+            json.dumps(
+                {
+                    "triggers": [
+                        {
+                            "id": "allow-ok",
+                            "plan": _plan(time_dir, "alpha"),
+                            "schedule": {"type": "time", "at": "00:00"},
+                            "notify": False,
+                            "allow": ["files.*"],
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         tasks = d / "tasks.jsonl"
         self.set_env(FRIDAY_TASKS_FILE=str(tasks))
         run_watcher(str(cfg), once=True)

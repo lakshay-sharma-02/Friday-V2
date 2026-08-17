@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import requests
@@ -67,7 +67,7 @@ def _access_token() -> str:
     client_id, client_secret, refresh_token = _auth()
     now = time.time()
     if _token_cache["access_token"] and _token_cache["expires_at"] > now + 60:
-        return _token_cache["access_token"]
+        return str(_token_cache["access_token"])
     resp = requests.post(
         TOKEN_URL,
         data={
@@ -92,7 +92,7 @@ def _access_token() -> str:
         )
     _token_cache["access_token"] = token
     _token_cache["expires_at"] = now + int(body.get("expires_in", 3600))
-    return token
+    return str(token)
 
 
 def _log_redact_calendar_meta(rows: Any) -> Any:
@@ -131,11 +131,11 @@ def list_upcoming(days: int = 7) -> list[dict[str, str]]:
         raise PreconditionError(f"days must be a positive integer, got {days!r}")
 
     token = _access_token()
-    now = datetime.now(timezone.utc).isoformat()
-    end_time = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+    now = datetime.now(UTC).isoformat()
+    end_time = (datetime.now(UTC) + timedelta(days=days)).isoformat()
     url = f"{API_BASE}/calendars/primary/events"
     headers = {"Authorization": f"Bearer {token}"}
-    params = {
+    params: dict[str, Any] = {
         "timeMin": now,
         "timeMax": end_time,
         "maxResults": 100,
@@ -166,26 +166,30 @@ def list_upcoming(days: int = 7) -> list[dict[str, str]]:
         attendees = item.get("attendees", [])
         location = item.get("location", "")
         summary = item.get("summary", "")
-        result.append({
-            "event_id": item.get("id", ""),
-            "summary": summary,
-            "start_time": start_time,
-            "end_time": end_time,
-            "location": location,
-            "attendees_count": str(len(attendees)),
-        })
+        result.append(
+            {
+                "event_id": item.get("id", ""),
+                "summary": summary,
+                "start_time": start_time,
+                "end_time": end_time,
+                "location": location,
+                "attendees_count": str(len(attendees)),
+            }
+        )
     return result
 
 
 # ---- gate-registered calendar.add_event (2026-08-14) ----
 
-def _log_redact_add_event(result):
+
+def _log_redact_add_event(result: Any) -> Any:
     """Log-time redaction for calendar.add_event: the SUMMARY field could
     contain sensitive info - the L0 line shows <redacted> while event_id
     stays visible."""
     if isinstance(result, dict):
         return {**result, "summary": "<redacted>"}
     return result
+
 
 @contract(
     precondition="OAuth credentials are configured and the refresh token carries the "
@@ -231,7 +235,11 @@ def add_event(summary: str, start: str, end: str) -> dict[str, str]:
     token = _access_token()
     url = f"{API_BASE}/calendars/primary/events"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    body = {"summary": summary, "start": {"dateTime": start}, "end": {"dateTime": end}}
+    body: dict[str, Any] = {
+        "summary": summary,
+        "start": {"dateTime": start},
+        "end": {"dateTime": end},
+    }
 
     resp = requests.post(url, headers=headers, json=body, timeout=30)
     if resp.status_code not in (200, 201):
@@ -246,8 +254,8 @@ def add_event(summary: str, start: str, end: str) -> dict[str, str]:
                 "calendar.add_event needs the calendar.events OAuth scope, but the "
                 "stored refresh token only carries calendar.readonly. Re-run the "
                 "one-time consent WITH the write scope to re-mint the token:\n"
-                "  ./.venv/bin/python gates/_calendar_oauth_setup.py --scope \""
-                f"{SCOPE} {SCOPE_EVENTS}\"\n"
+                '  ./.venv/bin/python gates/_calendar_oauth_setup.py --scope "'
+                f'{SCOPE} {SCOPE_EVENTS}"\n'
                 f"(API: {detail[:160]})",
                 state="event creation failed - missing calendar.events scope",
             )

@@ -28,11 +28,14 @@ playwright install chromium
 
 Friday needs credentials for various services. Each service has its own setup:
 
-**Gmail:**
-See `gates/GMAIL_SETUP.md` for OAuth setup. The credentials are stored in `config/credentials.json` (gitignored).
-
-**Calendar:**
-See `gates/_calendar_oauth_setup.py` for OAuth setup.
+**Gmail / Calendar:**
+See `gates/GMAIL_SETUP.md` for the Gmail OAuth setup. The one-time consent
+scripts take the downloaded Google OAuth client file as input
+(`config/credentials.json` - gitignored, never commit it); the refresh
+tokens they mint are stored in `pass` at `friday/gmail` / `friday/calendar`
+(or `GMAIL_*` / `CALENDAR_*` env vars), which is what the primitives read
+at runtime. A missing credential path is a PrimitiveError, never a silent
+empty result.
 
 **Messaging (WhatsApp, Telegram, Discord):**
 Set environment variables:
@@ -202,7 +205,9 @@ python -m pytest --cov=friday --cov-report=html
 ### Authentication Errors
 
 If you get credential errors, ensure:
-1. `config/credentials.json` exists with valid tokens
+1. The runtime credentials exist: `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` /
+   `GMAIL_REFRESH_TOKEN` env vars, or `pass` entries at `friday/gmail` and
+   `friday/calendar` (minted by the OAuth setup scripts)
 2. API services are enabled in your developer console
 3. OAuth consent screens are properly configured
 

@@ -78,7 +78,8 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -290,10 +291,16 @@ def record_lesson_event(
     _DETAIL_MAX characters; category is accepted as-is (generalize only
     produces candidates for categories in CATEGORIES, so an unregistered
     category is recorded but never auto-proposed)."""
-    event_id = f"{time.time_ns():x}{len(detail) % 97:02x}"
+    # time.time_ns() alone is NOT unique on coarse-timer systems (Windows
+    # quantizes it - two rapid record_lesson_event calls collide, so the
+    # coverage sidecar would mark both events as covered; same bug class as
+    # capability_gaps.record_gap, found live 2026-08-17). The ns prefix
+    # keeps the id roughly time-ordered; the uuid suffix guarantees
+    # uniqueness.
+    event_id = f"{time.time_ns():x}{uuid.uuid4().hex[:8]}"
     rec: dict[str, Any] = {
         "event_id": event_id,
-        "timestamp": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+        "timestamp": datetime.now(UTC).isoformat(timespec="microseconds"),
         "category": category,
         "source": source,
         "detail": detail[:_DETAIL_MAX],
@@ -368,11 +375,7 @@ def _load_approved() -> tuple[list[dict[str, Any]], list[str]]:
         if not isinstance(statement, str) or not statement.strip():
             invalid.append(f"lessons[{i}] ({category}): missing non-empty 'statement'")
             continue
-        if (
-            not isinstance(targets, list)
-            or not targets
-            or not all(t in TARGETS for t in targets)
-        ):
+        if not isinstance(targets, list) or not targets or not all(t in TARGETS for t in targets):
             invalid.append(
                 f"lessons[{i}] ({category}): 'targets' must be a non-empty list of {TARGETS}"
             )
@@ -428,8 +431,7 @@ def _write_candidate(category: str, events: list[dict[str, Any]], covered: set[s
     d.mkdir(parents=True, exist_ok=True)
     rows = sorted(events, key=lambda e: e.get("timestamp", ""))
     evidence = "\n".join(
-        f"- {e.get('timestamp', '?')} [{e.get('source', '?')}] {e.get('detail', '')}"
-        for e in rows
+        f"- {e.get('timestamp', '?')} [{e.get('source', '?')}] {e.get('detail', '')}" for e in rows
     )
     targets = ", ".join(meta["targets"])
     body = f"""# Candidate lesson: {category}
@@ -440,7 +442,7 @@ its own.
 
 ## Proposed statement (injected into the {targets} prompt(s) on approval)
 
-> {meta['statement']}
+> {meta["statement"]}
 
 ## Evidence ({len(rows)} recorded event(s))
 
@@ -453,7 +455,7 @@ same philosophy as APPROVED.md for primitives. Add:
 
     {{
       "category": "{category}",
-      "targets": ["{meta['targets'][0]}"],
+      "targets": ["{meta["targets"][0]}"],
       "statement": "<your reviewed wording - edit freely, this text is what gets injected>"
     }}
 
@@ -503,10 +505,12 @@ def generalize(min_examples: int = MIN_EXAMPLES, limit: int | None = None) -> li
         fresh = [e for e in events if e.get("event_id") not in covered]
         if not fresh:
             continue
-        if _write_candidate(cat, events, covered | {e.get("event_id") for e in fresh}):
+        if _write_candidate(cat, events, covered | {str(e.get("event_id")) for e in fresh}):
             written.append(str(candidate_path(cat)))
     if unknown:
-        print(f"  (skipped {len(unknown)} event(s) in unregistered categories: {sorted(set(unknown))})")
+        print(
+            f"  (skipped {len(unknown)} event(s) in unregistered categories: {sorted(set(unknown))})"
+        )
     return written
 
 
@@ -514,15 +518,27 @@ def generalize(min_examples: int = MIN_EXAMPLES, limit: int | None = None) -> li
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Friday lessons loop - record, generalize, inject (draft-only except --record)")
-    ap.add_argument("--record", action="store_true", help="record one lesson event (e.g. a human-observed category)")
+    ap = argparse.ArgumentParser(
+        description="Friday lessons loop - record, generalize, inject (draft-only except --record)"
+    )
+    ap.add_argument(
+        "--record",
+        action="store_true",
+        help="record one lesson event (e.g. a human-observed category)",
+    )
     ap.add_argument("--category", default="", help="event/candidate category")
     ap.add_argument("--detail", default="", help="event detail (recorded, truncated)")
     ap.add_argument("--source", default="manual", help="event source for --record")
     ap.add_argument("--list", action="store_true", help="print approved lessons (the injected set)")
     ap.add_argument("--events", action="store_true", help="print recent raw events")
-    ap.add_argument("--check", action="store_true", help="validate the approved store and report invalid entries")
-    ap.add_argument("--min-examples", type=int, default=MIN_EXAMPLES, help="min events for a candidate")
+    ap.add_argument(
+        "--check",
+        action="store_true",
+        help="validate the approved store and report invalid entries",
+    )
+    ap.add_argument(
+        "--min-examples", type=int, default=MIN_EXAMPLES, help="min events for a candidate"
+    )
     ap.add_argument("--limit", type=int, default=None, help="max candidates to write")
     args = ap.parse_args(argv)
 
@@ -547,7 +563,9 @@ def main(argv: list[str] | None = None) -> int:
             print("no recorded lesson events")
             return 0
         for e in events[-20:]:
-            print(f"{e.get('timestamp', '?')[:19]} {e.get('category', '?'):24s} [{e.get('source', '?')}] {e.get('detail', '')[:90]}")
+            print(
+                f"{e.get('timestamp', '?')[:19]} {e.get('category', '?'):24s} [{e.get('source', '?')}] {e.get('detail', '')[:90]}"
+            )
         return 0
     if args.check:
         valid, invalid = _load_approved()

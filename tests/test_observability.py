@@ -3,6 +3,7 @@ size-based rotation, and the observe wrapper."""
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import unittest
@@ -18,7 +19,9 @@ class TestRedaction(EnvTestCase):
         self.assertEqual(obs._redact("title", "x"), "x")  # benign key untouched
 
     def test_clip_redacts_nested_and_bounds(self):
-        clipped = obs._clip({"password": "s3cret", "ok": {"token": "t", "v": 1}, "list": list(range(30))})
+        clipped = obs._clip(
+            {"password": "s3cret", "ok": {"token": "t", "v": 1}, "list": list(range(30))}
+        )
         self.assertEqual(clipped["password"], "<redacted>")
         self.assertEqual(clipped["ok"]["token"], "<redacted>")
         self.assertEqual(len(clipped["list"]), 20)
@@ -30,7 +33,7 @@ class TestRedaction(EnvTestCase):
         self.assertEqual(deep["a"]["b"]["c"]["d"], "<too deep>")
 
     def test_bind_args_redacts_argument_named_password(self):
-        def fn(a, password):  # noqa: ARG001
+        def fn(a, password):
             pass
 
         bound = obs._bind_args(fn, (1,), {"password": "p"})
@@ -188,7 +191,7 @@ class TestRotation(EnvTestCase):
             self.assertEqual(len(g), len(set(g)))
         # each generation is entirely older than the next (works for
         # single-line generations too)
-        for older, newer in zip(gens[:-1], gens[1:]):
+        for older, newer in itertools.pairwise(gens):
             self.assertLess(older[-1], newer[0])
         self.assertEqual(gens[-1][-1], 14)  # newest line present
 
@@ -196,7 +199,9 @@ class TestRotation(EnvTestCase):
         self.set_env(FRIDAY_LOG_MAX_BYTES="0", FRIDAY_LOG_BACKUPS="-3")
         self.assertEqual(obs._log_rotation_config(), (1, 0))
         self.set_env(FRIDAY_LOG_MAX_BYTES="garbage", FRIDAY_LOG_BACKUPS="garbage")
-        self.assertEqual(obs._log_rotation_config(), (obs.DEFAULT_LOG_MAX_BYTES, obs.DEFAULT_LOG_BACKUPS))
+        self.assertEqual(
+            obs._log_rotation_config(), (obs.DEFAULT_LOG_MAX_BYTES, obs.DEFAULT_LOG_BACKUPS)
+        )
 
     def test_backups_zero_disables_rotation(self):
         d = self.mktmp()
