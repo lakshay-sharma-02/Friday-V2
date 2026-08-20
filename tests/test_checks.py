@@ -126,6 +126,19 @@ class TestMessagingChecks(EnvTestCase):
         with mock.patch.object(checks, "whatsapp_identity", return_value="1555"):
             self.assertTrue(checks.whatsapp_identity_ok())
 
+    def test_whatsapp_media_downloaded_true(self):
+        d = self.mktmp()
+        (d / "photo.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        self.assertTrue(checks.whatsapp_media_downloaded(str(d / "photo.png")))
+
+    def test_whatsapp_media_downloaded_false_missing(self):
+        self.assertFalse(checks.whatsapp_media_downloaded("/no/such/file.png"))
+
+    def test_whatsapp_media_downloaded_false_empty(self):
+        d = self.mktmp()
+        (d / "empty.pdf").write_bytes(b"")
+        self.assertFalse(checks.whatsapp_media_downloaded(str(d / "empty.pdf")))
+
 
 class TestGmailChecks(EnvTestCase):
     def test_gmail_unread_exists(self):
@@ -167,6 +180,84 @@ class TestL2Observed(EnvTestCase):
         lines = [json.loads(l) for l in open(log, encoding="utf-8") if l.strip()]
         self.assertEqual(lines[0]["layer"], "L2")
         self.assertEqual(lines[0]["primitive"], "checks.window_client_count")
+
+
+class TestFileChecks(EnvTestCase):
+    """Tests for the new L2 file operation checks."""
+
+    def test_file_size_equals_true(self):
+        d = self.mktmp()
+        test_file = d / "test.txt"
+        test_file.write_text("hello world", encoding="utf-8")
+        self.assertTrue(checks.file_size_equals(str(test_file), 11))
+
+    def test_file_size_equals_false(self):
+        d = self.mktmp()
+        test_file = d / "test.txt"
+        test_file.write_text("hello", encoding="utf-8")
+        self.assertFalse(checks.file_size_equals(str(test_file), 999))
+
+    def test_file_size_equals_missing_file(self):
+        self.assertFalse(checks.file_size_equals("/no/such/file.txt", 0))
+
+    def test_file_exists_and_contents_true(self):
+        d = self.mktmp()
+        test_file = d / "test.txt"
+        test_file.write_text("hello world", encoding="utf-8")
+        self.assertTrue(checks.file_exists_and_contents(str(test_file), "hello world"))
+
+    def test_file_exists_and_contents_false_wrong_content(self):
+        d = self.mktmp()
+        test_file = d / "test.txt"
+        test_file.write_text("hello", encoding="utf-8")
+        self.assertFalse(checks.file_exists_and_contents(str(test_file), "wrong content"))
+
+    def test_file_exists_and_contents_false_missing(self):
+        self.assertFalse(checks.file_exists_and_contents("/no/such/file.txt", "x"))
+
+    def test_file_is_copied_to_true(self):
+        d = self.mktmp()
+        src = self.mktmp(prefix="src_")
+        src_file = src / "document.txt"
+        src_file.write_text("test", encoding="utf-8")
+        # Simulate the copy by creating dest_dir with the file
+        dest_dir = d / "dest"
+        dest_dir.mkdir()
+        (dest_dir / "document.txt").write_text("test", encoding="utf-8")
+        self.assertTrue(checks.file_is_copied_to(str(dest_dir), "document.txt"))
+
+    def test_file_is_copied_to_false_missing(self):
+        d = self.mktmp()
+        empty_dir = d / "empty"
+        empty_dir.mkdir()
+        self.assertFalse(checks.file_is_copied_to(str(empty_dir), "missing.txt"))
+
+    def test_file_is_moved_from_true(self):
+        d = self.mktmp()
+        src = self.mktmp(prefix="src_mv_")
+        src_file = src / "moved.txt"
+        content = "moved content"
+        src_file.write_text(content, encoding="utf-8")
+        # Simulate the move by removing from source and creating in dest
+        dest_dir = d / "dest_mv"
+        dest_dir.mkdir()
+        dest_file = dest_dir / "moved.txt"
+        dest_file.write_text(content, encoding="utf-8")
+        src_file.unlink()
+        self.assertTrue(checks.file_is_moved_from(str(src_file), str(dest_dir)))
+
+    def test_file_is_deleted_true(self):
+        d = self.mktmp()
+        test_file = d / "to_delete.txt"
+        test_file.write_text("delete me", encoding="utf-8")
+        test_file.unlink()
+        self.assertTrue(checks.file_is_deleted(str(test_file)))
+
+    def test_file_is_deleted_false_exists(self):
+        d = self.mktmp()
+        test_file = d / "still_exists.txt"
+        test_file.write_text("not deleted", encoding="utf-8")
+        self.assertFalse(checks.file_is_deleted(str(test_file)))
 
 
 if __name__ == "__main__":

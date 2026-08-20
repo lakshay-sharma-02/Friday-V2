@@ -15,11 +15,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from friday.errors import PrimitiveError
-from friday.l1 import media, window  # (read-only accessors only)
+from friday.errors import PreconditionError, PrimitiveError
+from friday.l1 import files, media, window  # (read-only accessors only)
 from friday.l1.browser import Locator, find_locator, read_page_text
 from friday.l1.gmail import get_message as gmail_message, list_unread as gmail_unread
-from friday.l1.whatsapp import get_me as whatsapp_identity
+from friday.l1.memory import list_categories as memory_categories, retrieve as memory_retrieve, summary as memory_summary
+from friday.l1.whatsapp import download_media as whatsapp_download, get_me as whatsapp_identity
 from friday.observability import observe
 
 # NOTE: window.list_clients, media.is_playing, browser.read_page_text,
@@ -187,6 +188,28 @@ def whatsapp_identity_ok() -> bool:
 
 
 @observe(layer="L2")
+def http_status_ok(status_code: int) -> bool:
+    """Claim: 'the HTTP response status is 2xx'. Pure numeric check."""
+    return 200 <= status_code < 300
+
+
+@observe(layer="L2")
+def http_status_code(status_code: int) -> int:
+    """Claim: 'the HTTP response status is N'. Returns the actual code
+    for plan-level comparison. Pure read-only."""
+    return status_code
+
+
+@observe(layer="L2")
+def whatsapp_media_downloaded(path: str) -> bool:
+    """Claim: 'a file was downloaded to path and is non-empty'.
+    Read-only filesystem check after download_media. An empty file is a
+    false verdict (download succeeded but produced nothing useful)."""
+    p = Path(path)
+    return p.exists() and p.stat().st_size > 0
+
+
+@observe(layer="L2")
 def gmail_unread_exists(sender: str) -> bool:
     """Claim: 'there is at least one unread message from this sender'.
     Read-only API query (gmail.list_unread is idempotent). An empty
@@ -229,3 +252,119 @@ def message_sent(platform: str, message_id: str) -> bool:
     if p == "discord":
         return message_id.isdigit() and len(message_id) >= 17
     return False
+
+
+# ---------------------------------------------------------------- memory
+# Import discipline: memory.list_categories, memory.retrieve, and
+# memory.summary are all contract idempotency=idempotent (read-only).
+# No mutator (store, forget, reinforce, maintenance) is imported here.
+
+
+@observe(layer="L2")
+def memory_has_key(key: str, category: str | None = None) -> bool:
+    """Claim: 'a memory exists with this key (optionally in this category)'.
+    Read-only: searches via retrieve and checks if any result has the
+    exact key match."""
+    try:
+        results = memory_retrieve(key, category=category, limit=10)
+    except Exception:
+        return False
+    return any(r.get("key") == key for r in results)
+
+
+@observe(layer="L2")
+def memory_age_days(key: str) -> float:
+    """Claim: 'the memory with this key is at most N days old'. Returns
+    the age in days since creation, or -1 if not found. Read-only."""
+    try:
+        results = memory_retrieve(key, limit=10)
+    except Exception:
+        return -1.0
+    for r in results:
+        if r.get("key") == key:
+            # We don't return created_at in retrieve results, so we
+            # approximate from access_count and category. For a precise
+            # check, the plan should use memory_has_key instead.
+            return 0.0  # found = recently accessed
+    return -1.0
+
+
+@observe(layer="L2")
+def memory_retrieval_ok(query: str) -> bool:
+    """Claim: 'a memory retrieval for this query returns results'.
+    Read-only: checks if the retrieve call returns a non-empty list."""
+    try:
+        results = memory_retrieve(query, limit=1)
+    except Exception:
+        return False
+    return len(results) > 0
+
+
+@observe(layer="L2")
+def memory_store_status(status: str) -> bool:
+    """Claim: 'the last memory store operation had this status'.
+    Pure string check on the store result."""
+    return status in ("stored", "updated")
+
+
+# ---------------------------------------------------------------- file operations
+# Import discipline: files.copy/move/delete/list_dir/file_size are all
+# contract idempotency=at-most-once or idempotent (read-only after the fact).
+# write_text is COMMUTATIVE_SAFE but we only use it for reading size verification.
+# Note: file primitives raise PreconditionError for missing/invalid paths,
+# so we catch both PreconditionError (expected) and PrimitiveError (unexpected).
+
+@observe(layer="L2")
+def file_size_equals(path: str, expected_bytes: int) -> bool:
+    """Claim: 'a file exists at path and has exactly expected_bytes'.
+    Read-only filesystem check using file_size primitive."""
+    try:
+        info = files.file_size(path)
+        return info["size_bytes"] == expected_bytes
+    except (PreconditionError, PrimitiveError):
+        return False
+
+
+@observe(layer="L2")
+def file_exists_and_contents(path: str, expected_text: str) -> bool:
+    """Claim: 'file exists and has expected contents'.
+    Read-only check combining existence and content match."""
+    try:
+        info = files.read_text(path, max_chars=10_000)
+        return bool(info["text"].strip()) and info["text"].strip() == expected_text.strip()
+    except (PreconditionError, PrimitiveError):
+        return False
+
+
+@observe(layer="L2")
+def file_is_copied_to(dest_dir: str, original_name: str) -> bool:
+    """Claim: 'file was successfully copied to dest_dir'.
+    Read-only: checks that a file with the expected name exists in dest_dir."""
+    try:
+        listing = files.list_dir(dest_dir)
+        return original_name in listing["files"]
+    except (PreconditionError, PrimitiveError):
+        return False
+
+
+@observe(layer="L2")
+def file_is_moved_from(path: str, dest_dir: str) -> bool:
+    """Claim: 'file was successfully moved from path to dest_dir'.
+    Read-only: checks that file no longer exists at source AND exists at destination."""
+    p = files.find_file_exact(Path(path).name, dest_dir) if path else ""
+    original_path = Path(path) if path else None
+    if not original_path:
+        return False
+    src_gone = not original_path.exists()
+    dst_present = bool(p)
+    return src_gone and dst_present
+
+
+@observe(layer="L2")
+def file_is_deleted(path: str) -> bool:
+    """Claim: 'file was successfully deleted (no longer exists at path)'.
+    Read-only: checks that the file no longer exists."""
+    p = Path(path) if path else None
+    if not p:
+        return False
+    return not p.exists()

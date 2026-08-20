@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
 from friday.contracts import Idempotency, contract
-from friday.errors import PreconditionError
+from friday.errors import PreconditionError, PrimitiveError
 
 # NOTE: this duplicates planner._resolve_path on purpose - the planner
 # imports every L1 module, so importing from friday.l4.planner here would
@@ -108,6 +109,8 @@ def find_file(name: str, directory: str | None = None, recursive: bool = False) 
 
 
 # ---- gate-registered files.find_file_exact (2026-08-10) ----
+
+
 @contract(
     precondition="name is a non-empty string; directory (if given) exists.",
     postcondition="Returns the absolute path of the first file (sorted) in "
@@ -305,9 +308,6 @@ def write_text(path: str, text: str, *, append: bool = False) -> str:
 # the convention the read-family build-verify probe enforces, and the
 # shape the download-alert trigger plan can feed straight into
 # whatsapp.send_document ($steps.N.result).
-from pathlib import Path
-
-from friday.contracts import Idempotency, contract
 
 
 @contract(
@@ -349,3 +349,153 @@ def find_newest(name: str, directory: str) -> str:
         if best is None or mtime > best[0]:
             best = (mtime, p)
     return str(best[1]) if best is not None else ""
+
+
+# ---- files.copy, files.move, files.delete, files.list_dir, files.file_size ----
+
+
+@contract(
+    precondition="source is an existing file; dest_dir is an existing directory.",
+    postcondition="Copies the file to dest_dir with the same filename. Side-effecting.",
+    idempotency=Idempotency.COMMUTATIVE_SAFE,
+    failure_mode="PreconditionError for missing source/dest; PrimitiveError on copy failure.",
+    returns="str: absolute path of the copied file.",
+)
+def copy(source: str, dest_dir: str) -> str:
+    """Copy a file to a destination directory.
+
+    Copies the file at `source` into `dest_dir` keeping the same filename.
+    Returns the absolute path of the new copy.
+    """
+    if not source or not source.strip():
+        raise PreconditionError("copy requires a non-empty 'source'")
+    if not dest_dir or not dest_dir.strip():
+        raise PreconditionError("copy requires a non-empty 'dest_dir'")
+    src = _anchor(source)
+    dst = _anchor(dest_dir)
+    if not src.is_file():
+        raise PreconditionError(f"copy: source file does not exist: {src}")
+    if not dst.is_dir():
+        raise PreconditionError(f"copy: dest_dir does not exist: {dst}")
+    dest_file = dst / src.name
+    shutil.copy2(str(src), str(dest_file))
+    return str(dest_file)
+
+
+@contract(
+    precondition="source is an existing file; dest_dir is an existing directory.",
+    postcondition="Moves the file to dest_dir with the same filename. Side-effecting.",
+    idempotency=Idempotency.AT_MOST_ONCE,
+    failure_mode="PreconditionError for missing source/dest; PrimitiveError on move failure.",
+    returns="str: absolute path of the moved file.",
+)
+def move(source: str, dest_dir: str) -> str:
+    """Move a file to a destination directory.
+
+    Moves the file at `source` into `dest_dir` keeping the same filename.
+    Returns the absolute path of the new location.
+    """
+    if not source or not source.strip():
+        raise PreconditionError("move requires a non-empty 'source'")
+    if not dest_dir or not dest_dir.strip():
+        raise PreconditionError("move requires a non-empty 'dest_dir'")
+    src = _anchor(source)
+    dst = _anchor(dest_dir)
+    if not src.is_file():
+        raise PreconditionError(f"move: source file does not exist: {src}")
+    if not dst.is_dir():
+        raise PreconditionError(f"move: dest_dir does not exist: {dst}")
+    dest_file = dst / src.name
+    shutil.move(str(src), str(dest_file))
+    return str(dest_file)
+
+
+@contract(
+    precondition="path is an existing file.",
+    postcondition="Deletes the file. Side-effecting.",
+    idempotency=Idempotency.AT_MOST_ONCE,
+    failure_mode="PreconditionError for missing file; PrimitiveError on delete failure.",
+    returns="str: the path that was deleted.",
+)
+def delete(path: str) -> str:
+    """Delete a file.
+
+    Deletes the file at `path`. Returns the path that was deleted.
+    """
+    if not path or not path.strip():
+        raise PreconditionError("delete requires a non-empty 'path'")
+    p = _anchor(path)
+    if not p.is_file():
+        raise PreconditionError(f"delete: file does not exist: {p}")
+    p.unlink()
+    return str(p)
+
+
+@contract(
+    precondition="path is an existing directory.",
+    postcondition="Returns the directory listing. Read-only.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PreconditionError for missing directory.",
+    returns="dict: {path, files: list[str], dirs: list[str], count: int}.",
+)
+def list_dir(path: str = ".") -> dict[str, Any]:
+    """List the contents of a directory.
+
+    Returns files and subdirectories (non-recursive) with a total count.
+    Useful for goals like 'what files are in my downloads'.
+    """
+    if not path or not path.strip():
+        path = "."
+    p = _anchor(path)
+    if not p.is_dir():
+        raise PreconditionError(f"list_dir: directory does not exist: {p}")
+    files = []
+    dirs = []
+    try:
+        for item in sorted(p.iterdir()):
+            if item.is_file():
+                files.append(item.name)
+            elif item.is_dir():
+                dirs.append(item.name)
+    except OSError as exc:
+        raise PreconditionError(f"list_dir: cannot scan {p}: {exc}") from exc
+    return {
+        "path": str(p),
+        "files": files,
+        "dirs": dirs,
+        "count": len(files) + len(dirs),
+    }
+
+
+@contract(
+    precondition="path is an existing file.",
+    postcondition="Returns the file size in bytes. Read-only.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PreconditionError for missing file.",
+    returns="dict: {path, size_bytes, size_human}.",
+)
+def file_size(path: str) -> dict[str, Any]:
+    """Get the size of a file in bytes and human-readable format.
+
+    Returns size in bytes and a human-readable string (KB/MB/GB).
+    Useful for goals like 'is this file too large to email'.
+    """
+    if not path or not path.strip():
+        raise PreconditionError("file_size requires a non-empty 'path'")
+    p = _anchor(path)
+    if not p.is_file():
+        raise PreconditionError(f"file_size: file does not exist: {p}")
+    size = p.stat().st_size
+    if size < 1024:
+        human = f"{size} B"
+    elif size < 1024 * 1024:
+        human = f"{size / 1024:.1f} KB"
+    elif size < 1024 * 1024 * 1024:
+        human = f"{size / (1024 * 1024):.1f} MB"
+    else:
+        human = f"{size / (1024 * 1024 * 1024):.1f} GB"
+    return {
+        "path": str(p),
+        "size_bytes": size,
+        "size_human": human,
+    }
