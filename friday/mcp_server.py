@@ -385,9 +385,152 @@ def handle_message(line: str) -> str | None:
     return json.dumps(_error(id_, METHOD_NOT_FOUND, f"method not found: {method}"))
 
 
+# --------------------------------------------------------- SSE transport
+# The MCP spec defines an SSE (Server-Sent Events) transport for
+# network-accessible servers. This enables Claude Desktop, Cursor,
+# and other MCP clients to connect over HTTP instead of stdio.
+
+def _sse_server(port: int) -> int:
+    """Run the MCP server over SSE transport.
+
+    Endpoints:
+      GET  /sse       - SSE stream (client connects here)
+      POST /messages  - Client sends JSON-RPC messages here
+      GET  /health    - Health check
+    """
+    import queue
+    import threading
+    import time as _time
+    from http.server import BaseHTTPRequestHandler
+    from socketserver import ThreadingMixIn
+    from urllib.parse import urlparse
+
+    class ThreadedHTTPServer(ThreadingMixIn):
+        daemon_threads = True
+
+    # Per-client state: each SSE connection gets its own queue
+    _clients: dict[str, queue.Queue[str | None]] = {}
+    _client_lock = threading.Lock()
+
+    class MCPHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            parsed = urlparse(self.path)
+
+            if parsed.path == "/health":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                import json as _json
+                health = {
+                    "status": "ok",
+                    "server": SERVER_NAME,
+                    "version": SERVER_VERSION,
+                    "protocol": PROTOCOL_VERSION,
+                    "clients": len(_clients),
+                }
+                self.wfile.write(_json.dumps(health).encode())
+                return
+
+            if parsed.path == "/sse":
+                client_id = f"client-{_time.time_ns()}"
+                q: queue.Queue[str | None] = queue.Queue()
+                with _client_lock:
+                    _clients[client_id] = q
+
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+
+                # Send the endpoint event so the client knows where to POST
+                endpoint_url = f"http://localhost:{port}/messages?session_id={client_id}"
+                self.wfile.write(f"event: endpoint\ndata: {endpoint_url}\n\n".encode())
+                self.wfile.flush()
+
+                try:
+                    while True:
+                        try:
+                            msg = q.get(timeout=30)
+                            if msg is None:
+                                break  # client disconnected
+                            self.wfile.write(f"event: message\ndata: {msg}\n\n".encode())
+                            self.wfile.flush()
+                        except queue.Empty:
+                            # Send a comment to keep the connection alive
+                            self.wfile.write(b": keepalive\n\n")
+                            self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                finally:
+                    with _client_lock:
+                        _clients.pop(client_id, None)
+                return
+
+            self.send_response(404)
+            self.end_headers()
+
+        def do_POST(self):
+            parsed = urlparse(self.path)
+            if parsed.path != "/messages":
+                self.send_response(404)
+                self.end_headers()
+                return
+
+            # Parse session_id from query params
+            from urllib.parse import parse_qs
+            params = parse_qs(parsed.query)
+            session_id = params.get("session_id", [None])[0]
+
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+
+            # Handle the message
+            response = handle_message(body.decode("utf-8"))
+
+            if response is not None and session_id:
+                with _client_lock:
+                    q = _clients.get(session_id)
+                if q:
+                    q.put(response)
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, format, *args):
+            pass  # suppress default logging
+
+    server = ThreadedHTTPServer(("0.0.0.0", port), MCPHandler)
+    print(f"Friday MCP server (SSE) listening on http://localhost:{port}")
+    print(f"  SSE endpoint: http://localhost:{port}/sse")
+    print(f"  Messages endpoint: http://localhost:{port}/messages")
+    print(f"  Health check: http://localhost:{port}/health")
+    print("  Press Ctrl+C to stop")
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
+
+
 def main() -> int:
-    """stdio loop: read newline-delimited JSON-RPC, write responses.
-    Flushes after every line so clients see responses immediately."""
+    """Entry point: stdio by default, --sse for network transport."""
+    import argparse
+    parser = argparse.ArgumentParser(description="Friday MCP server")
+    parser.add_argument("--sse", action="store_true", help="Run over SSE transport (HTTP)")
+    parser.add_argument("--port", type=int, default=8765, help="SSE port (default: 8765)")
+    args = parser.parse_args()
+
+    if args.sse:
+        return _sse_server(args.port)
+
+    # Default: stdio loop
     for line in sys.stdin:
         if not line.strip():
             continue
