@@ -15,7 +15,7 @@ registered primitives -> L0 structured logs. An ambient watcher daemon fires
 triggers on schedule with per-trigger primitive allowlists, and a closed
 capability-gap loop lets human-approved new primitives register themselves.
 
-## L1 primitives (95 registered)
+## L1 primitives (97 registered)
 
 Retry semantics come from each contract's idempotency class: `idempotent` = safe
 to blind-retry (read-only); `at-most-once` = never blindly retried (side effect);
@@ -60,6 +60,7 @@ to blind-retry (read-only); `at-most-once` = never blindly retried (side effect)
 | `browser.login(service: 'str', username_sel: 'str', password_sel: 'str', submit_sel: 'str') -> 'dict[str, str]'` | `at-most-once` | dict: {service, url}. | PrimitiveError from any sub-step; partial fill is possible, so verify the resulting … |
 | `browser.press_key(what: 'str | None', key: 'str') -> 'dict[str, str]'` | `at-most-once` | dict: {key}. | PrimitiveError if 'what' is given but does not resolve. |
 | `browser.read_page_text() -> 'str'` | `idempotent` | str: the page's visible text. | PrimitiveError if no page exists (call goto() first) or the context died. |
+| `browser.screenshot(output_path: 'str | None' = None) -> 'str'` | `idempotent` | str: absolute path to the saved screenshot. | PrimitiveError if no page is open or screenshot fails. |
 | `browser.type_text(what: 'str', text: 'str', timeout_ms: 'int' = 10000) -> 'dict[str, object]'` | `at-most-once` | dict: {typed_into, length}. | PrimitiveError if the element can neither be filled nor typed into; the field may be… |
 | `browser.upload_file(what: 'str | None', path: 'str', timeout_ms: 'int' = 10000) -> 'dict[str, object]'` | `at-most-once` | dict: {path, input_count}. | PrimitiveError if no file input is found, the path is missing, or set_input_files fa… |
 
@@ -159,6 +160,7 @@ to blind-retry (read-only); `at-most-once` = never blindly retried (side effect)
 |---|---|---|---|
 | `calendar.add_event(summary: 'str', start: 'str', end: 'str') -> 'dict[str, str]'` | `at-most-once` | dict: {event_id, summary, start_time, end_time, status}. | PreconditionError for invalid parameters; PrimitiveError on auth/API failure. If the… |
 | `calendar.delete_event(event_id: 'str') -> 'dict[str, str]'` | `commutative-safe` | dict: {event_id, status}. | PreconditionError for empty event_id; PrimitiveError on API failure. |
+| `calendar.detect_conflicts(start: 'str', end: 'str') -> 'list[dict[str, str]]'` | `idempotent` | list[dict]: [{event_id, summary, start_time, end_time}] of conflictin… | PrimitiveError on auth/API failure. |
 | `calendar.list_upcoming(days: 'int' = 7) -> 'list[dict[str, str]]'` | `idempotent` | list[dict]: [{event_id, summary, start_time, end_time, location, atte… | PrimitiveError on auth/API failure - DISTINCT from 'no upcoming events', which retur… |
 | `calendar.update_event(event_id: 'str', summary: 'str | None' = None, start: 'str | None' = None, end: 'str | None' = None) -> 'dict[str, str]'` | `commutative-safe` | dict: {event_id, summary, start_time, end_time, status}. | PreconditionError for empty event_id; PrimitiveError on API failure. |
 

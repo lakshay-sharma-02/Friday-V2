@@ -67,9 +67,16 @@ def cmd_run(args: argparse.Namespace) -> int:
 
         for sr in result.steps:
             icon = {"VERIFIED": "✅", "FAILED": "❌", "RETRY_EXHAUSTED": "🚫", "ABORTED": "⛔"}.get(sr.status, "❓")
-            print(f"  Step {sr.step_id}: {icon} {sr.status} ({sr.primitive}, {sr.attempts} attempts)")
+            retries = len(sr.retry_history) if sr.retry_history else 0
+            retry_str = f", {retries} retries" if retries else ""
+            print(f"  Step {sr.step_id}: {icon} {sr.status} ({sr.primitive}, {sr.attempts} attempts{retry_str})")
             if sr.error:
                 print(f"    Error: {sr.error}")
+            if sr.retry_history:
+                for rh in sr.retry_history:
+                    ts = rh.get("timestamp", "?")[:19]
+                    err = rh.get("error", "?")[:60]
+                    print(f"    Retry @{ts}: {err}")
 
         # Record success in memory for future reference.
         # Best-effort: a memory failure must never break the CLI.
@@ -363,6 +370,66 @@ def cmd_gaps(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_analytics(args: argparse.Namespace) -> int:
+    """Show goal analytics: success rates, popular primitives, failure patterns."""
+    _ensure_project_root()
+    from friday.log_query import summarize_by_primitive, summarize_by_run, get_recent_goals
+
+    hours = args.hours
+    print(f"\n📊 Goal Analytics (last {hours}h)\n")
+
+    # Recent goals
+    goals = get_recent_goals(hours=hours)
+    print(f"  Goals attempted: {len(goals)}")
+    if goals:
+        for g in goals[:5]:
+            ts = g.get("timestamp", "?")[:19]
+            goal_text = g.get("goal", "?")[:60]
+            print(f"    {ts} {goal_text}")
+        if len(goals) > 5:
+            print(f"    ... and {len(goals) - 5} more")
+    print()
+
+    # Run summary
+    runs = summarize_by_run(hours=hours)
+    if runs:
+        completed = sum(1 for r in runs.values() if r.get("status") == "COMPLETED")
+        aborted = sum(1 for r in runs.values() if r.get("status") == "ABORTED")
+        total_ms = sum(r.get("duration_ms", 0) for r in runs.values())
+        print(f"  Runs: {len(runs)} total ({completed} completed, {aborted} aborted)")
+        print(f"  Total duration: {total_ms / 1000:.1f}s")
+        print()
+
+    # Primitive usage
+    prim_summary = summarize_by_primitive(hours=hours)
+    if prim_summary:
+        print(f"  Primitives called: {len(prim_summary)}")
+        # Top 5 by count
+        sorted_prims = sorted(prim_summary.items(), key=lambda x: x[1].get("count", 0), reverse=True)
+        print("  Top primitives:")
+        for name, info in sorted_prims[:10]:
+            count = info.get("count", 0)
+            errors = info.get("errors", 0)
+            avg_ms = info.get("avg_duration_ms", 0)
+            err_str = f" ({errors} errors)" if errors else ""
+            print(f"    {name:30s} {count:4d} calls{err_str}  avg {avg_ms:.0f}ms")
+        print()
+
+    # Failure patterns
+    error_prims = [(n, i) for n, i in prim_summary.items() if i.get("errors", 0) > 0]
+    if error_prims:
+        print(f"  Failure patterns ({len(error_prims)} primitives with errors):")
+        for name, info in sorted(error_prims, key=lambda x: x[1]["errors"], reverse=True)[:5]:
+            print(f"    {name}: {info['errors']} errors / {info['count']} calls")
+        print()
+
+    if not goals and not runs and not prim_summary:
+        print("  No data in the last {}h. Run some goals first!".format(hours))
+        print()
+
+    return 0
+
+
 def cmd_version(args: argparse.Namespace) -> int:
     """Show version info."""
     from friday import __version__
@@ -418,6 +485,10 @@ def main(argv: list[str] | None = None) -> int:
     # gaps
     sub.add_parser("gaps", help="Show capability gap status")
 
+    # analytics
+    p_analytics = sub.add_parser("analytics", help="Show goal analytics")
+    p_analytics.add_argument("--hours", type=int, default=24, help="Lookback period in hours")
+
     # version
     sub.add_parser("version", help="Show version")
 
@@ -438,6 +509,7 @@ def main(argv: list[str] | None = None) -> int:
         "memory": cmd_memory,
         "lessons": cmd_lessons,
         "gaps": cmd_gaps,
+        "analytics": cmd_analytics,
         "version": cmd_version,
     }
     return cmds[args.command](args)
@@ -473,11 +545,12 @@ def _run_repl() -> int:
   primitives               - List registered primitives
   logs                     - Recent log entries
   memory search <query>    - Search memories
-  memory summary           - Memory store summary
-  lessons                  - Show lessons status
+  memory summary           - Memory store summary  lessons                  - Show lessons status
   gaps                     - Show capability gaps
+  analytics                - Goal analytics (success rates, popular primitives)
   help                     - This help
-  quit / exit              - Exit\n""")
+  quit / exit              - Exit\n"""
+            )
             continue
 
         if goal == "status":
@@ -512,6 +585,10 @@ def _run_repl() -> int:
 
         if goal == "gaps":
             cmd_gaps(argparse.Namespace())
+            continue
+
+        if goal == "analytics":
+            cmd_analytics(argparse.Namespace(hours=24))
             continue
 
         # Default: treat as a goal

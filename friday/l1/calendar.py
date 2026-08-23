@@ -355,3 +355,63 @@ def update_event(
         "end_time": result.get("end", {}).get("dateTime", ""),
         "status": result.get("status", ""),
     }
+
+
+@contract(
+    precondition="start and end are RFC 3339 datetime strings; calendar OAuth is configured.",
+    postcondition="Returns a list of conflicting events (overlapping with the proposed time slot). Empty list = no conflicts.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PrimitiveError on auth/API failure.",
+    returns="list[dict]: [{event_id, summary, start_time, end_time}] of conflicting events.",
+)
+def detect_conflicts(start: str, end: str) -> list[dict[str, str]]:
+    """Detect calendar conflicts for a proposed time slot.
+
+    Checks if the proposed start/end overlaps with any existing event.
+    Returns a list of conflicting events (empty = no conflicts).
+
+    Args:
+        start: Proposed start time (RFC 3339, e.g. '2026-08-25T10:00:00').
+        end: Proposed end time (RFC 3339, e.g. '2026-08-25T11:00:00').
+    """
+    if not start or not start.strip():
+        raise PreconditionError("detect_conflicts requires a non-empty start")
+    if not end or not end.strip():
+        raise PreconditionError("detect_conflicts requires a non-empty end")
+
+    # Parse the proposed time slot
+    try:
+        prop_start = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        prop_end = datetime.fromisoformat(end.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise PreconditionError(f"start/end must be RFC 3339: {exc}") from exc
+
+    if prop_end <= prop_start:
+        raise PreconditionError("end must be after start")
+
+    # Get events for the day(s) the proposed slot spans
+    days_span = max(1, (prop_end - prop_start).days + 1)
+    events = list_upcoming(days=days_span)
+
+    conflicts: list[dict[str, str]] = []
+    for ev in events:
+        ev_start_str = ev.get("start_time", "")
+        ev_end_str = ev.get("end_time", "")
+        if not ev_start_str or not ev_end_str:
+            continue
+        try:
+            ev_start = datetime.fromisoformat(ev_start_str.replace("Z", "+00:00"))
+            ev_end = datetime.fromisoformat(ev_end_str.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+
+        # Overlap: prop_start < ev_end AND prop_end > ev_start
+        if prop_start < ev_end and prop_end > ev_start:
+            conflicts.append({
+                "event_id": ev.get("event_id", ""),
+                "summary": ev.get("summary", ""),
+                "start_time": ev_start_str,
+                "end_time": ev_end_str,
+            })
+
+    return conflicts

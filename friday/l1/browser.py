@@ -392,6 +392,40 @@ def login(service: str, username_sel: str, password_sel: str, submit_sel: str) -
 
 
 @contract(
+    precondition="A browser page is open (call goto() first).",
+    postcondition="Returns the path to the saved screenshot PNG. Read-only - does not interact with the page.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PrimitiveError if no page is open or screenshot fails.",
+    returns="str: absolute path to the saved screenshot.",
+)
+def screenshot(output_path: str | None = None) -> str:
+    """Take a screenshot of the current browser page.
+
+    Uses Playwright's page.screenshot() for a clean, full-page capture.
+    Returns the path to the saved PNG file.
+
+    Args:
+        output_path: Optional path to save the screenshot. If None,
+                     a temp file is created.
+    """
+    _ensure_page()
+    if _page is None:
+        raise PrimitiveError("no browser page open - call goto() first", state="screenshot failed")
+
+    import tempfile
+    if output_path is None:
+        fd, output_path = tempfile.mkstemp(suffix=".png", prefix="friday_browser_")
+        os.close(fd)
+
+    try:
+        _page.screenshot(path=output_path, full_page=False)
+    except PlaywrightError as exc:
+        raise PrimitiveError(f"browser screenshot failed: {exc}", state="screenshot failed") from exc
+
+    return output_path
+
+
+@contract(
     precondition="None.",
     postcondition="Browser context closed and playwright stopped; the persistent profile is "
     "preserved for the next run.",

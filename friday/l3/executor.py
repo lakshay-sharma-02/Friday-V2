@@ -85,6 +85,8 @@ class StepResult:
     verify_actual: Any = None
     error: str | None = None
     result: Any = None  # the primitive's return value (None when ABORTED)
+    retry_history: list[dict[str, Any]] = field(default_factory=list)
+    # Each entry: {"attempt": int, "error": str, "backoff_s": float, "timestamp": str}
 
 
 @dataclass
@@ -463,6 +465,7 @@ def run_plan(plan: dict[str, Any], *, run_id: str | None = None) -> PlanResult:
         step_status = "FAILED"
         verify_actual: Any = None
         error: str | None = None
+        retry_history: list[dict[str, Any]] = []  # track each retry attempt
         # The primitive's return value. Bound on a successful attempt; stays
         # None when every attempt raised yet a non-self-referencing verify
         # still passed (e.g. window.open_app raising because the app was
@@ -532,6 +535,13 @@ def run_plan(plan: dict[str, Any], *, run_id: str | None = None) -> PlanResult:
             if attempts >= max_attempts:
                 break
             # bounded backoff before the retry
+            from datetime import UTC, datetime
+            retry_history.append({
+                "attempt": attempts,
+                "error": error or f"verify failed: {verify_actual}",
+                "backoff_s": step.backoff_s,
+                "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
+            })
             _step_emit(
                 step_id,
                 layer="L3",
@@ -580,6 +590,7 @@ def run_plan(plan: dict[str, Any], *, run_id: str | None = None) -> PlanResult:
                     attempts=attempts,
                     verify_actual=verify_actual,
                     error=msg,
+                    retry_history=retry_history,
                 )
             )
             raise FridayError(f"plan aborted at step {step_id}: {msg}")
@@ -593,6 +604,7 @@ def run_plan(plan: dict[str, Any], *, run_id: str | None = None) -> PlanResult:
                 verify_actual=verify_actual,
                 error=error,
                 result=return_value,
+                retry_history=retry_history,
             )
         )
 
