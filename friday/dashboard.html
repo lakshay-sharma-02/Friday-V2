@@ -13,422 +13,242 @@
   --text:#e8e8f0;--text2:#9090a8;--text3:#606078;
   --accent:#6366f1;--accent2:#818cf8;--accent3:#4f46e5;
   --green:#22c55e;--red:#ef4444;--yellow:#eab308;--blue:#3b82f6;
-  --border:#2a2a3a;--glow:rgba(99,102,241,0.15);
-  --radius:12px;--radius-sm:8px;
+  --border:#2a2a3a;--radius:12px;--radius-sm:8px;
 }
 html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
 body{display:flex;flex-direction:column}
-
-/* Header */
-.header{background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-.header h1{font-size:18px;font-weight:600;display:flex;align-items:center;gap:8px}
+.header{background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
+.header h1{font-size:16px;font-weight:600;display:flex;align-items:center;gap:8px}
 .header h1 span{color:var(--accent)}
-.status-dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-.header-right{display:flex;gap:12px;align-items:center}
-.header-right .pill{font-size:11px;padding:4px 10px;border-radius:20px;background:var(--bg3);color:var(--text2);border:1px solid var(--border)}
-.header-right .pill.accent{background:var(--accent3);color:#fff;border-color:var(--accent)}
-
-/* Main */
-.main{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:16px;-webkit-overflow-scrolling:touch}
-
-/* Cards */
+.hdr-stats{display:flex;gap:8px}
+.pill{font-size:10px;padding:3px 8px;border-radius:12px;background:var(--bg3);color:var(--text2)}
+.main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.view{display:none;padding:16px}
+.view.active{display:flex;flex-direction:column;gap:12px}
 .card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
-.card-header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
-.card-header h2{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text2)}
-.card-body{padding:16px}
-
-/* Stats Grid */
-.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-.stat{background:var(--bg3);border-radius:var(--radius-sm);padding:14px;text-align:center}
-.stat .value{font-size:28px;font-weight:700;color:var(--accent2);line-height:1}
-.stat .label{font-size:11px;color:var(--text3);margin-top:4px;text-transform:uppercase;letter-spacing:.5px}
-
-/* Goal Input */
-.goal-input-wrap{display:flex;gap:8px;padding:16px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius)}
-.goal-input{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 16px;color:var(--text);font-size:15px;outline:none;transition:border-color .2s}
+.card-h{padding:10px 14px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;display:flex;justify-content:space-between;align-items:center}
+.card-b{padding:12px 14px}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.stat{background:var(--bg3);border-radius:var(--radius-sm);padding:12px;text-align:center}
+.stat .v{font-size:24px;font-weight:700;color:var(--accent2)}
+.stat .l{font-size:10px;color:var(--text3);margin-top:2px;text-transform:uppercase}
+.goal-row{display:flex;gap:8px}
+.goal-input{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;color:var(--text);font-size:14px;outline:none}
 .goal-input:focus{border-color:var(--accent)}
 .goal-input::placeholder{color:var(--text3)}
-.goal-btn{background:var(--accent);border:none;border-radius:var(--radius-sm);padding:12px 20px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;white-space:nowrap}
-.goal-btn:hover{background:var(--accent2)}
+.goal-btn{background:var(--accent);border:none;border-radius:var(--radius-sm);padding:12px 16px;color:#fff;font-weight:600;cursor:pointer;font-size:14px}
 .goal-btn:active{transform:scale(.97)}
-.goal-btn:disabled{opacity:.5;cursor:not-allowed}
-
-/* Goal History */
-.goal-history{display:flex;flex-direction:column;gap:8px}
-.goal-item{background:var(--bg3);border-radius:var(--radius-sm);padding:12px;cursor:pointer;transition:background .15s}
-.goal-item:hover{background:var(--bg4)}
-.goal-item .goal-text{font-size:13px;color:var(--text);margin-bottom:4px}
-.goal-item .goal-meta{font-size:11px;color:var(--text3);display:flex;gap:8px;align-items:center}
-.goal-item .status-badge{font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600}
-.status-badge.running{background:rgba(234,179,8,.15);color:var(--yellow)}
-.status-badge.completed{background:rgba(34,197,94,.15);color:var(--green)}
-.status-badge.error{background:rgba(239,68,68,.15);color:var(--red)}
-.status-badge.pending{background:rgba(99,102,241,.15);color:var(--accent2)}
-
-/* Triggers */
-.trigger-list{display:flex;flex-direction:column;gap:6px}
-.trigger-item{display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--bg3);border-radius:var(--radius-sm)}
-.trigger-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
-.trigger-dot.on{background:var(--green)}
-.trigger-dot.off{background:var(--text3)}
-.trigger-info{flex:1;min-width:0}
-.trigger-info .name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.trigger-info .sched{font-size:11px;color:var(--text3)}
-
-/* Memory */
-.memory-search{display:flex;gap:8px;margin-bottom:12px}
-.memory-search input{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;color:var(--text);font-size:13px;outline:none}
-.memory-search input:focus{border-color:var(--accent)}
-.memory-search button{background:var(--accent);border:none;border-radius:var(--radius-sm);padding:8px 14px;color:#fff;font-size:13px;cursor:pointer}
-.memory-item{background:var(--bg3);border-radius:var(--radius-sm);padding:10px;margin-bottom:6px}
-.memory-item .mem-key{font-size:12px;font-weight:600;color:var(--accent2);margin-bottom:2px}
-.memory-item .mem-val{font-size:12px;color:var(--text2)}
-.memory-item .mem-cat{font-size:10px;color:var(--text3);margin-top:4px}
-
-/* Logs */
-.log-list{display:flex;flex-direction:column;gap:4px;max-height:300px;overflow-y:auto}
-.log-item{display:flex;gap:8px;padding:6px 10px;background:var(--bg3);border-radius:6px;font-size:12px;font-family:'SF Mono',Monaco,Consolas,monospace}
-.log-item .ts{color:var(--text3);flex-shrink:0}
-.log-item .prim{color:var(--accent2);flex-shrink:0;min-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.log-item .res{color:var(--text2);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.log-item .err{color:var(--red)}
-
-/* Quick Actions */
-.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.action-btn{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 10px;text-align:center;cursor:pointer;transition:all .15s}
-.action-btn:hover{background:var(--bg4);border-color:var(--accent)}
-.action-btn:active{transform:scale(.97)}
-.action-btn .icon{font-size:22px;margin-bottom:4px}
-.action-btn .txt{font-size:11px;color:var(--text2)}
-
-/* Empty state */
-.empty{text-align:center;padding:24px;color:var(--text3);font-size:13px}
-
-/* Scrollbar */
-::-webkit-scrollbar{width:4px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
-
-/* Tab bar */
-.tabs{display:flex;gap:2px;padding:0 16px;background:var(--bg2);border-top:1px solid var(--border);flex-shrink:0}
-.tab{flex:1;padding:10px 0;text-align:center;font-size:11px;font-weight:500;color:var(--text3);cursor:pointer;transition:color .2s;border-bottom:2px solid transparent}
+.goal-btn:disabled{opacity:.5}
+.qactions{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.qbtn{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 8px;text-align:center;cursor:pointer;font-size:12px}
+.qbtn:active{background:var(--bg4)}
+.qbtn .ico{font-size:18px;display:block;margin-bottom:2px}
+.goal-list{display:flex;flex-direction:column;gap:6px}
+.goal-item{background:var(--bg3);border-radius:var(--radius-sm);padding:10px 12px}
+.goal-g{font-size:13px;margin-bottom:4px}
+.goal-m{display:flex;gap:8px;font-size:11px;color:var(--text3);align-items:center}
+.badge{font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600}
+.badge.running{background:rgba(234,179,8,.15);color:var(--yellow)}
+.badge.completed{background:rgba(34,197,94,.15);color:var(--green)}
+.badge.error{background:rgba(239,68,68,.15);color:var(--red)}
+.badge.pending{background:rgba(99,102,241,.15);color:var(--accent2)}
+.badge.planning{background:rgba(59,130,246,.15);color:var(--blue)}
+.badge.executing{background:rgba(234,179,8,.15);color:var(--yellow)}
+.steps{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.step{display:flex;gap:6px;font-size:11px;font-family:monospace;padding:4px 8px;background:var(--bg4);border-radius:4px}
+.step .s-prim{color:var(--accent2);min-width:100px}
+.step .s-stat{flex:1}
+.step .s-err{color:var(--red);font-size:10px}
+.trig{display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:var(--radius-sm);margin-bottom:4px}
+.trig-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.trig-dot.on{background:var(--green)}.trig-dot.off{background:var(--text3)}
+.trig-n{font-size:12px;flex:1}.trig-s{font-size:10px;color:var(--text3)}
+.mem-row{display:flex;gap:6px;margin-bottom:8px}
+.mem-input{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;color:var(--text);font-size:12px;outline:none}
+.mem-input:focus{border-color:var(--accent)}
+.mem-btn{background:var(--accent);border:none;border-radius:var(--radius-sm);padding:8px 12px;color:#fff;font-size:12px;cursor:pointer}
+.mem-item{background:var(--bg3);border-radius:var(--radius-sm);padding:8px;margin-bottom:4px}
+.mem-k{font-size:11px;font-weight:600;color:var(--accent2)}
+.mem-v{font-size:11px;color:var(--text2)}
+.mem-c{font-size:9px;color:var(--text3)}
+.log-item{display:flex;gap:6px;padding:5px 8px;background:var(--bg3);border-radius:4px;font-size:11px;font-family:monospace;margin-bottom:3px}
+.log-t{color:var(--text3);flex-shrink:0;width:60px}
+.log-p{color:var(--accent2);min-width:100px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log-r{color:var(--text2);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log-e{color:var(--red)}
+.empty{text-align:center;padding:20px;color:var(--text3);font-size:12px}
+.tabs{display:flex;background:var(--bg2);border-top:1px solid var(--border);flex-shrink:0}
+.tab{flex:1;padding:10px 0;text-align:center;font-size:11px;font-weight:500;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent}
 .tab.active{color:var(--accent2);border-bottom-color:var(--accent)}
-.tab:active{opacity:.7}
-
-/* View containers */
-.view{display:none;flex:1;overflow-y:auto;padding:16px}
-.view.active{display:flex;flex-direction:column;gap:16px}
-
-/* Spinner */
-.spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-
-/* Toast */
-.toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:var(--bg4);color:var(--text);padding:10px 20px;border-radius:20px;font-size:13px;border:1px solid var(--border);opacity:0;transition:opacity .3s;pointer-events:none;z-index:100}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:sp .6s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:50px;left:50%;transform:translateX(-50%);background:var(--bg4);color:var(--text);padding:8px 16px;border-radius:16px;font-size:12px;border:1px solid var(--border);opacity:0;transition:opacity .3s;pointer-events:none;z-index:100}
 .toast.show{opacity:1}
+::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
 </style>
 </head>
 <body>
-
 <div class="header">
-  <h1><div class="status-dot"></div> <span>Friday</span></h1>
-  <div class="header-right">
-    <div class="pill" id="primCount">--</div>
-    <div class="pill accent" id="taskCount">--</div>
+  <h1><div class="dot"></div><span>Friday</span></h1>
+  <div class="hdr-stats">
+    <div class="pill" id="hPrims">-- prims</div>
+    <div class="pill" id="hTasks">-- tasks</div>
   </div>
 </div>
-
-<div class="main" id="mainContent">
-  <!-- Goal View -->
-  <div class="view active" id="viewGoal">
-    <div class="goal-input-wrap">
-      <input class="goal-input" id="goalInput" placeholder="What do you want to do?" autofocus>
-      <button class="goal-btn" id="goalBtn" onclick="executeGoal()">Go</button>
-    </div>
-
-    <div class="actions">
-      <div class="action-btn" onclick="quickGoal('take a screenshot and describe it')">
-        <div class="icon">📸</div>
-        <div class="txt">Screenshot</div>
-      </div>
-      <div class="action-btn" onclick="quickGoal('show me my calendar events for today')">
-        <div class="icon">📅</div>
-        <div class="txt">Calendar</div>
-      </div>
-      <div class="action-btn" onclick="quickGoal('check my unread emails and summarize the latest one')">
-        <div class="icon">📧</div>
-        <div class="txt">Email</div>
-      </div>
-      <div class="action-btn" onclick="quickGoal('pause whatever is playing')">
-        <div class="icon">⏸️</div>
-        <div class="txt">Pause</div>
-      </div>
-      <div class="action-btn" onclick="quickGoal('show me system info')">
-        <div class="icon">💻</div>
-        <div class="txt">System</div>
-      </div>
-      <div class="action-btn" onclick="quickGoal('read the clipboard content')">
-        <div class="icon">📋</div>
-        <div class="txt">Clipboard</div>
-      </div>
-    </div>
-
+<div class="main">
+  <div class="view active" id="vGoal">
     <div class="card">
-      <div class="card-header"><h2>Recent Goals</h2></div>
-      <div class="card-body">
-        <div class="goal-history" id="goalHistory">
-          <div class="empty">No goals yet. Type something above!</div>
+      <div class="card-h">Execute Goal</div>
+      <div class="card-b">
+        <div class="goal-row">
+          <input class="goal-input" id="gIn" placeholder="What do you want to do?" autofocus>
+          <button class="goal-btn" id="gBtn" onclick="runGoal()">Go</button>
         </div>
       </div>
     </div>
-  </div>
-
-  <!-- Triggers View -->
-  <div class="view" id="viewTriggers">
+    <div class="qactions">
+      <div class="qbtn" onclick="quick('take a screenshot and describe it')"><span class="ico">📸</span>Screenshot</div>
+      <div class="qbtn" onclick="quick('show me my calendar for today')"><span class="ico">📅</span>Calendar</div>
+      <div class="qbtn" onclick="quick('check my unread emails and summarize the latest one')"><span class="ico">📧</span>Email</div>
+      <div class="qbtn" onclick="quick('pause whatever is playing')"><span class="ico">⏸️</span>Pause</div>
+      <div class="qbtn" onclick="quick('show me system info')"><span class="ico">💻</span>System</div>
+      <div class="qbtn" onclick="quick('read the clipboard')"><span class="ico">📋</span>Clipboard</div>
+    </div>
     <div class="card">
-      <div class="card-header"><h2>Active Triggers</h2></div>
-      <div class="card-body">
-        <div class="trigger-list" id="triggerList"><div class="empty">Loading...</div></div>
+      <div class="card-h">Goals <span id="goalCount"></span></div>
+      <div class="card-b"><div class="goal-list" id="gList"><div class="empty">No goals yet</div></div></div>
+    </div>
+  </div>
+  <div class="view" id="vTrig">
+    <div class="card"><div class="card-h">Triggers</div><div class="card-b"><div id="tList"><div class="empty">Loading...</div></div></div></div>
+  </div>
+  <div class="view" id="vMem">
+    <div class="card">
+      <div class="card-h">Memory</div>
+      <div class="card-b">
+        <div class="mem-row"><input class="mem-input" id="mIn" placeholder="Search..." onkeydown="if(event.key==='Enter')searchMem()"><button class="mem-btn" onclick="searchMem()">Search</button></div>
+        <div id="mList"><div class="empty">Search or leave empty for summary</div></div>
       </div>
     </div>
   </div>
-
-  <!-- Memory View -->
-  <div class="view" id="viewMemory">
-    <div class="card">
-      <div class="card-header"><h2>Memory</h2></div>
-      <div class="card-body">
-        <div class="memory-search">
-          <input id="memoryInput" placeholder="Search memories..." onkeydown="if(event.key==='Enter')searchMemory()">
-          <button onclick="searchMemory()">Search</button>
-        </div>
-        <div id="memoryList"><div class="empty">Search for something or leave empty for summary</div></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Logs View -->
-  <div class="view" id="viewLogs">
-    <div class="card">
-      <div class="card-header"><h2>Recent Activity</h2></div>
-      <div class="card-body">
-        <div class="log-list" id="logList"><div class="empty">Loading...</div></div>
-      </div>
-    </div>
+  <div class="view" id="vLogs">
+    <div class="card"><div class="card-h">Activity</div><div class="card-b"><div id="lList"><div class="empty">Loading...</div></div></div></div>
   </div>
 </div>
-
 <div class="tabs">
-  <div class="tab active" data-view="viewGoal" onclick="switchTab(this)">Goals</div>
-  <div class="tab" data-view="viewTriggers" onclick="switchTab(this)">Triggers</div>
-  <div class="tab" data-view="viewMemory" onclick="switchTab(this)">Memory</div>
-  <div class="tab" data-view="viewLogs" onclick="switchTab(this)">Logs</div>
+  <div class="tab active" onclick="tab('vGoal',this)">Goals</div>
+  <div class="tab" onclick="tab('vTrig',this)">Triggers</div>
+  <div class="tab" onclick="tab('vMem',this)">Memory</div>
+  <div class="tab" onclick="tab('vLogs',this)">Logs</div>
 </div>
-
 <div class="toast" id="toast"></div>
 
 <script>
-const API = window.location.origin;
-let goals = [];
-let pollTimer = null;
+const API=location.origin;
+let goals=[];
+let pollers={};
 
-// Tab switching
-function switchTab(el) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  el.classList.add('active');
-  document.getElementById(el.dataset.view).classList.add('active');
-  if (el.dataset.view === 'viewTriggers') loadTriggers();
-  if (el.dataset.view === 'viewMemory') searchMemory();
-  if (el.dataset.view === 'viewLogs') loadLogs();
+function tab(id,el){document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));el.classList.add('active');document.getElementById(id).classList.add('active');if(id==='vTrig')loadTrigs();if(id==='vMem')searchMem();if(id==='vLogs')loadLogs()}
+function toast(m,d=2500){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),d)}
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+async function api(p,o={}){try{const r=await fetch(API+p,o);return await r.json()}catch(e){return null}}
+
+// Run goal
+async function runGoal(){
+  const inp=document.getElementById('gIn');
+  const goal=inp.value.trim();
+  if(!goal)return;
+  const btn=document.getElementById('gBtn');
+  btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
+  inp.value='';
+  const d=await api('/goal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({goal})});
+  btn.disabled=false;btn.textContent='Go';
+  if(d&&d.run_id){
+    goals.unshift({run_id:d.run_id,goal,status:'pending',created_at:new Date().toISOString(),steps:[]});
+    renderGoals();toast('Running...');
+    pollGoal(d.run_id);
+  }else{toast('Failed to submit goal')}
 }
+function quick(g){document.getElementById('gIn').value=g;runGoal()}
 
-// Toast
-function toast(msg, dur=2500) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), dur);
-}
-
-// API helper
-async function api(path, opts={}) {
-  try {
-    const r = await fetch(API + path, opts);
-    return await r.json();
-  } catch(e) {
-    toast('Connection error');
-    return null;
-  }
-}
-
-// Execute goal
-async function executeGoal() {
-  const input = document.getElementById('goalInput');
-  const goal = input.value.trim();
-  if (!goal) return;
-
-  const btn = document.getElementById('goalBtn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>';
-  input.value = '';
-
-  const data = await api('/goal', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({goal})
-  });
-
-  btn.disabled = false;
-  btn.textContent = 'Go';
-
-  if (data && data.run_id) {
-    goals.unshift({
-      goal,
-      run_id: data.run_id,
-      status: 'running',
-      time: new Date().toLocaleTimeString(),
-      steps: null
-    });
-    renderGoals();
-    toast('Goal accepted! Running...');
-    pollResult(data.run_id);
-  }
-}
-
-function quickGoal(goal) {
-  document.getElementById('goalInput').value = goal;
-  executeGoal();
-}
-
-// Poll for result
-async function pollResult(runId) {
-  // We poll the logs endpoint for the run_id
-  const check = async () => {
-    const data = await api('/logs?n=50');
-    if (!data || !data.logs) { setTimeout(check, 3000); return; }
-
-    const runLogs = data.logs.filter(l => l.primitive === 'plan' && l.result === 'COMPLETED');
-    const goal = goals.find(g => g.run_id === runId);
-    if (!goal) return;
-
-    // Check if our run completed
-    if (runLogs.length > 0) {
-      goal.status = 'completed';
-      renderGoals();
-      toast('Goal completed!');
-      return;
+// Poll for goal result
+function pollGoal(id){
+  if(pollers[id])return;
+  pollers[id]=setInterval(async()=>{
+    const d=await api('/goal/'+id);
+    if(!d)return;
+    const g=goals.find(x=>x.run_id===id);
+    if(g){Object.assign(g,d);renderGoals()}
+    if(d.status==='completed'||d.status==='error'||d.status==='ABORTED'||d.status==='ERROR'){
+      clearInterval(pollers[id]);delete pollers[id];
+      toast(d.status==='completed'?'Done!':'Failed');
     }
-
-    // Check for errors
-    const errors = data.logs.filter(l => l.primitive === 'plan' && (l.result === 'ABORT' || l.error));
-    if (errors.length > 0) {
-      goal.status = 'error';
-      renderGoals();
-      toast('Goal failed');
-      return;
-    }
-
-    setTimeout(check, 3000);
-  };
-  setTimeout(check, 3000);
+  },2000);
 }
 
 // Render goals
-function renderGoals() {
-  const el = document.getElementById('goalHistory');
-  if (goals.length === 0) {
-    el.innerHTML = '<div class="empty">No goals yet. Type something above!</div>';
-    return;
-  }
-  el.innerHTML = goals.map(g => `
-    <div class="goal-item">
-      <div class="goal-text">${esc(g.goal)}</div>
-      <div class="goal-meta">
-        <span class="status-badge ${g.status}">${g.status}</span>
-        <span>${g.time}</span>
-      </div>
-    </div>
-  `).join('');
+function renderGoals(){
+  const el=document.getElementById('gList');
+  const c=document.getElementById('goalCount');
+  c.textContent=goals.length?`(${goals.length})`:'';
+  if(!goals.length){el.innerHTML='<div class="empty">No goals yet</div>';return}
+  el.innerHTML=goals.map(g=>{
+    const st=g.status||'pending';
+    const stepsHtml=(g.steps&&g.steps.length)?`<div class="steps">${g.steps.map(s=>`<div class="step"><span class="s-prim">${esc(s.primitive||'')}</span><span class="s-stat">${s.status||''}${s.retries?' ('+s.retries+' retries)':''}</span>${s.error?`<span class="s-err">${esc(s.error.slice(0,80))}</span>`:''}</div>`).join('')}</div>`:'';
+    const dur=g.duration_s?` · ${g.duration_s}s`:'';
+    return `<div class="goal-item"><div class="goal-g">${esc(g.goal)}</div><div class="goal-m"><span class="badge ${st}">${st}</span><span>${dur}</span></div>${stepsHtml}</div>`;
+  }).join('');
 }
 
-// Load status
-async function loadStatus() {
-  const data = await api('/status');
-  if (!data) return;
-  document.getElementById('primCount').textContent = data.primitives?.total || '--';
-  document.getElementById('taskCount').textContent = (data.tasks?.passing || 0) + ' tasks';
+// Load goals on start
+async function loadGoals(){
+  const d=await api('/goals');
+  if(d&&d.goals){goals=d.goals;renderGoals();goals.filter(g=>g.status==='running'||g.status==='pending'||g.status==='planning'||g.status==='executing').forEach(g=>pollGoal(g.run_id))}
 }
 
-// Load triggers
-async function loadTriggers() {
-  const data = await api('/triggers');
-  const el = document.getElementById('triggerList');
-  if (!data || !data.triggers) { el.innerHTML = '<div class="empty">Failed to load</div>'; return; }
-  if (data.triggers.length === 0) { el.innerHTML = '<div class="empty">No triggers configured</div>'; return; }
-  el.innerHTML = data.triggers.map(t => `
-    <div class="trigger-item">
-      <div class="trigger-dot ${t.enabled ? 'on' : 'off'}"></div>
-      <div class="trigger-info">
-        <div class="name">${esc(t.id)}</div>
-        <div class="sched">${esc(t.schedule)}</div>
-      </div>
-    </div>
-  `).join('');
+// Status
+async function loadStatus(){
+  const d=await api('/status');
+  if(!d)return;
+  document.getElementById('hPrims').textContent=(d.primitives?.total||0)+' prims';
+  document.getElementById('hTasks').textContent=(d.tasks?.passing||0)+' tasks';
 }
 
-// Search memory
-async function searchMemory() {
-  const q = document.getElementById('memoryInput').value.trim();
-  const el = document.getElementById('memoryList');
-  const data = await api('/memory' + (q ? '?q=' + encodeURIComponent(q) : ''));
-  if (!data) { el.innerHTML = '<div class="empty">Failed to load</div>'; return; }
-
-  if (q && data.results) {
-    if (data.results.length === 0) { el.innerHTML = '<div class="empty">No results found</div>'; return; }
-    el.innerHTML = data.results.map(r => `
-      <div class="memory-item">
-        <div class="mem-key">${esc(r.key)}</div>
-        <div class="mem-val">${esc(r.value)}</div>
-        <div class="mem-cat">${esc(r.category)} · relevance ${(r.relevance*100).toFixed(0)}%</div>
-      </div>
-    `).join('');
-  } else if (data.total !== undefined) {
-    el.innerHTML = `
-      <div class="empty">${data.total} memories stored</div>
-      ${Object.entries(data.categories||{}).map(([k,v]) => `<div class="memory-item"><div class="mem-key">${k}</div><div class="mem-val">${v} entries</div></div>`).join('')}
-    `;
-  } else {
-    el.innerHTML = '<div class="empty">Search for something</div>';
-  }
+// Triggers
+async function loadTrigs(){
+  const d=await api('/trigs');
+  if(!d)d=await api('/triggers');
+  const el=document.getElementById('tList');
+  if(!d||!d.triggers){el.innerHTML='<div class="empty">Failed</div>';return}
+  el.innerHTML=d.triggers.map(t=>`<div class="trig"><div class="trig-dot ${t.enabled?'on':'off'}"></div><div class="trig-n">${esc(t.id)}</div><div class="trig-s">${esc(t.schedule)}</div></div>`).join('');
 }
 
-// Load logs
-async function loadLogs() {
-  const data = await api('/logs?n=30');
-  const el = document.getElementById('logList');
-  if (!data || !data.logs) { el.innerHTML = '<div class="empty">No logs</div>'; return; }
-  if (data.logs.length === 0) { el.innerHTML = '<div class="empty">No recent activity</div>'; return; }
-  el.innerHTML = data.logs.reverse().map(l => `
-    <div class="log-item">
-      <span class="ts">${l.timestamp?.slice(11,19) || ''}</span>
-      <span class="prim">${esc(l.primitive || '')}</span>
-      <span class="${l.error ? 'err' : 'res'}">${esc(l.error || l.result || '')}</span>
-    </div>
-  `).join('');
+// Memory
+async function searchMem(){
+  const q=document.getElementById('mIn').value.trim();
+  const el=document.getElementById('mList');
+  const d=await api('/memory'+(q?'?q='+encodeURIComponent(q):''));
+  if(!d){el.innerHTML='<div class="empty">Failed</div>';return}
+  if(q&&d.results){
+    if(!d.results.length){el.innerHTML='<div class="empty">No results</div>';return}
+    el.innerHTML=d.results.map(r=>`<div class="mem-item"><div class="mem-k">${esc(r.key)}</div><div class="mem-v">${esc(r.value)}</div><div class="mem-c">${r.category} · ${Math.round(r.relevance*100)}%</div></div>`).join('');
+  }else if(d.total!==undefined){
+    el.innerHTML=`<div class="empty">${d.total} memories</div>`+Object.entries(d.categories||{}).map(([k,v])=>`<div class="mem-item"><div class="mem-k">${k}</div><div class="mem-v">${v} entries</div></div>`).join('');
+  }else{el.innerHTML='<div class="empty">Type to search</div>'}
 }
 
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+// Logs
+async function loadLogs(){
+  const d=await api('/logs?n=40');
+  const el=document.getElementById('lList');
+  if(!d||!d.logs){el.innerHTML='<div class="empty">No logs</div>';return}
+  el.innerHTML=d.logs.reverse().map(l=>`<div class="log-item"><span class="log-t">${(l.timestamp||'').slice(11,19)}</span><span class="log-p">${esc(l.primitive||'')}</span><span class="${l.error?'log-e':'log-r'}">${esc(l.error||l.result||'')}</span></div>`).join('');
+}
 
-// Enter key to submit goal
-document.getElementById('goalInput').addEventListener('keydown', e => {
-  if (e.key === 'Enter') executeGoal();
-});
-
-// Init
-loadStatus();
-setInterval(loadStatus, 30000);
+document.getElementById('gIn').addEventListener('keydown',e=>{if(e.key==='Enter')runGoal()});
+loadGoals();loadStatus();setInterval(loadStatus,30000);setInterval(loadGoals,10000);
 </script>
 </body>
 </html>
