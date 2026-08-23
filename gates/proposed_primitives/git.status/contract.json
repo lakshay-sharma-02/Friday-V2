@@ -1,0 +1,8 @@
+{
+  "name": "git.status",
+  "precondition": "repo_path is an existing directory containing a git repository.",
+  "postcondition": "Returns the git status of the repository as a dict. Makes NO state changes - this is a read-only query.",
+  "idempotency": "idempotent",
+  "failure_mode": "PreconditionError for a missing/non-directory repo_path; PrimitiveError if git itself fails or the path is not a git repository.",
+  "returns": "dict: {branch: str, staged: list[str], conflicts: list[str], uncommitted: list[str], is_clean: bool} - branch name is 'HEAD' when detached; staged lists paths with staged changes; conflicts lists merge conflicts; uncommitted lists modified/untracked files; is_clean is true when staged, conflicts, and uncommitted are all empty."
+}

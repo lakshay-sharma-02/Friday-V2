@@ -1,0 +1,58 @@
+{
+  "triggers": [
+    {
+      "id": "daily-terminal-capture",
+      "schedule": {
+        "type": "time",
+        "at": "23:00",
+        "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+      },
+      "goal": "Send my terminal session scrollback to WhatsApp as a summary of today's work",
+      "plan": {
+        "goal": "Send my terminal session scrollback to WhatsApp as a summary of today's work",
+        "steps": [
+          {
+            "primitive": "terminal.get_scrollback",
+            "args": {},
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {
+                "text": "$steps.1.result.text"
+              },
+              "expect": true
+            }
+          },
+          {
+            "primitive": "files.write_text",
+            "args": {
+              "path": "/tmp/todays_terminal_log.txt",
+              "text": "$steps.1.result.text"
+            },
+            "verify": {
+              "check": "checks.file_exists",
+              "args": {
+                "path": "$steps.2.result"
+              },
+              "expect": true
+            }
+          },
+          {
+            "primitive": "whatsapp.send_document",
+            "args": {
+              "file_path": "$steps.2.result"
+            },
+            "verify": {
+              "check": "checks.message_sent",
+              "args": {
+                "platform": "whatsapp",
+                "message_id": "$steps.3.result.message_id"
+              },
+              "expect": true
+            }
+          }
+        ]
+      },
+      "notifications": false
+    }
+  ]
+}

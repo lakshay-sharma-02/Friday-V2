@@ -31,6 +31,7 @@ class TestContract(unittest.TestCase):
 
 
 class TestFullCapture(unittest.TestCase):
+    @mock.patch("friday.l1.screenshot._IS_WINDOWS", False)
     @mock.patch("friday.l1.screenshot.subprocess.run")
     def test_full_uses_literal_grim_argv(self, mock_run):
         mock_run.return_value = mock.Mock(returncode=0, stdout=b"", stderr=b"")
@@ -41,17 +42,20 @@ class TestFullCapture(unittest.TestCase):
             ["grim", out_path], capture_output=True, timeout=shot.DEFAULT_TIMEOUT
         )
 
+    @mock.patch("friday.l1.screenshot._IS_WINDOWS", False)
     @mock.patch("friday.l1.screenshot.subprocess.run")
     def test_default_path_when_omitted(self, mock_run):
         mock_run.return_value = mock.Mock(returncode=0, stdout=b"", stderr=b"")
         self.assertEqual(shot.capture(), shot.DEFAULT_OUTPUT)
 
+    @mock.patch("friday.l1.screenshot._IS_WINDOWS", False)
     @mock.patch("friday.l1.screenshot.subprocess.run")
     def test_grim_failure_raises(self, mock_run):
         mock_run.return_value = mock.Mock(returncode=1, stdout=b"", stderr=b"no display")
         with self.assertRaises(PrimitiveError):
             shot.capture(output_path=_out())
 
+    @mock.patch("friday.l1.screenshot._IS_WINDOWS", False)
     @mock.patch("friday.l1.screenshot.subprocess.run")
     def test_grim_timeout_raises_primitive_timeout(self, mock_run):
         mock_run.side_effect = TimeoutError("grim hung")
@@ -80,6 +84,7 @@ class TestWindowCapture(unittest.TestCase):
             "address": address,
         }
 
+    @mock.patch("friday.l1.screenshot._IS_WINDOWS", False)
     @mock.patch("friday.l1.screenshot.subprocess.run")
     @mock.patch("friday.l1.screenshot._window_geometry", return_value="1,39 1364x728")
     def test_selector_passes_geometry(self, mock_geom, mock_run):
@@ -93,6 +98,7 @@ class TestWindowCapture(unittest.TestCase):
         )
         self.assertEqual(out, out_path)
 
+    @mock.patch("friday.l1.screenshot._IS_WINDOWS", False)
     @mock.patch("friday.l1.window.get_active_window")
     @mock.patch("friday.l1.screenshot.subprocess.run")
     def test_active_window_phrasing_maps_to_active(self, mock_run, mock_active):
@@ -110,16 +116,16 @@ class TestWindowCapture(unittest.TestCase):
         )
         self.assertEqual(out, out_path)
 
-    @mock.patch("friday.l1.window.get_active_window", return_value=None)
-    def test_no_active_window_raises_precondition(self, mock_active):
-        with self.assertRaises(PreconditionError):
-            shot.capture(target="active", output_path=_out("a.png"))
+    def test_no_active_window_raises_precondition(self):
+        with mock.patch("friday.l1.window.get_active_window", return_value=None):
+            with self.assertRaises(PreconditionError):
+                shot.capture(target="active", output_path=_out("a.png"))
 
-    @mock.patch("friday.l1.window.list_clients")
-    def test_missing_selector_raises_precondition(self, mock_clients):
-        mock_clients.return_value = [self._client("kitty", "term", [0, 0], [800, 600])]
-        with self.assertRaises(PreconditionError):
-            shot.capture(target="firefox", output_path=_out("x.png"))
+    def test_missing_selector_raises_precondition(self):
+        with mock.patch("friday.l1.window.list_clients") as mock_clients:
+            mock_clients.return_value = [self._client("kitty", "term", [0, 0], [800, 600])]
+            with self.assertRaises(PreconditionError):
+                shot.capture(target="firefox", output_path=_out("x.png"))
 
 
 class TestGateCaptureShape(unittest.TestCase):
