@@ -1,6 +1,6 @@
 # CAPABILITIES - what Friday can do (generated from the live registry)
 
-Status date: 2026-08-20.
+Status date: 2026-08-23.
 
 **This document is GENERATED from the running code, not hand-maintained** -
 regenerate it after any primitive/check/trigger change:

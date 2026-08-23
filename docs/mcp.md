@@ -202,3 +202,17 @@ everything else.
   anything unattended.
 - `config/credentials.json` is gitignored and is **not** read by the
   server (runtime creds come from env vars / `pass`); never commit it.
+- **Rate limiting**: the server enforces a sliding-window rate limit of
+  60 tool calls per minute per session. Exceeding this returns an
+  `isError` result. This prevents runaway loops or abuse from a single
+  client session.
+- **Credential exposure**: MCP tool results are returned as JSON text to
+  the client. Primitives with `redact_result=True` (e.g.,
+  `browser.credentials`) have their L0 log entry redacted, but the MCP
+  client still receives the full return value. Treat MCP as a local-only
+  transport — never expose it over a network.
+- **Dangerous primitives**: `dev.run_shell` and `dev.run` with
+  `allow_bypass_permissions=True` are gated behind the
+  `FRIDAY_ALLOW_DANGEROUS=1` env var. An MCP client can invoke these
+  tools only if the env var is set in the server's environment. Without
+  it, they raise `PreconditionError`.

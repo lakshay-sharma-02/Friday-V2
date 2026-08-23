@@ -61,6 +61,27 @@ METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
 
+# Rate limiting: prevent abuse from a single MCP client session.
+# Max tool calls per minute (sliding window). The watcher runs
+# serially and MCP is interactive, so 60/min is generous for normal use.
+_MAX_CALLS_PER_MINUTE = 60
+_call_timestamps: list[float] = []
+
+
+def _rate_limit_check() -> str | None:
+    """Check if the call rate exceeds the limit. Returns None if OK,
+    or an error message if rate-limited. Uses a sliding window of
+    _MAX_CALLS_PER_MINUTE seconds."""
+    import time
+    now = time.monotonic()
+    # Prune timestamps older than the window
+    while _call_timestamps and _call_timestamps[0] < now - 60:
+        _call_timestamps.pop(0)
+    if len(_call_timestamps) >= _MAX_CALLS_PER_MINUTE:
+        return f"rate limit exceeded: max {_MAX_CALLS_PER_MINUTE} tool calls per minute"
+    _call_timestamps.append(now)
+    return None
+
 
 # ------------------------------------------------------------- registry
 
@@ -218,6 +239,13 @@ def _call_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
     """Handle a tools/call for one tool. Returns an MCP result dict; a
     refused or failed call is an isError result (the client sees the
     message), never a protocol-level crash."""
+    # Rate limit check: prevent abuse from a single client session
+    rate_err = _rate_limit_check()
+    if rate_err:
+        return {
+            "content": [{"type": "text", "text": f"ERROR: {rate_err}"}],
+            "isError": True,
+        }
     _ensure_registry()
     qualified = name.replace("__", ".", 1)
     try:

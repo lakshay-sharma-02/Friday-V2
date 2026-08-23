@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from unittest import mock
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -224,3 +225,110 @@ class TestGitStatus(EnvTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestGitDiff(EnvTestCase):
+    """Tests for git.diff primitive."""
+
+    def test_diff_empty_repo(self):
+        from friday.l1.git import diff
+        with mock.patch("friday.l1.git._run_git", return_value=""):
+            result = diff(".")
+            self.assertTrue(result["is_clean"])
+
+    def test_diff_with_staged_changes(self):
+        from friday.l1.git import diff
+        with mock.patch("friday.l1.git._run_git") as m:
+            m.side_effect = ["diff --cached\n+new line\n", "diff\n"]
+            result = diff(".")
+            self.assertFalse(result["is_clean"])
+            self.assertIn("new line", result["staged"])
+
+    def test_diff_with_unstaged_changes(self):
+        from friday.l1.git import diff
+        with mock.patch("friday.l1.git._run_git") as m:
+            m.side_effect = ["diff --cached\n", "diff\n-old line\n+new line\n"]
+            result = diff(".")
+            self.assertFalse(result["is_clean"])
+            self.assertIn("new line", result["unstaged"])
+
+    def test_diff_empty_path(self):
+        from friday.l1.git import diff
+        with self.assertRaises(PreconditionError):
+            diff("")
+
+    def test_diff_missing_repo(self):
+        from friday.l1.git import diff
+        with self.assertRaises(PreconditionError):
+            diff("/no/such/dir")
+
+    def test_diff_contract_registered(self):
+        from friday.contracts import REGISTRY, Idempotency
+        c = REGISTRY.get("git.diff")
+        self.assertIsNotNone(c)
+        self.assertEqual(c.idempotency, Idempotency.IDEMPOTENT)
+
+
+class TestGitBranch(EnvTestCase):
+    """Tests for git.branch primitive."""
+
+    def test_branch_returns_current(self):
+        from friday.l1.git import branch
+        with mock.patch("friday.l1.git._run_git") as m:
+            m.side_effect = ["main\n", "* main\n  dev\n  feature\n"]
+            result = branch(".")
+            self.assertEqual(result["current"], "main")
+            self.assertIn("main", result["branches"])
+
+    def test_branch_detached_head(self):
+        from friday.l1.git import branch
+        with mock.patch("friday.l1.git._run_git") as m:
+            m.side_effect = ["\n", "* (HEAD detached at abc123)\n  main\n"]
+            result = branch(".")
+            self.assertEqual(result["current"], "HEAD")
+
+    def test_branch_empty_path(self):
+        from friday.l1.git import branch
+        with self.assertRaises(PreconditionError):
+            branch("")
+
+    def test_branch_contract_registered(self):
+        from friday.contracts import REGISTRY, Idempotency
+        c = REGISTRY.get("git.branch")
+        self.assertIsNotNone(c)
+        self.assertEqual(c.idempotency, Idempotency.IDEMPOTENT)
+
+
+class TestGitCommit(EnvTestCase):
+    """Tests for git.commit primitive."""
+
+    def test_commit_with_files(self):
+        from friday.l1.git import commit
+        with mock.patch("friday.l1.git._run_git") as m:
+            m.side_effect = [None, None, "abc123def\n"]
+            result = commit(".", "test commit", files=["file.txt"])
+            self.assertEqual(result["commit_hash"], "abc123def")
+            self.assertEqual(result["message"], "test commit")
+
+    def test_commit_all_staged(self):
+        from friday.l1.git import commit
+        with mock.patch("friday.l1.git._run_git") as m:
+            m.side_effect = [None, None, "abc123def\n"]
+            result = commit(".", "test commit")
+            self.assertEqual(result["commit_hash"], "abc123def")
+
+    def test_commit_empty_message(self):
+        from friday.l1.git import commit
+        with self.assertRaises(PreconditionError):
+            commit(".", "")
+
+    def test_commit_empty_path(self):
+        from friday.l1.git import commit
+        with self.assertRaises(PreconditionError):
+            commit("", "message")
+
+    def test_commit_contract_registered(self):
+        from friday.contracts import REGISTRY, Idempotency
+        c = REGISTRY.get("git.commit")
+        self.assertIsNotNone(c)
+        self.assertEqual(c.idempotency, Idempotency.AT_MOST_ONCE)

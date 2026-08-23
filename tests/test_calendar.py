@@ -264,3 +264,151 @@ class TestAddEvent(EnvTestCase):
             with self.assertRaises(PrimitiveError) as ctx:
                 calendar.add_event("X", "2026-08-15T09:00:00Z", "2026-08-15T09:30:00Z")
         self.assertIn("calendar.add_event failed (500)", str(ctx.exception))
+
+
+class TestDeleteEvent(EnvTestCase):
+    """calendar.delete_event - hermetic tests for the delete primitive."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        calendar._token_cache.update({"access_token": None, "expires_at": 0.0})
+
+    def test_delete_event_empty_id(self):
+        from friday.errors import PreconditionError
+        with self.assertRaises(PreconditionError):
+            calendar.delete_event("")
+
+    def test_delete_event_whitespace_id(self):
+        from friday.errors import PreconditionError
+        with self.assertRaises(PreconditionError):
+            calendar.delete_event("   ")
+
+    def test_delete_event_success(self):
+        resp = mock.Mock(status_code=204, text="")
+        with (
+            mock.patch("friday.l1.calendar._access_token", return_value="tok"),
+            mock.patch("friday.l1.calendar.requests.delete", return_value=resp) as delete,
+        ):
+            result = calendar.delete_event("ev-123")
+        self.assertEqual(result["event_id"], "ev-123")
+        self.assertEqual(result["status"], "deleted")
+        delete.assert_called_once()
+        url = delete.call_args.args[0]
+        self.assertIn("ev-123", url)
+        self.assertEqual(delete.call_args.kwargs["headers"]["Authorization"], "Bearer tok")
+
+    def test_delete_event_200_also_works(self):
+        """Google API may return 200 or 204 on successful delete."""
+        resp = mock.Mock(status_code=200, text="{}")
+        with (
+            mock.patch("friday.l1.calendar._access_token", return_value="tok"),
+            mock.patch("friday.l1.calendar.requests.delete", return_value=resp),
+        ):
+            result = calendar.delete_event("ev-456")
+        self.assertEqual(result["status"], "deleted")
+
+    def test_delete_event_api_failure(self):
+        resp = mock.Mock(status_code=404, text="not found")
+        with (
+            mock.patch("friday.l1.calendar._access_token", return_value="tok"),
+            mock.patch("friday.l1.calendar.requests.delete", return_value=resp),
+        ):
+            with self.assertRaises(PrimitiveError) as ctx:
+                calendar.delete_event("ev-notexist")
+        self.assertIn("delete_event failed (404)", str(ctx.exception))
+
+    def test_delete_event_contract_registered(self):
+        from friday.contracts import REGISTRY, Idempotency
+        c = REGISTRY.get("calendar.delete_event")
+        self.assertIsNotNone(c)
+        self.assertEqual(c.idempotency, Idempotency.COMMUTATIVE_SAFE)
+
+
+class TestUpdateEvent(EnvTestCase):
+    """calendar.update_event - hermetic tests for the update primitive."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        calendar._token_cache.update({"access_token": None, "expires_at": 0.0})
+
+    def test_update_event_empty_id(self):
+        from friday.errors import PreconditionError
+        with self.assertRaises(PreconditionError):
+            calendar.update_event("")
+
+    def test_update_event_success_summary_only(self):
+        resp = mock.Mock(status_code=200)
+        resp.json.return_value = {
+            "id": "ev-789",
+            "summary": "Updated Standup",
+            "start": {"dateTime": "2026-08-15T09:00:00Z"},
+            "end": {"dateTime": "2026-08-15T09:30:00Z"},
+            "status": "confirmed",
+        }
+        with (
+            mock.patch("friday.l1.calendar._access_token", return_value="tok"),
+            mock.patch("friday.l1.calendar.requests.patch", return_value=resp) as patch,
+        ):
+            result = calendar.update_event("ev-789", summary="Updated Standup")
+        self.assertEqual(result["event_id"], "ev-789")
+        self.assertEqual(result["summary"], "Updated Standup")
+        self.assertEqual(result["status"], "confirmed")
+        body = patch.call_args.kwargs["json"]
+        self.assertEqual(body["summary"], "Updated Standup")
+        self.assertNotIn("start", body)
+        self.assertNotIn("end", body)
+
+    def test_update_event_with_times(self):
+        resp = mock.Mock(status_code=200)
+        resp.json.return_value = {
+            "id": "ev-789",
+            "summary": "Meeting",
+            "start": {"dateTime": "2026-08-15T10:00:00Z"},
+            "end": {"dateTime": "2026-08-15T11:00:00Z"},
+            "status": "confirmed",
+        }
+        with (
+            mock.patch("friday.l1.calendar._access_token", return_value="tok"),
+            mock.patch("friday.l1.calendar.requests.patch", return_value=resp) as patch,
+        ):
+            result = calendar.update_event(
+                "ev-789",
+                start="2026-08-15T10:00:00Z",
+                end="2026-08-15T11:00:00Z",
+            )
+        body = patch.call_args.kwargs["json"]
+        self.assertIn("start", body)
+        self.assertIn("end", body)
+        self.assertEqual(result["start_time"], "2026-08-15T10:00:00Z")
+
+    def test_update_event_invalid_start_datetime(self):
+        from friday.errors import PreconditionError
+        with mock.patch("friday.l1.calendar._access_token", return_value="tok"):
+            with self.assertRaises(PreconditionError):
+                calendar.update_event("ev-789", start="not-a-date")
+
+    def test_update_event_invalid_end_datetime(self):
+        from friday.errors import PreconditionError
+        with mock.patch("friday.l1.calendar._access_token", return_value="tok"):
+            with self.assertRaises(PreconditionError):
+                calendar.update_event("ev-789", end="not-a-date")
+
+    def test_update_event_api_failure(self):
+        resp = mock.Mock(status_code=500, text="internal error")
+        with (
+            mock.patch("friday.l1.calendar._access_token", return_value="tok"),
+            mock.patch("friday.l1.calendar.requests.patch", return_value=resp),
+        ):
+            with self.assertRaises(PrimitiveError) as ctx:
+                calendar.update_event("ev-789", summary="X")
+        self.assertIn("update_event failed (500)", str(ctx.exception))
+
+    def test_update_event_contract_registered(self):
+        from friday.contracts import REGISTRY, Idempotency
+        c = REGISTRY.get("calendar.update_event")
+        self.assertIsNotNone(c)
+        self.assertEqual(c.idempotency, Idempotency.COMMUTATIVE_SAFE)
+
+
+if __name__ == "__main__":
+    unittest.main()

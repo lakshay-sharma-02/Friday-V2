@@ -38,6 +38,7 @@ import hashlib
 import json
 import os
 import time
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,11 @@ from typing import Any
 from friday.contracts import Idempotency, contract
 from friday.errors import PreconditionError, PrimitiveError
 from friday.observability import emit_event
+
+# Thread/process safety: file locking for concurrent access.
+# The watcher runs serially, but the MCP server or webhook server
+# could invoke memory.store concurrently with memory.maintenance.
+_IS_WINDOWS = os.name == "nt"
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MEMORY_FILE = PROJECT_ROOT / "var" / "state" / "memory.jsonl"
@@ -95,14 +101,15 @@ def _load_all() -> list[dict[str, Any]]:
 
 def _save_all(entries: list[dict[str, Any]]) -> None:
     """Atomically write all entries. Used for bulk operations (forget,
-    maintenance). Individual stores use append."""
+    maintenance). Individual stores use append. Thread-safe via file lock."""
     path = _memory_file()
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
-        lines = [json.dumps(e, ensure_ascii=False) + "\n" for e in entries]
-        tmp.write_text("".join(lines), encoding="utf-8")
-        os.replace(tmp, path)
+        with _file_lock():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(path.name + ".tmp")
+            lines = [json.dumps(e, ensure_ascii=False) + "\n" for e in entries]
+            tmp.write_text("".join(lines), encoding="utf-8")
+            os.replace(tmp, path)
     except OSError as exc:
         emit_event(
             layer="L1",
@@ -113,12 +120,13 @@ def _save_all(entries: list[dict[str, Any]]) -> None:
 
 
 def _append_entry(entry: dict[str, Any]) -> None:
-    """Append one entry to the memory file (atomic)."""
+    """Append one entry to the memory file. Thread-safe via file lock."""
     path = _memory_file()
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        with _file_lock():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError as exc:
         emit_event(
             layer="L1",
@@ -126,6 +134,42 @@ def _append_entry(entry: dict[str, Any]) -> None:
             exception=f"could not append to {_memory_file()}: {exc}",
             result="FAILED",
         )
+
+
+@contextmanager
+def _file_lock():
+    """Acquire an exclusive file lock on the memory file's .lock companion.
+    Prevents concurrent _save_all calls from clobbering each other.
+    Best-effort: if locking fails (NFS, permission), we proceed without
+    it (the atomic writes provide some safety)."""
+    lock_path = _memory_file().with_suffix(".jsonl.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = None
+    try:
+        fd = open(lock_path, "w")
+        if _IS_WINDOWS:
+            import msvcrt
+            msvcrt.locking(fd.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
+        yield
+    except (OSError, IOError):
+        # Locking failed (NFS, permission, etc.) - proceed without lock.
+        # The atomic writes (os.replace) provide best-effort safety.
+        yield
+    finally:
+        if fd is not None:
+            try:
+                if _IS_WINDOWS:
+                    import msvcrt
+                    msvcrt.locking(fd.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
+            except (OSError, IOError):
+                pass
+            fd.close()
 
 
 def _make_id(key: str, category: str) -> str:
