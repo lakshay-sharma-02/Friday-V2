@@ -120,6 +120,39 @@ for the daemon, so the daemon never reads these triage vars.
 systemctl --user disable --now friday-watcher.service
 ```
 
+---
+
+## Windows deployment (Task Scheduler)
+
+The watcher code is identical on Windows - only the deployment mechanism
+differs. `deploy/install-windows.ps1` registers a scheduled task that
+starts the daemon at logon (the systemd-user equivalent):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\install-windows.ps1
+# undo:
+powershell -ExecutionPolicy Bypass -File deploy\install-windows.ps1 -Uninstall
+```
+
+Day-2 operations map 1:1:
+
+| Linux (systemd) | Windows (Task Scheduler) |
+|---|---|
+| `systemctl --user status` | `Get-ScheduledTask -TaskName friday-watcher` |
+| `systemctl --user restart` | `Restart-ScheduledTask -TaskName friday-watcher` |
+| `systemctl --user stop` | `Stop-ScheduledTask -TaskName friday-watcher` |
+| `journalctl --user -u` | `var/logs/friday.jsonl` (same L0 log, `tail -f`) |
+| `Environment=FRIDAY_MODEL=...` | `[Environment]::SetEnvironmentVariable("FRIDAY_MODEL", "oc/laguna-s-2.1-free", "User")` |
+
+Differences to know:
+- Task Scheduler restarts the task up to 3x on failure, then waits for
+the next logon; the watcher's own `RETRY_BACKOFF_S` retry logic absorbs
+provider outages within a session, so this is not a regression.
+- `config/watcher.json` paths (digest repo dirs, facts file paths) are
+machine-specific data - edit for the Windows layout.
+
+```
+
 ### What happened today (gaps / proposals / tasks)
 
 ```sh

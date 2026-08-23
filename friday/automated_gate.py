@@ -155,6 +155,7 @@ _OBSERVED_STDLIB = frozenset(
         "__future__",
         "base64",
         "contextlib",
+        "ctypes",
         "fnmatch",
         "json",
         "os",
@@ -173,7 +174,10 @@ _OBSERVED_STDLIB = frozenset(
 # wait/kill loops - the SIM105 lint fixes); 'tempfile' added 2026-08-17:
 # screenshot.capture's default output path is built from
 # tempfile.gettempdir() so the primitive (and its tests) are
-# Windows-portable. Both pure-compute, no side effects of their own.
+# Windows-portable; 'ctypes' added 2026-08-18: the win32 window backend
+# (window.py) drives the Windows API through stdlib ctypes so the port
+# needs no pywin32 dependency. All pure-compute, no side effects of their
+# own.
 _OBSERVED_THIRD_PARTY = frozenset({"requests", "playwright"})
 _EXTRA_SAFE_STDLIB = frozenset(
     {
@@ -200,11 +204,12 @@ ALLOWED_IMPORTS = frozenset(
 )
 
 # Tools a CAPTURE-shape subprocess.run may invoke as its literal first
-# element, with runtime args. Screenshot/capture binaries only - each is a
-# known tool whose args are DATA (geometry, output path), never code that
-# can be made to execute (unlike a shell or interpreter). Add a tool here
-# deliberately, with the same reasoning as the import allowlist.
-_CAPTURE_TOOLS = frozenset({"grim", "slurp", "import"})
+# element, with runtime args. Each is a known tool whose args are DATA
+# (coordinates, output paths, repo paths, etc.), never code that can be
+# made to execute (unlike a shell or interpreter). Git was added 2026-08-18
+# to enable git-based primitives (git.log, git.status) to pass the gate.
+# Add a tool here deliberately, with the same reasoning as the import allowlist.
+_CAPTURE_TOOLS = frozenset({"grim", "slurp", "import", "git"})
 
 # Danger calls mirroring what the shipped gates already treat as dangerous
 # (dev.run_shell / dev.run(allow_bypass_permissions=True) behind
@@ -1375,6 +1380,11 @@ def _sanitized_env(sandbox_dir: Path) -> dict[str, str]:
     env["FRIDAY_TASKS_FILE"] = str(sandbox_dir / "tasks.jsonl")
     env["FRIDAY_PROPOSALS_DIR"] = str(sandbox_dir / "proposals")
     env["HOME"] = str(sandbox_dir)
+    # Windows-shaped isolation (2026-08-17 port step): Windows subprocesses
+    # read USERPROFILE, not HOME - a draft running there must not see the
+    # real user profile either (same credential-starvation guarantee).
+    if os.name == "nt":
+        env["USERPROFILE"] = str(sandbox_dir)
     # tempfile inside the sandbox must land in the sandbox, not the real
     # /tmp: tempfile.mkstemp()/NamedTemporaryFile are not statically
     # resolvable by check_fs_scope, so redirect the tempdir env instead.

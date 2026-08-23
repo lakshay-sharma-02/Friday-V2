@@ -497,6 +497,10 @@ class TestEnvSanitization(EnvTestCase):
         # catchable)
         for k in ("TMPDIR", "TMP", "TEMP"):
             self.assertEqual(env[k], str(sandbox), k)
+        if os.name == "nt":
+            # Windows subprocesses read USERPROFILE, not HOME (2026-08-17
+            # port) - the sandbox must hide the real profile there too
+            self.assertEqual(env["USERPROFILE"], str(sandbox))
 
 
 class TestBuildVerify(EnvTestCase):

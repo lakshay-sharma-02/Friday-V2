@@ -39,6 +39,7 @@ ENV_KEYS = (
     "FRIDAY_PROPOSED_LESSONS_DIR",
     "FRIDAY_WATCHER_CONFIG",
     "FRIDAY_PROPOSED_TRIGGERS_DIR",
+    "FRIDAY_MEMORY_FILE",
     "FRIDAY_TRIAGE_MODEL",
     "FRIDAY_TRIAGE_FALLBACK_MODELS",
     "FRIDAY_MODEL",
@@ -54,6 +55,11 @@ ENV_KEYS = (
     "GMAIL_REFRESH_TOKEN",
     "GMAIL_DEFAULT_TO",
     "GOOGLE_CALENDAR_TOKEN",
+    # Portable env-var credentials (secrets._env_credentials, the Windows
+    # port): a test setting these must restore them like any other var.
+    "GITHUB_CREDENTIALS",
+    "GITHUB_USERNAME",
+    "GITHUB_PASSWORD",
 )
 
 
@@ -91,6 +97,10 @@ class EnvTestCase(unittest.TestCase):
             os.environ["FRIDAY_LESSONS_FILE"] = str(self.mktmp() / "lessons_test.jsonl")
         if "FRIDAY_APPROVED_LESSONS" not in os.environ:
             os.environ["FRIDAY_APPROVED_LESSONS"] = str(self.mktmp() / "lessons_approved_test.json")
+        # Hermetic memory: tests must never write into the real
+        # var/state/memory.jsonl.
+        if "FRIDAY_MEMORY_FILE" not in os.environ:
+            os.environ["FRIDAY_MEMORY_FILE"] = str(self.mktmp() / "memory_test.jsonl")
 
     def tearDown(self) -> None:
         for k, v in self._env_saved.items():

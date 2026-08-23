@@ -34,6 +34,14 @@ from friday.l1.notify import notify_send
 from friday.l3.executor import run_plan
 from friday.observability import emit_event, reset_run_id
 
+# Memory integration: best-effort success recording. A failed import
+# means the memory module is unavailable (e.g. fresh checkout without
+# var/state/) — the watcher must never fail because of memory.
+try:
+    from friday.l1.memory import record_success as _mem_record_success
+except ImportError:
+    _mem_record_success = None
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = PROJECT_ROOT / "config" / "watcher.json"
 DEFAULT_TASKS_FILE = PROJECT_ROOT / "var" / "logs" / "tasks.jsonl"
@@ -118,8 +126,19 @@ def _validate_trigger(t: Any, seen: set[str]) -> None:
     elif typ == "file":
         if not isinstance(sch.get("directory"), str) or not sch["directory"].strip():
             raise FridayError(f"watcher: trigger {tid!r} file schedule needs a 'directory'")
+    elif typ == "whatsapp-media":
+        # WhatsApp media trigger: polls the pending media queue and
+        # downloads new items. No extra schedule fields needed - the
+        # trigger fires on every poll when there are pending items.
+        pass
+    elif typ == "telegram-media":
+        # Telegram media trigger: polls Telegram for incoming media
+        # messages and downloads them. No extra schedule fields needed.
+        pass
     else:
-        raise FridayError(f"watcher: trigger {tid!r} schedule 'type' must be 'time' or 'file'")
+        raise FridayError(
+            f"watcher: trigger {tid!r} schedule 'type' must be 'time', 'file', 'whatsapp-media', or 'telegram-media'"
+        )
 
 
 # --------------------------------------------------------------- scheduling
@@ -141,6 +160,168 @@ def _time_due(trigger: dict[str, Any], now: datetime, fired_dates: dict[str, str
             return False
     hh, mm = (int(x) for x in sch["at"].split(":"))
     return not now.hour * 60 + now.minute < hh * 60 + mm
+
+
+# ------------------------------------------------------------------ whatsapp-media
+
+
+def _has_pending_media() -> bool:
+    """Check if there are media items waiting in the pending queue.
+    Read-only - does not modify the queue."""
+    from friday.l1.whatsapp import load_pending_media
+
+    return bool(load_pending_media())
+
+
+def _download_pending_media() -> dict[str, Any]:
+    """Download all pending media items to ~/Downloads. Returns a
+    summary dict with the download results. Called by the whatsapp-media
+    trigger's plan.
+
+    This is a DETERMINISTIC plan step (no LLM) that:
+    1. Reads the pending queue
+    2. Downloads each item via whatsapp.download_media
+    3. Clears processed items from the queue
+    4. Returns a summary of what was downloaded
+    """
+    from friday.l1.whatsapp import clear_pending_media, download_media, load_pending_media
+
+    pending = load_pending_media()
+    if not pending:
+        return {"downloaded": [], "errors": [], "pending_remaining": 0}
+
+    downloaded: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    processed_ids: list[str] = []
+
+    for item in pending:
+        media_id = item.get("media_id", "")
+        if not media_id:
+            continue
+        try:
+            result = download_media(media_id)
+            downloaded.append({
+                "media_id": media_id,
+                "filename": result["filename"],
+                "path": result["path"],
+                "mime_type": result["mime_type"],
+                "file_size": result["file_size"],
+                "sender": item.get("sender", ""),
+            })
+            processed_ids.append(media_id)
+        except Exception as exc:
+            errors.append({
+                "media_id": media_id,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+
+    # Clear successfully downloaded items from the queue
+    if processed_ids:
+        clear_pending_media(processed_ids)
+
+    remaining = load_pending_media()
+    return {
+        "downloaded": downloaded,
+        "errors": errors,
+        "pending_remaining": len(remaining),
+    }
+
+
+# ------------------------------------------------------------------ telegram-media
+
+
+def _has_telegram_media() -> bool:
+    """Check if there are new media messages waiting on Telegram.
+    Peeks at getUpdates WITHOUT advancing the offset so the download
+    function can still consume them."""
+    try:
+        from friday.l1.telegram import _get_token, _load_offset, _api_url
+        import requests as _req
+
+        token = _get_token()
+        offset = _load_offset()
+        params: dict[str, Any] = {"limit": 1, "timeout": 0}
+        if offset > 0:
+            params["offset"] = offset
+        resp = _req.get(_api_url(token, "getUpdates"), params=params, timeout=10)
+        body = resp.json()
+        updates = body.get("result", [])
+        for u in updates:
+            msg = u.get("message", {})
+            if any(msg.get(f) for f in ("photo", "document", "audio", "video", "sticker")):
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def _download_telegram_media() -> dict[str, Any]:
+    """Poll Telegram for new media messages and download them to
+    ~/Downloads. Returns a summary dict."""
+    from friday.l1.telegram import download_file, poll_updates
+
+    messages = poll_updates(limit=20)
+    if not messages:
+        return {"downloaded": [], "errors": [], "pending_remaining": 0}
+
+    downloaded: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+
+    for msg in messages:
+        file_id = msg.get("file_id", "")
+        if not file_id:
+            continue
+        try:
+            result = download_file(file_id, filename=msg.get("filename"))
+            downloaded.append({
+                "file_id": file_id,
+                "filename": result["filename"],
+                "path": result["path"],
+                "file_size": result["file_size"],
+                "sender": msg.get("from", ""),
+                "media_type": msg.get("media_type", ""),
+            })
+        except Exception as exc:
+            errors.append({
+                "file_id": file_id,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+
+    return {
+        "downloaded": downloaded,
+        "errors": errors,
+        "pending_remaining": 0,  # Telegram polling is stateless (offset tracked)
+    }
+
+
+def _run_telegram_media_trigger(
+    trigger: dict[str, Any], run_id: str
+) -> dict[str, Any]:
+    """Special handler for telegram-media triggers: poll Telegram for
+    new media and download it."""
+    t_id = trigger["id"]
+    detail: dict[str, Any] = {"trigger": t_id}
+    try:
+        dl_result = _download_telegram_media()
+        downloaded = dl_result.get("downloaded", [])
+        errors = dl_result.get("errors", [])
+        if errors:
+            detail["status"] = "COMPLETED" if downloaded else "FAILED"
+            detail["errors"] = errors
+        else:
+            detail["status"] = "COMPLETED"
+        detail["downloaded_count"] = len(downloaded)
+        detail["downloaded_files"] = [
+            {"filename": d["filename"], "path": d["path"], "sender": d.get("sender", "")}
+            for d in downloaded
+        ]
+    except FridayError as exc:
+        detail["status"] = "FAILED"
+        detail["error"] = str(exc)[:500]
+    except Exception as exc:
+        detail["status"] = "ERROR"
+        detail["error"] = f"{type(exc).__name__}: {exc}"[:500]
+    return detail
 
 
 # Minimum gap between RETRY attempts of a FAILED same-day trigger. A
@@ -308,6 +489,39 @@ def _notify_outcome(trigger_id: str, ok: bool, detail: dict[str, Any]) -> None:
         emit_event(layer="WATCH", primitive="notify", exception=str(exc), result="FAILED")
 
 
+def _run_whatsapp_media_trigger(
+    trigger: dict[str, Any], run_id: str
+) -> dict[str, Any]:
+    """Special handler for whatsapp-media triggers: download pending
+    media items and notify the user. No LLM plan needed - the download
+    logic is inline. Returns a detail dict (not a tuple) because the
+    caller merges it into the standard flow."""
+    t_id = trigger["id"]
+    detail: dict[str, Any] = {"trigger": t_id}
+    try:
+        dl_result = _download_pending_media()
+        downloaded = dl_result.get("downloaded", [])
+        errors = dl_result.get("errors", [])
+        if errors:
+            detail["status"] = "COMPLETED" if downloaded else "FAILED"
+            detail["errors"] = errors
+        else:
+            detail["status"] = "COMPLETED"
+        detail["downloaded_count"] = len(downloaded)
+        detail["downloaded_files"] = [
+            {"filename": d["filename"], "path": d["path"], "sender": d.get("sender", "")}
+            for d in downloaded
+        ]
+        detail["pending_remaining"] = dl_result.get("pending_remaining", 0)
+    except FridayError as exc:
+        detail["status"] = "FAILED"
+        detail["error"] = str(exc)[:500]
+    except Exception as exc:
+        detail["status"] = "ERROR"
+        detail["error"] = f"{type(exc).__name__}: {exc}"[:500]
+    return detail
+
+
 def _run_trigger(
     trigger: dict[str, Any], plan_cache: dict[str, dict[str, Any]]
 ) -> tuple[bool, dict[str, Any]]:
@@ -323,63 +537,73 @@ def _run_trigger(
     ok = False
     detail: dict[str, Any] = {"trigger": t_id, "status": "COMPLETED"}
     try:
-        plan_dict = _make_plan(trigger, plan_cache, run_id)
-        allowed = trigger.get("allow")
-        if allowed:
-            forbidden = [
-                s.get("primitive")
-                for s in plan_dict.get("steps", [])
-                if not _allowed_prim(s.get("primitive"), allowed)
-            ]
-            if forbidden:
-                # refuse BEFORE execution: a hallucinated side-effecting
-                # step must never act from an unattended trigger
-                plan_cache.pop(goal, None)
-                # One capability-gap record per forbidden primitive, with
-                # that step's arg SHAPE (never values) - the triage loop
-                # treats each disallowed primitive as a proposal candidate.
-                for s in plan_dict.get("steps", []):
-                    if s.get("primitive") in forbidden:
-                        record_gap(
-                            source="watcher",
-                            trigger_id=t_id,
-                            attempted_primitive=s.get("primitive"),
-                            attempted_args=s.get("args") or {},
-                            goal_context=goal,
-                            refusal_reason=f"trigger allowlist {allowed}",
-                        )
-                detail = {
-                    "trigger": t_id,
-                    "status": "REFUSED",
-                    "forbidden": forbidden,
-                    "allowed": allowed,
-                }
-                _record_task(f"watch:{t_id}", goal, False, detail)
-                emit_event(
-                    layer="WATCH",
-                    primitive="trigger",
-                    args={"id": t_id},
-                    result="FAILED",
-                    extra=detail,
-                )
-                if trigger.get("notify", True):
-                    _notify_outcome(t_id, False, detail)
-                return False, detail
-        result = run_plan(plan_dict, run_id=run_id)
-        ok = result.status == "COMPLETED"
-        detail = {
-            "trigger": t_id,
-            "status": result.status,
-            "steps": [
-                {
-                    "step_id": s.step_id,
-                    "primitive": s.primitive,
-                    "status": s.status,
-                    "attempts": s.attempts,
-                }
-                for s in result.steps
-            ],
-        }
+        # whatsapp-media triggers run a special inline path: they
+        # download pending media directly (no LLM plan needed) and
+        # notify the user of the result.
+        if trigger.get("schedule", {}).get("type") == "whatsapp-media":
+            detail = _run_whatsapp_media_trigger(trigger, run_id)
+            ok = detail.get("status") == "COMPLETED"
+        elif trigger.get("schedule", {}).get("type") == "telegram-media":
+            detail = _run_telegram_media_trigger(trigger, run_id)
+            ok = detail.get("status") == "COMPLETED"
+        else:
+            plan_dict = _make_plan(trigger, plan_cache, run_id)
+            allowed = trigger.get("allow")
+            if allowed:
+                forbidden = [
+                    s.get("primitive")
+                    for s in plan_dict.get("steps", [])
+                    if not _allowed_prim(s.get("primitive"), allowed)
+                ]
+                if forbidden:
+                    # refuse BEFORE execution: a hallucinated side-effecting
+                    # step must never act from an unattended trigger
+                    plan_cache.pop(goal, None)
+                    # One capability-gap record per forbidden primitive, with
+                    # that step's arg SHAPE (never values) - the triage loop
+                    # treats each disallowed primitive as a proposal candidate.
+                    for s in plan_dict.get("steps", []):
+                        if s.get("primitive") in forbidden:
+                            record_gap(
+                                source="watcher",
+                                trigger_id=t_id,
+                                attempted_primitive=s.get("primitive"),
+                                attempted_args=s.get("args") or {},
+                                goal_context=goal,
+                                refusal_reason=f"trigger allowlist {allowed}",
+                            )
+                    detail = {
+                        "trigger": t_id,
+                        "status": "REFUSED",
+                        "forbidden": forbidden,
+                        "allowed": allowed,
+                    }
+                    _record_task(f"watch:{t_id}", goal, False, detail)
+                    emit_event(
+                        layer="WATCH",
+                        primitive="trigger",
+                        args={"id": t_id},
+                        result="FAILED",
+                        extra=detail,
+                    )
+                    if trigger.get("notify", True):
+                        _notify_outcome(t_id, False, detail)
+                    return False, detail
+            result = run_plan(plan_dict, run_id=run_id)
+            ok = result.status == "COMPLETED"
+            detail = {
+                "trigger": t_id,
+                "status": result.status,
+                "steps": [
+                    {
+                        "step_id": s.step_id,
+                        "primitive": s.primitive,
+                        "status": s.status,
+                        "attempts": s.attempts,
+                    }
+                    for s in result.steps
+                ],
+            }
     except FridayError as exc:
         ok = False
         detail = {"trigger": t_id, "status": "ABORT", "error": str(exc)[:500]}
@@ -389,6 +613,17 @@ def _run_trigger(
         detail = {"trigger": t_id, "status": "ERROR", "error": f"{type(exc).__name__}: {exc}"[:500]}
         plan_cache.pop(goal, None)  # same reason: don't cache a plan that errored
     _record_task(f"watch:{t_id}", goal, ok, detail)
+    # Memory: record successful triggers for future reference.
+    # Best-effort: a memory failure must never break the watch loop.
+    if ok and _mem_record_success is not None:
+        try:
+            _mem_record_success(
+                goal=goal,
+                outcome=f"trigger {t_id} completed successfully",
+                tags=["source:watcher", f"trigger:{t_id}"],
+            )
+        except Exception:
+            pass
     emit_event(
         layer="WATCH",
         primitive="trigger",
@@ -506,6 +741,14 @@ def run_watcher(
                 sch = t["schedule"]
                 if sch["type"] == "time":
                     due = _time_due(t, now, fired_dates) and not _in_retry_backoff(
+                        t["id"], last_attempts
+                    )
+                elif sch["type"] == "whatsapp-media":
+                    due = _has_pending_media() and not _in_retry_backoff(
+                        t["id"], last_attempts
+                    )
+                elif sch["type"] == "telegram-media":
+                    due = _has_telegram_media() and not _in_retry_backoff(
                         t["id"], last_attempts
                     )
                 else:

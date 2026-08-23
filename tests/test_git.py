@@ -111,5 +111,116 @@ class TestGitLog(EnvTestCase):
         self.assertTrue(hasattr(git_log, "__contract__"))
 
 
+class TestGitStatus(EnvTestCase):
+    """Tests for the git.status primitive."""
+
+    def setUp(self):
+        """Create a temp git repo for testing."""
+        super().setUp()
+        self.temp_dir = self.mktmp()
+        subprocess.run(
+            ["git", "init", "-q", str(self.temp_dir)],
+            shell=False,
+            capture_output=True,
+            timeout=10,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.temp_dir), "config", "user.name", "Tester"],
+            shell=False,
+            capture_output=True,
+            timeout=10,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.temp_dir), "config", "user.email", "t@t"],
+            shell=False,
+            capture_output=True,
+            timeout=10,
+        )
+
+    def test_returns_dict_with_expected_keys(self):
+        """git.status should return a dict with expected keys."""
+        from friday.l1.git import status
+
+        result = status(str(self.temp_dir))
+
+        self.assertIn("branch", result)
+        self.assertIn("staged", result)
+        self.assertIn("conflicts", result)
+        self.assertIn("uncommitted", result)
+        self.assertIn("is_clean", result)
+
+    def test_clean_repo_is_clean(self):
+        """A fresh repo should be clean after initial commit."""
+        from friday.l1.git import status
+
+        # Add and commit a file to make it clean
+        test_file = self.temp_dir / "test.txt"
+        test_file.write_text("hello")
+        subprocess.run(
+            ["git", "-C", str(self.temp_dir), "add", "test.txt"],
+            shell=False,
+            capture_output=True,
+            timeout=10,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.temp_dir), "commit", "-q", "-m", "initial"],
+            shell=False,
+            capture_output=True,
+            timeout=10,
+        )
+
+        result = status(str(self.temp_dir))
+        self.assertTrue(result["is_clean"])
+        self.assertEqual(result["staged"], [])
+        self.assertEqual(result["uncommitted"], [])
+
+    def test_detects_staged_changes(self):
+        """Should detect staged files."""
+        from friday.l1.git import status
+
+        test_file = self.temp_dir / "staged.txt"
+        test_file.write_text("staged content")
+        subprocess.run(
+            ["git", "-C", str(self.temp_dir), "add", "staged.txt"],
+            shell=False,
+            capture_output=True,
+            timeout=10,
+        )
+
+        result = status(str(self.temp_dir))
+        self.assertFalse(result["is_clean"])
+        self.assertIn("staged.txt", result["staged"])
+
+    def test_detects_untracked_files(self):
+        """Should detect untracked files."""
+        from friday.l1.git import status
+
+        test_file = self.temp_dir / "untracked.txt"
+        test_file.write_text("untracked content")
+
+        result = status(str(self.temp_dir))
+        self.assertFalse(result["is_clean"])
+        self.assertIn("untracked.txt", result["uncommitted"])
+
+    def test_raises_for_non_git_directory(self):
+        """Should raise PreconditionError for non-git directory."""
+        from friday.errors import PreconditionError
+        from friday.l1.git import status
+
+        non_git_dir = self.mktmp() / "plain"
+        non_git_dir.mkdir()
+        with self.assertRaises(PreconditionError):
+            status(str(non_git_dir))
+
+    def test_contract_registered_idempotent(self):
+        """git.status should be in REGISTRY with correct contract."""
+        from friday.l1.git import status as git_status
+
+        c = REGISTRY.get("git.status")
+        self.assertIsNotNone(c)
+        self.assertEqual(c.idempotency, Idempotency.IDEMPOTENT)
+        self.assertTrue(hasattr(git_status, "__contract__"))
+
+
 if __name__ == "__main__":
     unittest.main()

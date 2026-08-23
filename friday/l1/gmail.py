@@ -429,3 +429,135 @@ def send_document(
         "to": to,
         "filename": src.name,
     }
+
+
+# ---- gmail.send_text: send a plain text email ----
+
+
+def _log_redact_send_text_meta(result: Any) -> Any:
+    if isinstance(result, dict):
+        return {**result, "to": "<redacted>"}
+    return result
+
+
+@contract(
+    precondition="OAuth credentials with gmail.send scope; to is a non-empty email; text is non-empty.",
+    postcondition="Sends a plain text email. Returns message_id as proof.",
+    idempotency=Idempotency.AT_MOST_ONCE,
+    failure_mode="PreconditionError for empty text/to; PrimitiveError on API failure.",
+    returns="dict: {message_id, thread_id, to}.",
+    log_transform=_log_redact_send_text_meta,
+)
+def send_text(text: str, to: str | None = None, subject: str | None = None) -> dict[str, Any]:
+    """Send a plain text email via Gmail API."""
+    if not text or not text.strip():
+        raise PreconditionError("send_text requires non-empty text")
+    to = to or _default_to()
+    if not to or not to.strip():
+        raise PreconditionError("send_text requires a non-empty 'to'")
+    msg = MIMEMultipart()
+    msg["To"] = to
+    msg["Subject"] = subject or "Friday message"
+    msg.attach(MIMEText(text.strip(), "plain"))
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+    resp = requests.post(
+        f"{API_BASE}/users/me/messages/send",
+        headers={"Authorization": f"Bearer {_access_token()}"},
+        json={"raw": raw},
+        timeout=30,
+    )
+    if resp.status_code != 200:
+        raise PrimitiveError(
+            f"gmail send_text failed ({resp.status_code}): {resp.text[:300]}",
+            state="message not accepted by Gmail",
+        )
+    body_resp = resp.json()
+    return {
+        "message_id": str(body_resp.get("id", "")),
+        "thread_id": str(body_resp.get("threadId", "")),
+        "to": to,
+    }
+
+
+# ---- gmail.search: search messages by query ----
+
+
+def _log_redact_search(rows: Any) -> Any:
+    if isinstance(rows, list):
+        return [{**r, "sender": "<redacted>", "subject": "<redacted>"} for r in rows]
+    return rows
+
+
+@contract(
+    precondition="OAuth credentials configured; query is a non-empty Gmail search query.",
+    postcondition="Returns matching messages. Read-only.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PrimitiveError on auth/API failure.",
+    returns="list[dict]: [{message_id, sender, subject, date, snippet}].",
+    log_transform=_log_redact_search,
+)
+def search(query: str, max_results: int = 10) -> list[dict[str, str]]:
+    """Search Gmail messages using the Gmail search query syntax.
+
+    Supports full Gmail query syntax: 'from:x subject:y has:attachment
+    newer_than:7d', etc. Returns matching messages with metadata.
+    """
+    if not query or not query.strip():
+        raise PreconditionError("search requires a non-empty query")
+    if max_results < 1:
+        raise PreconditionError("max_results must be >= 1")
+    body = _get("/users/me/messages", {"q": query.strip(), "maxResults": max_results})
+    items = body.get("messages") or []
+    out: list[dict[str, str]] = []
+    for item in items[:max_results]:
+        mid = item.get("id", "")
+        if not mid:
+            continue
+        meta = _get(
+            f"/users/me/messages/{mid}",
+            {
+                "format": "metadata",
+                "metadataHeaders": ["From", "Subject", "Date"],
+            },
+        )
+        payload = meta.get("payload", {})
+        out.append({
+            "message_id": mid,
+            "sender": _header(payload, "From"),
+            "subject": _header(payload, "Subject"),
+            "date": _header(payload, "Date"),
+            "snippet": str(meta.get("snippet", "")),
+        })
+    return out
+
+
+# ---- gmail.mark_read: mark a message as read ----
+
+
+def _post(path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """One authenticated POST against the Gmail API."""
+    url = f"{API_BASE}{path}"
+    headers = {"Authorization": f"Bearer {_access_token()}"}
+    resp = requests.post(url, headers=headers, json=body or {}, timeout=30)
+    if resp.status_code not in (200, 204):
+        raise PrimitiveError(
+            f"gmail API POST error ({resp.status_code}): {resp.text[:300]}"
+        )
+    return resp.json() if resp.text else {}
+
+
+@contract(
+    precondition="message_id is a valid Gmail message id.",
+    postcondition="Marks the message as read (removes UNREAD label).",
+    idempotency=Idempotency.COMMUTATIVE_SAFE,
+    failure_mode="PrimitiveError on API failure.",
+    returns="dict: {message_id, status}.",
+)
+def mark_read(message_id: str) -> dict[str, str]:
+    """Mark a Gmail message as read by removing the UNREAD label."""
+    if not message_id or not message_id.strip():
+        raise PreconditionError("mark_read requires a message_id")
+    _post(f"/users/me/messages/{message_id}/modify", {
+        "removeLabelIds": ["UNREAD"],
+    })
+    return {"message_id": message_id.strip(), "status": "read"}

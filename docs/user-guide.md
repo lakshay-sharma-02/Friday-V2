@@ -54,6 +54,20 @@ result = run_plan(plan(goal, run_id="demo"))
 print(result.status)  # COMPLETED or ABORTED
 ```
 
+### MCP Server (other agents / AI clients)
+
+Friday's primitives are exposed as Model Context Protocol tools (57 of
+them) over stdio, so Claude Desktop, Claude Code, or Cursor can drive
+the desktop through the same verified executor boundary. Run it with:
+
+```bash
+python -m friday.mcp_server          # or the friday-mcp console script
+```
+
+See `docs/mcp.md` for per-client config snippets (Claude Desktop,
+Claude Code, Cursor), verification steps, troubleshooting, and security
+notes. A copy-paste sample config lives at `config/mcp.example.json`.
+
 ### The Watch Loop
 
 The watch loop runs in the background, automating scheduled tasks.

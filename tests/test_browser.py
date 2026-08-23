@@ -17,6 +17,42 @@ from friday.l1 import browser
 from tests.helpers import EnvTestCase
 
 
+class TestOrphanSweep(EnvTestCase):
+    """The pre-launch orphan sweep: POSIX pgrep + SIGTERM, Windows
+    PowerShell Stop-Process (the 2026-08-17 port)."""
+
+    def test_windows_sweep_uses_powershell_stop_process(self):
+        with (
+            mock.patch.object(browser, "_IS_WINDOWS", True),
+            mock.patch.object(browser.subprocess, "run") as run,
+        ):
+            self.assertEqual(browser._sweep_orphans(), 0)
+        cmd = run.call_args.args[0]
+        self.assertEqual(cmd[0], "powershell")
+        self.assertIn("Stop-Process", cmd[-1])
+        self.assertIn("user-data-dir", cmd[-1])
+
+    def test_windows_sweep_missing_powershell_is_noop(self):
+        with (
+            mock.patch.object(browser, "_IS_WINDOWS", True),
+            mock.patch.object(browser.subprocess, "run", side_effect=FileNotFoundError),
+        ):
+            self.assertEqual(browser._sweep_orphans(), 0)
+
+    def test_posix_sweep_uses_pgrep(self):
+        with (
+            mock.patch.object(browser, "_IS_WINDOWS", False),
+            mock.patch.object(
+                browser.subprocess,
+                "run",
+                return_value=mock.Mock(returncode=0, stdout="123 456\n", stderr=""),
+            ) as run,
+            mock.patch.object(browser.os, "kill"),
+        ):
+            self.assertEqual(browser._sweep_orphans(), 2)
+        self.assertEqual(run.call_args.args[0][0], "pgrep")
+
+
 class FakeLocator:
     def __init__(self, name: str, visible: bool = True):
         self.name = name

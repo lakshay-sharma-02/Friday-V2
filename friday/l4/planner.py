@@ -345,6 +345,17 @@ def build_catalog() -> str:
 # --------------------------------------------------------------- prompt
 
 
+def _build_memory_block(goal: str) -> str:
+    """Build a MEMORY CONTEXT block for the prompt: relevant memories
+    from past sessions that relate to this goal. Returns an empty string
+    when no memories match or the memory module is unavailable."""
+    try:
+        from friday.l1.memory import build_memory_context
+        return build_memory_context(goal, limit=5)
+    except Exception:
+        return ""
+
+
 def build_prompt(
     goal: str,
     last_error: str | None = None,
@@ -371,6 +382,13 @@ def build_prompt(
     # when none approved) - approved lessons shape the next plan, they
     # never gate it
     lessons_block = render_known_mistakes("planner")
+    # memory context: relevant memories from past sessions
+    memory_block = _build_memory_block(goal)
+    memory_section = (
+        f"\nMEMORY CONTEXT (from past sessions - use this to inform your plan):\n{memory_block}\n"
+        if memory_block
+        else ""
+    )
     retry_note = (
         f"\nYOUR PREVIOUS PLAN WAS REJECTED with this error:\n    {last_error}\n"
         "Fix the plan so it passes the schema and rules above.\n"
@@ -482,7 +500,7 @@ the credential default):
 
 OTHER FACTS:
 {facts_rendered}
-
+{memory_section}
 FRAMEWORK NOTES (always on):
 - window.close_window accepts an address from an earlier step's result
   (e.g. "$steps.1.result.address") OR a class name such as "firefox".

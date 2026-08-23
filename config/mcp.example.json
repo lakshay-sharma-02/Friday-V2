@@ -1,0 +1,15 @@
+{
+  "//": "Sample MCP client config wiring Friday's primitives as a stdio server.",
+  "//_clients": "The same mcpServers block works for Claude Desktop (claude_desktop_config.json), Claude Code (.mcp.json) and Cursor (.cursor/mcp.json) - see docs/mcp.md for exact file locations and platform notes.",
+  "//_paths": "REPLACE <REPO> with the absolute repo path. On Windows use the venv Scripts python (forward slashes work too); on macOS/Linux use .venv/bin/python. Use the venv python directly - GUI clients do not inherit your shell PATH, so a bare 'friday-mcp' will not resolve.",
+  "//_env": "Optional env vars the server process inherits: credentials (TELEGRAM_BOT_TOKEN, WHATSAPP_*, GMAIL_*, ...) and FRIDAY_LOG_FILE. On Windows, set these at USER level (setx) - GUI clients don't see shell exports.",
+  "mcpServers": {
+    "friday": {
+      "command": "C:\\Users\\<you>\\Desktop\\Projects\\Friday V2\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "friday.mcp_server"],
+      "env": {
+        "FRIDAY_LOG_FILE": "C:\\Users\\<you>\\Desktop\\Projects\\Friday V2\\var\\logs\\friday.jsonl"
+      }
+    }
+  }
+}

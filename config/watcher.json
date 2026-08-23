@@ -539,6 +539,57 @@
         "clipboard.write_text"
       ],
       "_docs": "ADDED 2026-08-14: the clipboard family's first real daily routine - clipboard.write_text (gate-registered the same day after the write-shape deadlock fix) pushes a morning digest of today's calendar to the system clipboard. Deterministic plan, no L4 LLM: calendar.list_upcoming(days=1) -> dev.digest composes a short plain-text digest (the ONE live LLM call, ~$0.17/run - same cost class as the existing morning-gmail-summary) -> clipboard.write_text copies it. Allowlist pins the three primitives. Empty calendar = honest FAIL (same philosophy as morning-calendar-summary)."
+    },
+    {
+      "id": "whatsapp-media-download",
+      "goal": "download any pending WhatsApp media files to ~/Downloads",
+      "schedule": {
+        "type": "whatsapp-media"
+      },
+      "enabled": true,
+      "notify": true,
+      "_docs": "ADDED 2026-08-18: auto-downloads files/images sent to Friday via WhatsApp. The whatsapp-media trigger type polls a pending queue (var/state/whatsapp_pending_media.json) for media_ids enqueued by a webhook handler. When items are pending, the trigger downloads each to ~/Downloads and notifies the user. To enqueue items, call whatsapp.enqueue_media_for_download(media_id) from a webhook endpoint. The pending file is at $FRIDAY_WHATSAPP_PENDING_FILE (default: var/state/whatsapp_pending_media.json)."
+    },
+    {
+      "id": "telegram-media-download",
+      "goal": "download any new Telegram media files to ~/Downloads",
+      "schedule": {
+        "type": "telegram-media"
+      },
+      "enabled": true,
+      "notify": true,
+      "_docs": "ADDED 2026-08-19: auto-downloads files/images sent to the Telegram bot. The telegram-media trigger type polls Telegram's getUpdates API for new media messages (photos, documents, audio, video, stickers) and downloads each to ~/Downloads. No webhook, no tunnel, no public URL needed - works behind NAT. Requires TELEGRAM_BOT_TOKEN env var. Offset tracking ensures each message is downloaded exactly once."
+    },
+    {
+      "id": "memory-maintenance",
+      "goal": "maintain the memory store: sync approved lessons and archive old low-access memories",
+      "plan": {
+        "goal": "maintain the memory store: sync approved lessons and archive old low-access memories",
+        "steps": [
+          {
+            "primitive": "memory.maintenance",
+            "args": {},
+            "verify": {
+              "check": "checks.list_nonempty",
+              "args": {
+                "value": [1]
+              },
+              "expect": true
+            }
+          }
+        ]
+      },
+      "schedule": {
+        "type": "time",
+        "at": "03:00",
+        "days": ["sun"]
+      },
+      "enabled": true,
+      "notify": false,
+      "allow": [
+        "memory.maintenance"
+      ],
+      "_docs": "ADDED 2026-08-20: weekly memory maintenance. Runs memory.maintenance() to archive old, low-access memories (keeps frequently-accessed ones). Also syncs approved lessons from config/lessons.json into memory for cross-session persistence. Runs Sundays at 03:00 (low-traffic). The maintenance primitive handles both archiving and lesson sync internally."
     }
   ]
 }

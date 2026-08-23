@@ -1,6 +1,6 @@
 # TESTS_PROOF — automated test suite for Friday
 
-Status date: 2026-08-17T18:39:00+00:00.
+Status date: 2026-08-18T05:20:36+00:00.
 
 The full unittest suite over every layer and feature: registry,
 observability (redaction / rotation / log_transform), the executor
@@ -12,7 +12,7 @@ never sends, launches, clicks or touches the compositor.
 
 ## Verdict: PASS
 
-Ran 537 tests: 537 passed, 0 failed, 0 errors.
+Ran 577 tests: 577 passed, 0 failed, 0 errors.
 
 ## Raw output
 
@@ -141,6 +141,9 @@ test_nothing_matches_raises_with_tried_list (test_browser.TestFindLocator.test_n
 test_selector_wins_when_visible (test_browser.TestFindLocator.test_selector_wins_when_visible) ... ok
 test_goto_rejects_non_http (test_browser.TestGotoAndUpload.test_goto_rejects_non_http) ... ok
 test_upload_file_missing_path (test_browser.TestGotoAndUpload.test_upload_file_missing_path) ... ok
+test_posix_sweep_uses_pgrep (test_browser.TestOrphanSweep.test_posix_sweep_uses_pgrep) ... ok
+test_windows_sweep_missing_powershell_is_noop (test_browser.TestOrphanSweep.test_windows_sweep_missing_powershell_is_noop) ... ok
+test_windows_sweep_uses_powershell_stop_process (test_browser.TestOrphanSweep.test_windows_sweep_uses_powershell_stop_process) ... ok
 test_no_page_raises (test_browser.TestReadPageText.test_no_page_raises) ... ok
 test_returns_inner_text (test_browser.TestReadPageText.test_returns_inner_text) ... ok
 test_fill_failure_falls_back_to_click_and_keystrokes (test_browser.TestTypeTextFallback.test_fill_failure_falls_back_to_click_and_keystrokes)
@@ -363,6 +366,18 @@ test_log_empty_repo_returns_empty_list (test_git.TestGitLog.test_log_empty_repo_
 test_log_missing_dir_raises_precondition (test_git.TestGitLog.test_log_missing_dir_raises_precondition) ... ok
 test_log_not_a_repo_raises_primitive (test_git.TestGitLog.test_log_not_a_repo_raises_primitive) ... ok
 test_log_returns_entries_newest_first (test_git.TestGitLog.test_log_returns_entries_newest_first) ... ok
+test_clean_repo_is_clean (test_git.TestGitStatus.test_clean_repo_is_clean)
+A fresh repo should be clean after initial commit. ... ok
+test_contract_registered_idempotent (test_git.TestGitStatus.test_contract_registered_idempotent)
+git.status should be in REGISTRY with correct contract. ... ok
+test_detects_staged_changes (test_git.TestGitStatus.test_detects_staged_changes)
+Should detect staged files. ... ok
+test_detects_untracked_files (test_git.TestGitStatus.test_detects_untracked_files)
+Should detect untracked files. ... ok
+test_raises_for_non_git_directory (test_git.TestGitStatus.test_raises_for_non_git_directory)
+Should raise PreconditionError for non-git directory. ... ok
+test_returns_dict_with_expected_keys (test_git.TestGitStatus.test_returns_dict_with_expected_keys)
+git.status should return a dict with expected keys. ... ok
 test_garbage_base64_returns_empty (test_gmail.TestBodyText.test_garbage_base64_returns_empty) ... ok
 test_multipart_prefers_text_plain (test_gmail.TestBodyText.test_multipart_prefers_text_plain) ... ok
 test_no_body_returns_empty (test_gmail.TestBodyText.test_no_body_returns_empty) ... ok
@@ -440,6 +455,21 @@ test_digest_misattribution_records_event (test_lessons.TestRecordSites.test_dige
 test_gate_rejection_records_draft_ast (test_lessons.TestRecordSites.test_gate_rejection_records_draft_ast) ... ok
 test_planner_schema_failure_records_lesson (test_lessons.TestRecordSites.test_planner_schema_failure_records_lesson) ... ok
 test_schema_rejection_records_draft_schema (test_lessons.TestRecordSites.test_schema_rejection_records_draft_schema) ... ok
+test_initialize_handshake (test_mcp_server.TestProtocol.test_initialize_handshake) ... ok
+test_non_dict_message (test_mcp_server.TestProtocol.test_non_dict_message) ... ok
+test_notification_gets_no_response (test_mcp_server.TestProtocol.test_notification_gets_no_response) ... ok
+test_parse_error (test_mcp_server.TestProtocol.test_parse_error) ... ok
+test_ping (test_mcp_server.TestProtocol.test_ping) ... ok
+test_unknown_method (test_mcp_server.TestProtocol.test_unknown_method) ... ok
+test_bad_kwarg_is_error_result (test_mcp_server.TestToolsCall.test_bad_kwarg_is_error_result) ... ok
+test_blocked_primitive_refused (test_mcp_server.TestToolsCall.test_blocked_primitive_refused) ... ok
+test_hermetic_primitive_call (test_mcp_server.TestToolsCall.test_hermetic_primitive_call) ... ok
+test_missing_name_is_invalid_params (test_mcp_server.TestToolsCall.test_missing_name_is_invalid_params) ... ok
+test_non_object_arguments_rejected (test_mcp_server.TestToolsCall.test_non_object_arguments_rejected) ... ok
+test_unknown_tool_is_error_not_crash (test_mcp_server.TestToolsCall.test_unknown_tool_is_error_not_crash) ... ok
+test_description_carries_contract (test_mcp_server.TestToolsList.test_description_carries_contract) ... ok
+test_exposes_registered_primitives (test_mcp_server.TestToolsList.test_exposes_registered_primitives) ... ok
+test_schema_derived_from_signature (test_mcp_server.TestToolsList.test_schema_derived_from_signature) ... ok
 test_idle_means_stopped (test_media.TestIsPlaying.test_idle_means_stopped) ... ok
 test_no_player_returns_false (test_media.TestIsPlaying.test_no_player_returns_false) ... ok
 test_paused_means_not_playing (test_media.TestIsPlaying.test_paused_means_not_playing) ... ok
@@ -476,6 +506,8 @@ test_nonzero_exit (test_notify.TestNotifySend.test_nonzero_exit) ... ok
 test_success (test_notify.TestNotifySend.test_success) ... ok
 test_timeout (test_notify.TestNotifySend.test_timeout) ... ok
 test_timeout_flag_respects_custom_value (test_notify.TestNotifySend.test_timeout_flag_respects_custom_value) ... ok
+test_windows_branch_uses_powershell (test_notify.TestNotifySend.test_windows_branch_uses_powershell) ... ok
+test_windows_cmd_builder_shape (test_notify.TestNotifySend.test_windows_cmd_builder_shape) ... ok
 test_broken_log_transform_cannot_break_primitive (test_observability.TestObserveWrapper.test_broken_log_transform_cannot_break_primitive) ... ok
 test_exception_line_and_reraises (test_observability.TestObserveWrapper.test_exception_line_and_reraises) ... ok
 test_log_transform_applied_to_log_only (test_observability.TestObserveWrapper.test_log_transform_applied_to_log_only) ... ok
@@ -577,8 +609,14 @@ The LLM says 'active window' (the goal phrasing) - the impl must ... ok
 test_missing_selector_raises_precondition (test_screenshot.TestWindowCapture.test_missing_selector_raises_precondition) ... ok
 test_no_active_window_raises_precondition (test_screenshot.TestWindowCapture.test_no_active_window_raises_precondition) ... ok
 test_selector_passes_geometry (test_screenshot.TestWindowCapture.test_selector_passes_geometry) ... ok
+test_env_json_override_wins_over_pass (test_secrets.TestSecrets.test_env_json_override_wins_over_pass) ... ok
+test_env_malformed_json_falls_back_to_pass (test_secrets.TestSecrets.test_env_malformed_json_falls_back_to_pass) ... ok
+test_env_partial_pair_falls_back_to_pass (test_secrets.TestSecrets.test_env_partial_pair_falls_back_to_pass)
+Only one of USERNAME/PASSWORD set is a misconfiguration - must ... ok
+test_env_username_password_pair (test_secrets.TestSecrets.test_env_username_password_pair) ... ok
 test_json_entry (test_secrets.TestSecrets.test_json_entry) ... ok
 test_missing_binary (test_secrets.TestSecrets.test_missing_binary) ... ok
+test_no_env_no_pass_error_names_the_override (test_secrets.TestSecrets.test_no_env_no_pass_error_names_the_override) ... ok
 test_nonzero_exit (test_secrets.TestSecrets.test_nonzero_exit) ... ok
 test_two_line_entry (test_secrets.TestSecrets.test_two_line_entry) ... ok
 test_unsupported_entry_shape (test_secrets.TestSecrets.test_unsupported_entry_shape) ... ok
@@ -661,9 +699,18 @@ test_env_override_relaxes_protection (test_window.TestProtectedClasses.test_env_
 test_address_prefix (test_window.TestSelectorNormalization.test_address_prefix) ... ok
 test_bare_name_becomes_class (test_window.TestSelectorNormalization.test_bare_name_becomes_class) ... ok
 test_explicit_prefix_passthrough (test_window.TestSelectorNormalization.test_explicit_prefix_passthrough) ... ok
+test_close_window_uses_postmessage_on_windows (test_window.TestWin32Backend.test_close_window_uses_postmessage_on_windows) ... ok
+test_focus_window_no_match_raises (test_window.TestWin32Backend.test_focus_window_no_match_raises) ... ok
+test_focus_window_uses_setforeground_on_windows (test_window.TestWin32Backend.test_focus_window_uses_setforeground_on_windows) ... ok
+test_list_clients_dispatches_to_win32 (test_window.TestWin32Backend.test_list_clients_dispatches_to_win32) ... ok
+test_move_to_workspace_stub_on_windows (test_window.TestWin32Backend.test_move_to_workspace_stub_on_windows) ... ok
+test_open_app_launches_via_popen_on_windows (test_window.TestWin32Backend.test_open_app_launches_via_popen_on_windows) ... ok
+test_shutdown_is_noop_on_windows (test_window.TestWin32Backend.test_shutdown_is_noop_on_windows) ... ok
+test_win_clients_shape (test_window.TestWin32Backend.test_win_clients_shape) ... ok
+test_win_enum_failure_degrades_to_empty (test_window.TestWin32Backend.test_win_enum_failure_degrades_to_empty) ... ok
 
 ----------------------------------------------------------------------
-Ran 537 tests in 29.299s
+Ran 577 tests in 39.936s
 
 OK
 ```

@@ -13,9 +13,16 @@ from tests.helpers import EnvTestCase
 
 
 class TestNotifySend(EnvTestCase):
+    # The POSIX (notify-send) tests pin _IS_WINDOWS to False: this suite
+    # runs on Windows too, where the default branch is the PowerShell
+    # toast (covered in the Windows tests below).
+
     def test_success(self):
         proc = mock.Mock(returncode=0, stdout="", stderr="")
-        with mock.patch.object(notify.subprocess, "run", return_value=proc) as run:
+        with (
+            mock.patch.object(notify, "_IS_WINDOWS", False),
+            mock.patch.object(notify.subprocess, "run", return_value=proc) as run,
+        ):
             out = notify.notify_send("Friday test", "body")
         self.assertEqual(out, {"title": "Friday test", "body": "body", "sent": True})
         cmd = run.call_args.args[0]
@@ -28,14 +35,20 @@ class TestNotifySend(EnvTestCase):
 
     def test_timeout_flag_respects_custom_value(self):
         proc = mock.Mock(returncode=0, stdout="", stderr="")
-        with mock.patch.object(notify.subprocess, "run", return_value=proc) as run:
+        with (
+            mock.patch.object(notify, "_IS_WINDOWS", False),
+            mock.patch.object(notify.subprocess, "run", return_value=proc) as run,
+        ):
             notify.notify_send("t", timeout_ms=2500)
         cmd = run.call_args.args[0]
         self.assertEqual(cmd[2], "2500")
 
     def test_no_body_omits_body_arg(self):
         proc = mock.Mock(returncode=0, stdout="", stderr="")
-        with mock.patch.object(notify.subprocess, "run", return_value=proc) as run:
+        with (
+            mock.patch.object(notify, "_IS_WINDOWS", False),
+            mock.patch.object(notify.subprocess, "run", return_value=proc) as run,
+        ):
             notify.notify_send("t")
         cmd = run.call_args.args[0]
         self.assertEqual(len(cmd), 4)  # no body appended
@@ -45,22 +58,56 @@ class TestNotifySend(EnvTestCase):
             notify.notify_send("   ")
 
     def test_missing_binary(self):
-        with mock.patch.object(notify.subprocess, "run", side_effect=FileNotFoundError):
+        with (
+            mock.patch.object(notify, "_IS_WINDOWS", False),
+            mock.patch.object(notify.subprocess, "run", side_effect=FileNotFoundError),
+        ):
             with self.assertRaises(PrimitiveError):
                 notify.notify_send("t")
 
     def test_nonzero_exit(self):
         proc = mock.Mock(returncode=1, stdout="", stderr="no notification daemon")
-        with mock.patch.object(notify.subprocess, "run", return_value=proc):
+        with (
+            mock.patch.object(notify, "_IS_WINDOWS", False),
+            mock.patch.object(notify.subprocess, "run", return_value=proc),
+        ):
             with self.assertRaises(PrimitiveError):
                 notify.notify_send("t")
 
     def test_timeout(self):
-        with mock.patch.object(
-            notify.subprocess, "run", side_effect=subprocess.TimeoutExpired("notify-send", 15)
+        with (
+            mock.patch.object(notify, "_IS_WINDOWS", False),
+            mock.patch.object(
+                notify.subprocess, "run", side_effect=subprocess.TimeoutExpired("notify-send", 15)
+            ),
         ):
             with self.assertRaises(PrimitiveError):
                 notify.notify_send("t")
+
+    # --- Windows backend (PowerShell NotifyIcon balloon; notify-send is
+    # POSIX-only) ---
+
+    def test_windows_branch_uses_powershell(self):
+        proc = mock.Mock(returncode=0, stdout="", stderr="")
+        with (
+            mock.patch.object(notify, "_IS_WINDOWS", True),
+            mock.patch.object(notify.subprocess, "run", return_value=proc) as run,
+        ):
+            out = notify.notify_send("Friday test", "it's ready")
+        self.assertEqual(out, {"title": "Friday test", "body": "it's ready", "sent": True})
+        cmd = run.call_args.args[0]
+        self.assertEqual(cmd[0], "powershell")
+        self.assertIn("-STA", cmd)
+        self.assertIn("BalloonTipTitle = 'Friday test'", cmd[-1])
+        # embedded single quote is escaped by doubling (PowerShell rule)
+        self.assertIn("it''s ready", cmd[-1])
+
+    def test_windows_cmd_builder_shape(self):
+        cmd = notify._windows_cmd("t'x", "b", 2500)
+        self.assertEqual(cmd[0], "powershell")
+        self.assertIn("BalloonTipTitle = 't''x'", cmd[-1])
+        self.assertIn("ShowBalloonTip(2500)", cmd[-1])
+        self.assertIn("$n.Dispose()", cmd[-1])
 
 
 if __name__ == "__main__":

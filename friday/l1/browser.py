@@ -33,6 +33,10 @@ from playwright.sync_api import (
 from friday.contracts import Idempotency, contract
 from friday.errors import PreconditionError, PrimitiveError
 
+# Windows-port flag (2026-08-17): the orphan sweep has no pgrep on
+# Windows, so it shells to PowerShell instead.
+_IS_WINDOWS = os.name == "nt"
+
 PROFILE_DIR = Path(__file__).resolve().parents[2] / "var" / "browser_profile"
 DEFAULT_NAV_TIMEOUT_MS = 30_000
 
@@ -44,11 +48,35 @@ _page = None
 # ---------------------------------------------------------------- internals
 
 
+def _sweep_windows(pattern: str) -> int:
+    """Windows orphan sweep: there is no pgrep, and os.kill would be a hard
+    TerminateProcess, so list processes by command line (Get-CimInstance)
+    and Stop-Process them. Best-effort like the POSIX path - never raises."""
+    escaped = pattern.replace("'", "''")
+    ps = (
+        "Get-CimInstance Win32_Process | "
+        f"Where-Object {{ $_.CommandLine -like '*{escaped}*' }} | "
+        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+    )
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return 0
+    return 0
+
+
 def _sweep_orphans() -> int:
     """Kill any orphaned browser instance still holding the automation
     profile before launching - a locked profile makes Playwright fail with
-    a cryptic error."""
+    a cryptic error. POSIX: pgrep -f + SIGTERM; Windows: PowerShell."""
     pattern = f"--user-data-dir={PROFILE_DIR}"
+    if _IS_WINDOWS:
+        return _sweep_windows(pattern)
     try:
         out = subprocess.run(
             ["pgrep", "-f", re.escape(pattern)], capture_output=True, text=True, timeout=5

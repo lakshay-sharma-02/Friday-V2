@@ -42,6 +42,8 @@ test = [
 
 [project.scripts]
 friday = "friday.__main__:main"
+friday-mcp = "friday.mcp_server:main"
+friday-webhook = "friday.webhook_server:main"
 
 [project.urls]
 Homepage = "https://github.com/lakshay/Friday-V2"

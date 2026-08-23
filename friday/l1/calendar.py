@@ -273,3 +273,85 @@ def add_event(summary: str, start: str, end: str) -> dict[str, str]:
         "end_time": end_dt,
         "status": result.get("status", ""),
     }
+
+
+# ---- calendar.delete_event ----
+
+
+@contract(
+    precondition="event_id is a non-empty string; OAuth credentials with calendar.events scope.",
+    postcondition="Deletes the event from the primary calendar.",
+    idempotency=Idempotency.COMMUTATIVE_SAFE,
+    failure_mode="PreconditionError for empty event_id; PrimitiveError on API failure.",
+    returns="dict: {event_id, status}.",
+)
+def delete_event(event_id: str) -> dict[str, str]:
+    """Delete an event from the primary Google Calendar."""
+    if not event_id or not event_id.strip():
+        raise PreconditionError("delete_event requires a non-empty event_id")
+    token = _access_token()
+    url = f"{API_BASE}/calendars/primary/events/{event_id.strip()}"
+    headers = {"Authorization": f"Bearer {token}"}
+    resp = requests.delete(url, headers=headers, timeout=30)
+    if resp.status_code not in (200, 204):
+        raise PrimitiveError(
+            f"calendar.delete_event failed ({resp.status_code}): {resp.text[:300]}"
+        )
+    return {"event_id": event_id.strip(), "status": "deleted"}
+
+
+# ---- calendar.update_event ----
+
+
+@contract(
+    precondition="event_id is non-empty; OAuth credentials with calendar.events scope; at least one of summary/start/end is provided.",
+    postcondition="Updates the event on the primary calendar. Returns updated metadata.",
+    idempotency=Idempotency.COMMUTATIVE_SAFE,
+    failure_mode="PreconditionError for empty event_id; PrimitiveError on API failure.",
+    returns="dict: {event_id, summary, start_time, end_time, status}.",
+    log_transform=_log_redact_add_event,
+)
+def update_event(
+    event_id: str,
+    summary: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+) -> dict[str, str]:
+    """Update an existing event on the primary Google Calendar.
+
+    Only the provided fields are updated (partial update). Pass summary,
+    start, and/or end as needed.
+    """
+    if not event_id or not event_id.strip():
+        raise PreconditionError("update_event requires a non-empty event_id")
+    token = _access_token()
+    url = f"{API_BASE}/calendars/primary/events/{event_id.strip()}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    body: dict[str, Any] = {}
+    if summary:
+        body["summary"] = summary
+    if start:
+        try:
+            datetime.fromisoformat(start.replace("Z", "+00:00"))
+        except ValueError:
+            raise PreconditionError(f"start must be RFC 3339, got {start!r}")
+        body["start"] = {"dateTime": start}
+    if end:
+        try:
+            datetime.fromisoformat(end.replace("Z", "+00:00"))
+        except ValueError:
+            raise PreconditionError(f"end must be RFC 3339, got {end!r}")
+        body["end"] = {"dateTime": end}
+    resp = requests.patch(url, headers=headers, json=body, timeout=30)
+    if resp.status_code != 200:
+        raise PrimitiveError(
+            f"calendar.update_event failed ({resp.status_code}): {resp.text[:300]}"
+        )
+    result = resp.json()
+    return {
+        "event_id": result.get("id", ""),
+        "summary": result.get("summary", ""),
+        "start_time": result.get("start", {}).get("dateTime", ""),
+        "end_time": result.get("end", {}).get("dateTime", ""),
+        "status": result.get("status", ""),
+    }

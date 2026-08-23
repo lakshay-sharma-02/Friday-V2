@@ -173,6 +173,7 @@ def my_function():
 ## Documentation
 
 - **User Guide**: `docs/user-guide.md` - Getting started
+- **MCP Server**: `docs/mcp.md` - wiring Friday's primitives into Claude Desktop / Claude Code / Cursor
 - **Architecture**: `docs/architecture.md` - System design
 - **API Reference**: Generated from docstrings
 - **README.md**: Main entry point

@@ -15,9 +15,11 @@ from unittest import mock
 from friday.errors import FridayError, PrimitiveError
 from friday.watcher import (
     _emit_heartbeat,
+    _has_pending_media,
     _make_plan,
     _new_files,
     _run_trigger,
+    _run_whatsapp_media_trigger,
     _time_due,
     load_config,
     run_watcher,
@@ -44,6 +46,193 @@ def _plan(directory, name):
             }
         ],
     }
+
+
+class TestWhatsAppMediaTrigger(EnvTestCase):
+    """The whatsapp-media trigger type: polls a pending queue for
+    media_ids enqueued by a webhook handler, downloads each to
+    ~/Downloads, and notifies the user."""
+
+    def test_whatsapp_media_trigger_loads(self):
+        """A whatsapp-media trigger must pass config validation."""
+        f = self.mktmp() / "w.json"
+        f.write_text(
+            json.dumps(
+                {
+                    "triggers": [
+                        {
+                            "id": "whatsapp-dl",
+                            "goal": "download pending WhatsApp media",
+                            "schedule": {"type": "whatsapp-media"},
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        triggers = load_config(f)
+        self.assertEqual(len(triggers), 1)
+        self.assertEqual(triggers[0]["schedule"]["type"], "whatsapp-media")
+
+    def test_has_pending_media_true(self):
+        """_has_pending_media returns True when there are items in the queue."""
+        import tempfile
+
+        from friday.l1.whatsapp import enqueue_media_for_download
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pending_file = Path(tmpdir) / "pending.json"
+            self.set_env(FRIDAY_WHATSAPP_PENDING_FILE=str(pending_file))
+            self.assertFalse(_has_pending_media())
+            enqueue_media_for_download("m1")
+            self.assertTrue(_has_pending_media())
+
+    def test_has_pending_media_false_when_empty(self):
+        """_has_pending_media returns False when queue is empty or missing."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.set_env(
+                FRIDAY_WHATSAPP_PENDING_FILE=str(Path(tmpdir) / "empty.json")
+            )
+            self.assertFalse(_has_pending_media())
+
+    def test_download_pending_media_full_flow(self):
+        """_download_pending_media downloads all pending items and clears
+        the queue."""
+        import tempfile
+
+        from friday.l1.whatsapp import enqueue_media_for_download
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pending_file = Path(tmpdir) / "pending.json"
+            self.set_env(FRIDAY_WHATSAPP_PENDING_FILE=str(pending_file))
+            enqueue_media_for_download("m1", sender="+123")
+            enqueue_media_for_download("m2", sender="+456")
+            fake_result = {
+                "path": "/tmp/test.png",
+                "filename": "test.png",
+                "mime_type": "image/png",
+                "file_size": 1024,
+            }
+            with unittest.mock.patch("friday.l1.whatsapp.download_media", return_value=fake_result):
+                from friday.watcher import _download_pending_media
+
+                result = _download_pending_media()
+            self.assertEqual(len(result["downloaded"]), 2)
+            self.assertEqual(result["pending_remaining"], 0)
+            self.assertEqual(len(result["errors"]), 0)
+            # queue should be cleared
+            self.assertFalse(_has_pending_media())
+
+    def test_run_whatsapp_media_trigger_completes(self):
+        """The whatsapp-media trigger handler runs and records properly."""
+        import tempfile
+
+        from friday.l1.whatsapp import enqueue_media_for_download
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pending_file = Path(tmpdir) / "pending.json"
+            self.set_env(FRIDAY_WHATSAPP_PENDING_FILE=str(pending_file))
+            enqueue_media_for_download("m1", sender="+123")
+            trigger = {
+                "id": "whatsapp-dl",
+                "schedule": {"type": "whatsapp-media"},
+                "notify": False,
+            }
+            fake_result = {
+                "path": "/tmp/test.pdf",
+                "filename": "test.pdf",
+                "mime_type": "application/pdf",
+                "file_size": 2048,
+            }
+            with unittest.mock.patch("friday.l1.whatsapp.download_media", return_value=fake_result):
+                detail = _run_whatsapp_media_trigger(trigger, "run-test")
+            self.assertEqual(detail["status"], "COMPLETED")
+            self.assertEqual(detail["downloaded_count"], 1)
+            self.assertEqual(detail["downloaded_files"][0]["sender"], "+123")
+
+    def test_run_whatsapp_media_trigger_empty_queue(self):
+        """When queue is empty, trigger completes with 0 downloads."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pending_file = Path(tmpdir) / "pending.json"
+            self.set_env(FRIDAY_WHATSAPP_PENDING_FILE=str(pending_file))
+            trigger = {
+                "id": "whatsapp-dl",
+                "schedule": {"type": "whatsapp-media"},
+                "notify": False,
+            }
+            detail = _run_whatsapp_media_trigger(trigger, "run-test")
+            self.assertEqual(detail["status"], "COMPLETED")
+            self.assertEqual(detail["downloaded_count"], 0)
+
+    def test_whatsapp_media_trigger_end_to_end(self):
+        """Full watcher run with a whatsapp-media trigger: enqueue ->
+        trigger fires -> downloads -> records."""
+        import tempfile
+
+        from friday.l1.whatsapp import enqueue_media_for_download
+
+        d = self.mktmp()
+        pending_file = d / "pending.json"
+        tasks = d / "tasks.jsonl"
+        cfg = d / "w.json"
+        cfg.write_text(
+            json.dumps(
+                {
+                    "triggers": [
+                        {
+                            "id": "whatsapp-dl",
+                            "goal": "download pending WhatsApp media",
+                            "schedule": {"type": "whatsapp-media"},
+                            "notify": False,
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.set_env(
+            FRIDAY_TASKS_FILE=str(tasks),
+            FRIDAY_WHATSAPP_PENDING_FILE=str(pending_file),
+        )
+        enqueue_media_for_download("m1", sender="+123")
+        fake_result = {
+            "path": "/tmp/test.png",
+            "filename": "test.png",
+            "mime_type": "image/png",
+            "file_size": 512,
+        }
+        with unittest.mock.patch("friday.l1.whatsapp.download_media", return_value=fake_result):
+            run_watcher(str(cfg), once=True)
+        recs = [json.loads(l) for l in open(tasks, encoding="utf-8") if l.strip()]
+        self.assertEqual(len(recs), 1)
+        self.assertTrue(recs[0]["gate6_passed"])
+        proof = json.loads(recs[0]["proof"])
+        self.assertEqual(proof["status"], "COMPLETED")
+        self.assertEqual(proof["downloaded_count"], 1)
+
+    def test_whatsapp_media_trigger_due_check(self):
+        """The whatsapp-media trigger is due when there are pending items
+        and not in retry backoff."""
+        import tempfile
+
+        from friday.l1.whatsapp import enqueue_media_for_download
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pending_file = Path(tmpdir) / "pending.json"
+            self.set_env(FRIDAY_WHATSAPP_PENDING_FILE=str(pending_file))
+            trigger = {
+                "id": "w",
+                "schedule": {"type": "whatsapp-media"},
+            }
+            # No pending -> not due
+            self.assertFalse(_has_pending_media())
+            # Enqueue something -> due
+            enqueue_media_for_download("m1")
+            self.assertTrue(_has_pending_media())
 
 
 class TestConfigValidation(EnvTestCase):

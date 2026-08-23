@@ -9,15 +9,112 @@ All functions shell out to `hyprctl`; the compositor session must be live
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import subprocess
 import time
 from collections.abc import Callable
+from ctypes import wintypes
 from typing import Any
 
 from friday.contracts import Idempotency, contract
 from friday.errors import PreconditionError, PrimitiveError, PrimitiveTimeout
+
+# Windows-port flag (2026-08-17, the port's step 7 - the win32 backend).
+# The public primitives branch on this; on Windows they drive the real
+# desktop through ctypes/user32 (live-verified on Windows 11 that day)
+# instead of hyprctl. The CONTRACT surface, selector resolution and
+# protected-window refusal are shared - only the dispatch differs.
+_IS_WINDOWS = os.name == "nt"
+_WM_CLOSE = 0x0010
+_user32_cache: Any = None
+
+
+def _user32() -> Any:
+    """Lazily-loaded user32 DLL - only ever touched on Windows (ctypes
+    WinDLL does not exist on POSIX)."""
+    global _user32_cache
+    if _user32_cache is None:
+        _user32_cache = ctypes.WinDLL("user32", use_last_error=True)
+    return _user32_cache
+
+
+def _win_enum_windows() -> list[tuple[int, str, str, int, list[int]]]:
+    """(hwnd, title, class, pid, [x, y, w, h]) for every visible top-level
+    window that has a title. Live-verified on Windows 11, 2026-08-17."""
+    user32 = _user32()
+    found: list[tuple[int, str, str, int, list[int]]] = []
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    @callback_type  # type: ignore[untyped-decorator]  # ctypes callback shim
+    def _cb(hwnd: int, _lparam: int) -> bool:
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        length = user32.GetWindowTextLengthW(hwnd)
+        if not length:
+            return True
+        buf = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buf, length + 1)
+        cls = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW(hwnd, cls, 256)
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        rect = wintypes.RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(rect))
+        found.append(
+            (
+                hwnd,
+                buf.value,
+                cls.value,
+                pid.value,
+                [rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top],
+            )
+        )
+        return True
+
+    user32.EnumWindows(_cb, 0)
+    return found
+
+
+def _win_clients() -> list[dict[str, Any]]:
+    """hyprctl-shaped client dicts for the win32 backend: 'address' is the
+    hwnd in 0x... form so the existing selector resolution, protected-class
+    refusal and L2 checks work unchanged. Best-effort: any win32 failure
+    degrades to an empty list (read-only), never a crash."""
+    out: list[dict[str, Any]] = []
+    try:
+        rows = _win_enum_windows()
+    except Exception:
+        return []
+    for hwnd, title, cls, pid, geo in rows:
+        out.append(
+            {
+                "address": f"0x{hwnd:x}",
+                "class": cls,
+                "initialClass": cls,
+                "title": title,
+                "initialTitle": title,
+                "pid": pid,
+                "at": [geo[0], geo[1]],
+                "size": [geo[2], geo[3]],
+                "workspace": {"id": 0},
+                "mapped": True,
+            }
+        )
+    return out
+
+
+def _win_active_window() -> dict[str, Any] | None:
+    hwnd = _user32().GetForegroundWindow()
+    if not hwnd:
+        return None
+    needle = f"0x{hwnd:x}"
+    for c in _win_clients():
+        if str(c.get("address")) == needle:
+            return c
+    return None
+
 
 HYPRCTL = "hyprctl"
 DEFAULT_TIMEOUT = 15.0
@@ -165,6 +262,8 @@ def _log_clients_result(result: Any) -> Any:
     log_transform=_log_clients_result,
 )
 def list_clients() -> list[dict[str, Any]]:
+    if _IS_WINDOWS:
+        return _win_clients()
     proc = _hyprctl("clients", "-j")
     try:
         clients = json.loads(proc.stdout)
@@ -184,6 +283,8 @@ def list_clients() -> list[dict[str, Any]]:
     log_transform=_log_clients_result,
 )
 def get_active_window() -> dict[str, Any] | None:
+    if _IS_WINDOWS:
+        return _win_active_window()
     proc = _hyprctl("activewindow", "-j")
     try:
         data = json.loads(proc.stdout)
@@ -208,6 +309,29 @@ def open_app(command: str) -> dict[str, Any]:
     if not command or not command.strip():
         raise PreconditionError("open_app requires a non-empty command")
     token = command.strip().split()[0].split("/")[-1].lower()
+    if _IS_WINDOWS:
+        before_addrs = {c.get("address") for c in list_clients()}
+
+        def _find_new() -> dict[str, Any] | None:
+            # first NEW window that appeared after the launch
+            for c in list_clients():
+                if c.get("address") not in before_addrs:
+                    return c
+            return None
+
+        try:
+            subprocess.Popen(command.strip(), shell=True)
+        except OSError as exc:
+            raise PrimitiveError(
+                f"could not launch {command!r}: {exc}", state="app not launched"
+            ) from exc
+        new_found: dict[str, Any] | None = _wait_until_return(_find_new, timeout=12.0, interval=0.3)
+        if new_found is None:
+            raise PrimitiveError(
+                f"no new window appeared within 12s of launching '{command}'",
+                state="command was launched; verify with list_clients()",
+            )
+        return new_found
     before = list_clients()
     before_addrs = {c.get("address") for c in before}
     pre_existing = [c for c in before if token in _client_haystack(c)]
@@ -272,7 +396,10 @@ def close_window(selector: str) -> None:
     # protected window, even when the selector is an explicit address.
     _refuse_protected_targets(targets)
     for address in targets:
-        _hyprctl("dispatch", "closewindow", f"address:{address}")
+        if _IS_WINDOWS:
+            _user32().PostMessageW(int(address, 16), _WM_CLOSE, 0, 0)
+        else:
+            _hyprctl("dispatch", "closewindow", f"address:{address}")
 
         def _gone(address: str = address) -> bool:
             return all(str(c.get("address")) != address for c in list_clients())
@@ -333,6 +460,30 @@ def focus_window(selector: str) -> None:
     if not selector or not selector.strip():
         raise PreconditionError("focus_window requires a non-empty selector")
     selector = selector.strip()
+    if _IS_WINDOWS:
+        targets = (
+            [selector]
+            if selector.startswith("0x")
+            else [
+                str(c["address"]) for c in list_clients() if selector.lower() in _client_haystack(c)
+            ]
+        )
+        if not targets:
+            raise PrimitiveError(
+                f"no window matches selector {selector!r}", state="nothing focused"
+            )
+        _user32().SetForegroundWindow(int(targets[0], 16))
+
+        def _focused_win() -> bool:
+            aw = get_active_window()
+            return aw is not None and str(aw.get("address")) == targets[0]
+
+        if not _wait_until(_focused_win, timeout=5.0):
+            raise PrimitiveError(
+                f"could not focus '{selector}'",
+                state="focus dispatched; verify with get_active_window()",
+            )
+        return
     _hyprctl("dispatch", "focuswindow", _selector_arg(selector))
 
     def _focused() -> bool:
@@ -363,6 +514,11 @@ def move_to_workspace(workspace_id: int, selector: str) -> None:
     if not selector or not selector.strip():
         raise PreconditionError("move_to_workspace requires a non-empty selector")
     selector = selector.strip()
+    if _IS_WINDOWS:
+        raise PreconditionError(
+            "move_to_workspace is not supported on Windows yet: virtual desktops "
+            "need the IVirtualDesktopManager COM API"
+        )
     _hyprctl("dispatch", "movetoworkspace", f"{workspace_id},{_selector_arg(selector)}")
 
     def _moved() -> bool:
@@ -388,4 +544,8 @@ def move_to_workspace(workspace_id: int, selector: str) -> None:
     returns="None",
 )
 def shutdown() -> None:
+    if _IS_WINDOWS:
+        # No compositor to end on Windows. The primitive is EXECUTOR_BLOCKED
+        # anyway (a plan can never reach it); a direct call is a no-op here.
+        return
     _hyprctl("dispatch", "exit")
