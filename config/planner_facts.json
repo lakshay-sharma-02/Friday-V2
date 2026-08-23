@@ -12,7 +12,8 @@
     "whatsapp": "918396020807",
     "telegram": "8449939313",
     "discord": "1535284689642983486",
-    "gmail_sender": "accounts.google.com"
+    "gmail_sender": "accounts.google.com",
+    "email": "lakshay@codebuff.com"
   },
   "facts": [
     "firefox launches via window.open_app(\"firefox\").",

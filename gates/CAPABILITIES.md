@@ -281,6 +281,7 @@ never sees them and L3 refuses them:
 | `memory-maintenance` | true | time 03:00 [sun] | false | memory.maintenance |
 | `morning-calendar-summary` | true | time 08:00 [daily] | true | calendar.list_upcoming |
 | `morning-clipboard-digest` | true | time 08:05 [daily] | true | calendar.list_upcoming, dev.digest, clipboard.write_text |
+| `morning-email-digest` | false | time 09:15 [mon,tue,wed,thu,fri] | true | gmail.list_unread, gmail.get_message, gmail.summarize, gmai… |
 | `morning-gmail-summary` | true | time 09:00 [mon,tue,wed,thu,fri] | true | gmail.list_unread, gmail.get_message, gmail.summarize |
 | `new-download-alert` | true | file - [daily] | true | files.find_newest, whatsapp.send_document |
 | `screenshot-digest` | true | time 12:00 [mon,tue,wed,thu,fri] | true | screenshot.capture, vision.describe, notify.notify_send |
@@ -289,6 +290,7 @@ never sees them and L3 refuses them:
 | `telegram-inbound-text` | false | time 12:00 [mon,tue,wed,thu,fri,sat,sun] | false | telegram.poll_text_messages, telegram.enqueue_text_message |
 | `telegram-media-download` | true | telegram-media - [daily] | true | - |
 | `weekly-cross-project-digest` | true | time 10:00 [sun] | true | dev.digest, digestcheck.verify_attribution, files.find_rece… |
+| `weekly-email-digest` | false | time 10:30 [sun] | true | git.log, files.find_recent_doc, files.read_text, dev.digest… |
 | `whatsapp-media-download` | true | whatsapp-media - [daily] | true | - |
 
 ## Capability-gap loop (self-improvement)

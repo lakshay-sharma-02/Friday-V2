@@ -717,6 +717,128 @@
       "notify": false,
       "allow": ["discord.poll_messages", "discord.enqueue_text_message"],
       "_docs": "ADDED 2026-08-24: polls Discord for new text messages and enqueues them for processing. Fires once daily at 12:10. For more frequent polling, set up a cron job."
+    },
+    {
+      "id": "morning-email-digest",
+      "goal": "summarize my latest unread email and send the summary to my email address",
+      "plan": {
+        "goal": "summarize my latest unread email and send it via email",
+        "steps": [
+          {
+            "primitive": "gmail.list_unread",
+            "args": {"max_results": 1},
+            "verify": {
+              "check": "checks.gmail_unread_exists",
+              "args": {"sender": ""},
+              "expect": true
+            }
+          },
+          {
+            "primitive": "gmail.get_message",
+            "args": {"message_id": "$steps.1.result.0.message_id"},
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {"value": "$steps.2.result.body"},
+              "expect": true
+            }
+          },
+          {
+            "primitive": "gmail.summarize",
+            "args": {"message_id": "$steps.1.result.0.message_id"},
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {"value": "$steps.3.result"},
+              "expect": true
+            }
+          },
+          {
+            "primitive": "gmail.send_text",
+            "args": {
+              "text": "$steps.3.result",
+              "to": "$facts.email",
+              "subject": "Friday: Morning Email Digest"
+            },
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {"value": "$steps.4.result.message_id"},
+              "expect": true
+            }
+          }
+        ]
+      },
+      "schedule": {"type": "time", "at": "09:15", "days": ["mon","tue","wed","thu","fri"]},
+      "enabled": false,
+      "notify": true,
+      "allow": ["gmail.list_unread", "gmail.get_message", "gmail.summarize", "gmail.send_text"],
+      "_docs": "ADDED 2026-08-24: emails the morning gmail summary instead of just desktop notification. Runs at 09:15 (15 min after morning-gmail-summary). Disabled by default - enable when you want email delivery."
+    },
+    {
+      "id": "weekly-email-digest",
+      "goal": "produce a weekly cross-project digest and email it to me",
+      "plan": {
+        "goal": "produce a weekly cross-project digest and email it",
+        "steps": [
+          {
+            "primitive": "git.log",
+            "args": {"repo_path": ".", "count": 10},
+            "verify": {
+              "check": "checks.list_nonempty",
+              "args": {"value": "$steps.1.result"},
+              "expect": true
+            }
+          },
+          {
+            "primitive": "files.find_recent_doc",
+            "args": {"repo_path": "."},
+            "verify": {
+              "check": "checks.file_exists",
+              "args": {"path": "$steps.2.result"},
+              "expect": true
+            }
+          },
+          {
+            "primitive": "files.read_text",
+            "args": {"path": "$steps.2.result", "max_chars": 6000},
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {"value": "$steps.3.result.text"},
+              "expect": true
+            }
+          },
+          {
+            "primitive": "dev.digest",
+            "args": {
+              "context": {
+                "friday git log": "$steps.1.result",
+                "friday status doc": "$steps.3.result.text"
+              }
+            },
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {"value": "$steps.4.result"},
+              "expect": true
+            }
+          },
+          {
+            "primitive": "gmail.send_text",
+            "args": {
+              "text": "$steps.4.result",
+              "to": "$facts.email",
+              "subject": "Friday: Weekly Project Digest"
+            },
+            "verify": {
+              "check": "checks.text_nonempty",
+              "args": {"value": "$steps.5.result.message_id"},
+              "expect": true
+            }
+          }
+        ]
+      },
+      "schedule": {"type": "time", "at": "10:30", "days": ["sun"]},
+      "enabled": false,
+      "notify": true,
+      "allow": ["git.log", "files.find_recent_doc", "files.read_text", "dev.digest", "gmail.send_text"],
+      "_docs": "ADDED 2026-08-24: emails the weekly cross-project digest. Runs at 10:30 (30 min after the desktop notification version). Disabled by default - enable when you want email delivery."
     }
   ]
 }
