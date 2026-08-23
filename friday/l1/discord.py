@@ -368,3 +368,82 @@ def download_attachment(
         "filename": filename,
         "file_size": len(resp.content),
     }
+
+
+# ---- inbound text message queue (2026-08-24) ----
+# Discord bots can receive text messages via REST. This queue stores
+# incoming text messages for the watcher to process.
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_PENDING_TEXT_FILE = PROJECT_ROOT / "var" / "state" / "discord_pending_text.json"
+
+
+def _pending_text_file() -> Path:
+    return Path(os.environ.get(
+        "FRIDAY_DISCORD_PENDING_TEXT_FILE", str(DEFAULT_PENDING_TEXT_FILE)
+    ))
+
+
+def enqueue_text_message(
+    message_id: str,
+    channel_id: str,
+    text: str,
+    sender: str = "",
+) -> dict[str, Any]:
+    """Enqueue an incoming text message for the watcher to process."""
+    if not message_id:
+        raise PreconditionError("enqueue_text_message requires a non-empty message_id")
+    pending = _pending_text_file()
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    existing: list[dict[str, Any]] = []
+    try:
+        data = json.loads(pending.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            existing = data
+    except (OSError, ValueError):
+        pass
+    seen_ids = {item.get("message_id") for item in existing}
+    if message_id in seen_ids:
+        return {"status": "already_enqueued", "message_id": message_id}
+    entry = {
+        "message_id": message_id,
+        "channel_id": channel_id,
+        "text": text,
+        "sender": sender,
+    }
+    existing.append(entry)
+    tmp = pending.with_name(pending.name + ".tmp")
+    tmp.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, pending)
+    return {"status": "enqueued", "message_id": message_id, "pending_count": len(existing)}
+
+
+def load_pending_text() -> list[dict[str, Any]]:
+    """Read and return the pending text message queue."""
+    try:
+        data = json.loads(_pending_text_file().read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def clear_pending_text(message_ids: list[str] | None = None) -> None:
+    """Remove processed message_ids from the pending file."""
+    pending = _pending_text_file()
+    try:
+        existing: list[dict[str, Any]] = json.loads(
+            pending.read_text(encoding="utf-8")
+        )
+        if not isinstance(existing, list):
+            existing = []
+    except (OSError, ValueError):
+        existing = []
+    if message_ids is None:
+        new_list: list[dict[str, Any]] = []
+    else:
+        ids_to_remove = set(message_ids)
+        new_list = [item for item in existing if item.get("message_id") not in ids_to_remove]
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    tmp = pending.with_name(pending.name + ".tmp")
+    tmp.write_text(json.dumps(new_list, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, pending)

@@ -607,6 +607,116 @@
         "notify.notify_send"
       ],
       "_docs": "ADDED 2026-08-23, ENABLED 2026-08-24: the vision trigger - captures a screenshot, uses the free vision model (oc/mimo-v2.5-free) to describe what's on screen, and notifies the user. Deterministic plan (no L4 LLM): screenshot.capture -> vision.describe -> notify. Requires FRIDAY_ALLOW_DANGEROUS=1 for vision.describe permission bypass."
+    },
+    {
+      "id": "telegram-inbound",
+      "goal": "poll for new Telegram messages and download any media files to ~/Downloads",
+      "plan": {
+        "goal": "poll for new Telegram messages and download any media files",
+        "steps": [
+          {
+            "primitive": "telegram.poll_updates",
+            "args": {"limit": 10},
+            "verify": {
+              "check": "checks.list_nonempty",
+              "args": {"value": "$steps.1.result"},
+              "expect": true
+            }
+          },
+          {
+            "primitive": "telegram.download_file",
+            "args": {"file_id": "$steps.1.result.0.file_id"},
+            "verify": {
+              "check": "checks.file_exists",
+              "args": {"path": "$steps.2.result.path"},
+              "expect": true
+            }
+          }
+        ]
+      },
+      "schedule": {"type": "telegram-media"},
+      "enabled": true,
+      "notify": true,
+      "allow": ["telegram.poll_updates", "telegram.download_file"],
+      "_docs": "ADDED 2026-08-24: polls Telegram for new media messages and downloads them to ~/Downloads. Uses the existing telegram-media trigger type."
+    },
+    {
+      "id": "telegram-inbound-text",
+      "goal": "poll for new Telegram text messages and store them for processing",
+      "plan": {
+        "goal": "poll for new Telegram text messages",
+        "steps": [
+          {
+            "primitive": "telegram.poll_text_messages",
+            "args": {"limit": 10},
+            "verify": {
+              "check": "checks.list_nonempty",
+              "args": {"value": "$steps.1.result"},
+              "expect": true
+            }
+          }
+        ]
+      },
+      "schedule": {"type": "time", "at": "12:00", "days": ["mon","tue","wed","thu","fri","sat","sun"]},
+      "enabled": false,
+      "notify": false,
+      "allow": ["telegram.poll_text_messages", "telegram.enqueue_text_message"],
+      "_docs": "ADDED 2026-08-24: polls Telegram for new text messages and enqueues them for processing. Fires once daily at 12:00. For more frequent polling, set up a cron job that runs: ./.venv/bin/python -m friday.watcher --once"
+    },
+    {
+      "id": "discord-inbound",
+      "goal": "poll for new Discord messages and download any attachments to ~/Downloads",
+      "plan": {
+        "goal": "poll for new Discord messages and download attachments",
+        "steps": [
+          {
+            "primitive": "discord.poll_messages",
+            "args": {"limit": 10},
+            "verify": {
+              "check": "checks.list_nonempty",
+              "args": {"value": "$steps.1.result"},
+              "expect": true
+            }
+          },
+          {
+            "primitive": "discord.download_attachment",
+            "args": {"file_url": "$steps.1.result.0.attachments.0.url"},
+            "verify": {
+              "check": "checks.file_exists",
+              "args": {"path": "$steps.2.result.path"},
+              "expect": true
+            }
+          }
+        ]
+      },
+      "schedule": {"type": "time", "at": "12:05", "days": ["mon","tue","wed","thu","fri","sat","sun"]},
+      "enabled": false,
+      "notify": false,
+      "allow": ["discord.poll_messages", "discord.download_attachment"],
+      "_docs": "ADDED 2026-08-24: polls Discord for new messages with attachments and downloads them to ~/Downloads. Fires once daily at 12:05. For more frequent polling, set up a cron job."
+    },
+    {
+      "id": "discord-inbound-text",
+      "goal": "poll for new Discord text messages and store them for processing",
+      "plan": {
+        "goal": "poll for new Discord text messages",
+        "steps": [
+          {
+            "primitive": "discord.poll_messages",
+            "args": {"limit": 10},
+            "verify": {
+              "check": "checks.list_nonempty",
+              "args": {"value": "$steps.1.result"},
+              "expect": true
+            }
+          }
+        ]
+      },
+      "schedule": {"type": "time", "at": "12:10", "days": ["mon","tue","wed","thu","fri","sat","sun"]},
+      "enabled": false,
+      "notify": false,
+      "allow": ["discord.poll_messages", "discord.enqueue_text_message"],
+      "_docs": "ADDED 2026-08-24: polls Discord for new text messages and enqueues them for processing. Fires once daily at 12:10. For more frequent polling, set up a cron job."
     }
   ]
 }

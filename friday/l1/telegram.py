@@ -427,3 +427,159 @@ def download_file(
         "file_size": len(dl_resp.content),
         "file_id": file_id,
     }
+
+
+# ---- inbound text message queue (2026-08-24) ----
+# Telegram bots can receive text messages via getUpdates. This queue
+# stores incoming text messages for the watcher to process.
+
+DEFAULT_PENDING_TEXT_FILE = PROJECT_ROOT / "var" / "state" / "telegram_pending_text.json"
+
+
+def _pending_text_file() -> Path:
+    return Path(os.environ.get(
+        "FRIDAY_TELEGRAM_PENDING_TEXT_FILE", str(DEFAULT_PENDING_TEXT_FILE)
+    ))
+
+
+@contract(
+    precondition="bot_token is configured and the token is valid.",
+    postcondition="Returns ALL new incoming messages (text + media) since the last poll. Each message dict contains: update_id, message_id, chat_id, date, from, and text and/or media fields.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PrimitiveError on API failure.",
+    returns="list[dict]: messages with update_id, message_id, chat_id, date, from, text, media fields.",
+)
+def poll_text_messages(limit: int = 10) -> list[dict[str, Any]]:
+    """Poll for ALL new incoming messages (text + media). Unlike
+    poll_updates which only returns media messages, this captures
+    everything including text messages for the inbound handler."""
+    token = _get_token()
+    offset = _load_offset()
+    params: dict[str, Any] = {"limit": limit, "timeout": 0}
+    if offset > 0:
+        params["offset"] = offset
+    try:
+        resp = requests.get(
+            _api_url(token, "getUpdates"), params=params, timeout=30
+        )
+    except requests.Timeout as exc:
+        raise PrimitiveError(
+            "telegram getUpdates timed out", state="offset not updated"
+        ) from exc
+    if resp.status_code != 200:
+        raise PrimitiveError(
+            f"telegram getUpdates failed ({resp.status_code}): {resp.text[:300]}",
+            state="offset not updated",
+        )
+    body = resp.json()
+    if not body.get("ok"):
+        raise PrimitiveError(
+            f"telegram getUpdates rejected: {resp.text[:300]}",
+            state="offset not updated",
+        )
+    updates = body.get("result", [])
+    messages: list[dict[str, Any]] = []
+    max_id = offset
+    for update in updates:
+        uid = update.get("update_id", 0)
+        if uid >= max_id:
+            max_id = uid + 1
+        msg = update.get("message", {})
+        if not msg:
+            continue
+        parsed: dict[str, Any] = {
+            "update_id": uid,
+            "message_id": msg.get("message_id"),
+            "chat_id": str(msg.get("chat", {}).get("id", "")),
+            "date": msg.get("date", 0),
+            "from": msg.get("from", {}).get("username", ""),
+        }
+        # Text content
+        if msg.get("text"):
+            parsed["text"] = msg["text"]
+        # Media content
+        for field in ("photo", "document", "audio", "video", "sticker"):
+            if msg.get(field):
+                parsed["media_type"] = field
+                if field == "photo":
+                    photos = msg["photo"]
+                    parsed["file_id"] = photos[-1]["file_id"]
+                    parsed["filename"] = photos[-1].get("file_unique_id", "photo") + ".jpg"
+                else:
+                    media_obj = msg[field]
+                    parsed["file_id"] = media_obj.get("file_id", "")
+                    parsed["filename"] = media_obj.get("file_name") or (
+                        media_obj.get("file_unique_id", "file") + ".bin"
+                    )
+                break
+        if msg.get("caption"):
+            parsed["caption"] = msg["caption"]
+        messages.append(parsed)
+    if max_id > offset:
+        _save_offset(max_id)
+    return messages
+
+
+def enqueue_text_message(
+    message_id: str,
+    chat_id: str,
+    text: str,
+    sender: str = "",
+) -> dict[str, Any]:
+    """Enqueue an incoming text message for the watcher to process."""
+    if not message_id:
+        raise PreconditionError("enqueue_text_message requires a non-empty message_id")
+    pending = _pending_text_file()
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    existing: list[dict[str, Any]] = []
+    try:
+        data = json.loads(pending.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            existing = data
+    except (OSError, ValueError):
+        pass
+    seen_ids = {item.get("message_id") for item in existing}
+    if message_id in seen_ids:
+        return {"status": "already_enqueued", "message_id": message_id}
+    entry = {
+        "message_id": message_id,
+        "chat_id": chat_id,
+        "text": text,
+        "sender": sender,
+    }
+    existing.append(entry)
+    tmp = pending.with_name(pending.name + ".tmp")
+    tmp.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, pending)
+    return {"status": "enqueued", "message_id": message_id, "pending_count": len(existing)}
+
+
+def load_pending_text() -> list[dict[str, Any]]:
+    """Read and return the pending text message queue."""
+    try:
+        data = json.loads(_pending_text_file().read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def clear_pending_text(message_ids: list[str] | None = None) -> None:
+    """Remove processed message_ids from the pending file."""
+    pending = _pending_text_file()
+    try:
+        existing: list[dict[str, Any]] = json.loads(
+            pending.read_text(encoding="utf-8")
+        )
+        if not isinstance(existing, list):
+            existing = []
+    except (OSError, ValueError):
+        existing = []
+    if message_ids is None:
+        new_list: list[dict[str, Any]] = []
+    else:
+        ids_to_remove = set(message_ids)
+        new_list = [item for item in existing if item.get("message_id") not in ids_to_remove]
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    tmp = pending.with_name(pending.name + ".tmp")
+    tmp.write_text(json.dumps(new_list, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, pending)

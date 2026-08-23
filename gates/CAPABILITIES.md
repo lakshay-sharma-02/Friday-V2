@@ -15,7 +15,7 @@ registered primitives -> L0 structured logs. An ambient watcher daemon fires
 triggers on schedule with per-trigger primitive allowlists, and a closed
 capability-gap loop lets human-approved new primitives register themselves.
 
-## L1 primitives (94 registered)
+## L1 primitives (95 registered)
 
 Retry semantics come from each contract's idempotency class: `idempotent` = safe
 to blind-retry (read-only); `at-most-once` = never blindly retried (side effect);
@@ -126,6 +126,7 @@ to blind-retry (read-only); `at-most-once` = never blindly retried (side effect)
 |---|---|---|---|
 | `telegram.download_file(file_id: 'str', dest_dir: 'str | None' = None, filename: 'str | None' = None) -> 'dict[str, Any]'` | `idempotent` | dict: {path, filename, file_size, file_id}. | PreconditionError for empty file_id; PrimitiveError on network/download failure. |
 | `telegram.get_me() -> 'str'` | `idempotent` | str: the bot username, e.g. 'MyFridayBot'. | PrimitiveError with the API detail on non-2xx or ok=false. |
+| `telegram.poll_text_messages(limit: 'int' = 10) -> 'list[dict[str, Any]]'` | `idempotent` | list[dict]: messages with update_id, message_id, chat_id, date, from,… | PrimitiveError on API failure. |
 | `telegram.poll_updates(limit: 'int' = 10) -> 'list[dict[str, Any]]'` | `idempotent` | list[dict]: messages with update_id, message_id, chat_id, date, text/… | PrimitiveError on API failure. |
 | `telegram.send_document(file_path: 'str', to: 'str | None' = None, caption: 'str | None' = None) -> 'dict[str, Any]'` | `at-most-once` | dict: {message_id, chat_id, filename, api}. | PreconditionError for a missing file or empty to; PrimitiveError with the API detail… |
 | `telegram.send_text(text: 'str', to: 'str | None' = None) -> 'dict[str, Any]'` | `at-most-once` | dict: {message_id, chat_id, api}. | PreconditionError for empty text or to; PrimitiveError with the API detail on failur… |
@@ -273,6 +274,8 @@ never sees them and L3 refuses them:
 | `ambient-gap-probe-clipboard` | false | time 11:00 [daily] | false | notify.notify_send |
 | `ambient-gap-probe-email-send` | false | time 11:05 [daily] | false | notify.notify_send |
 | `ambient-gap-probe-file-write` | false | time 00:05 [daily] | false | notify.notify_send |
+| `discord-inbound` | false | time 12:05 [mon,tue,wed,thu,fri,sat,sun] | false | discord.poll_messages, discord.download_attachment |
+| `discord-inbound-text` | false | time 12:10 [mon,tue,wed,thu,fri,sat,sun] | false | discord.poll_messages, discord.enqueue_text_message |
 | `memory-maintenance` | true | time 03:00 [sun] | false | memory.maintenance |
 | `morning-calendar-summary` | true | time 08:00 [daily] | true | calendar.list_upcoming |
 | `morning-clipboard-digest` | true | time 08:05 [daily] | true | calendar.list_upcoming, dev.digest, clipboard.write_text |
@@ -280,6 +283,8 @@ never sees them and L3 refuses them:
 | `new-download-alert` | true | file - [daily] | true | files.find_newest, whatsapp.send_document |
 | `screenshot-digest` | true | time 12:00 [mon,tue,wed,thu,fri] | true | screenshot.capture, vision.describe, notify.notify_send |
 | `sunday-digest-reminder` | true | time 10:05 [sun] | false | notify.notify_send |
+| `telegram-inbound` | true | telegram-media - [daily] | true | telegram.poll_updates, telegram.download_file |
+| `telegram-inbound-text` | false | time 12:00 [mon,tue,wed,thu,fri,sat,sun] | false | telegram.poll_text_messages, telegram.enqueue_text_message |
 | `telegram-media-download` | true | telegram-media - [daily] | true | - |
 | `weekly-cross-project-digest` | true | time 10:00 [sun] | true | dev.digest, digestcheck.verify_attribution, files.find_rece… |
 | `whatsapp-media-download` | true | whatsapp-media - [daily] | true | - |
