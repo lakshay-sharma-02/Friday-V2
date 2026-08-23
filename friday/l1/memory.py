@@ -189,26 +189,99 @@ def _normalize_tokens(text: str) -> list[str]:
     return [t for t in re.split(r'[^a-z0-9]+', text.lower()) if t]
 
 
-def _token_overlap_score(query_tokens: list[str], target_tokens: list[str]) -> float:
-    """Compute token overlap score between two token lists.
-    Returns 0.0-1.0 based on Jaccard-like overlap weighted by query coverage."""
+# ---- TF-IDF scoring ----
+# IDF weights rare terms higher than common ones. "gmail" (appears in
+# 2 entries) scores much higher than "the" (appears in 50 entries).
+# The IDF cache is invalidated when entries change.
+
+_idf_cache: dict[str, float] = {}  # token -> IDF weight
+_idf_cache_size: int = 0           # number of docs when cache was built
+
+
+def _compute_idf(entries: list[dict[str, Any]]) -> dict[str, float]:
+    """Compute IDF weights for all tokens across memory entries.
+    IDF(t) = log(N / df(t)) where N = total docs, df(t) = docs containing t.
+    Rare terms get high weights; common terms get low weights."""
+    global _idf_cache, _idf_cache_size
+    n_docs = len(entries)
+    if n_docs == _idf_cache_size and _idf_cache:
+        return _idf_cache
+
+    import math
+    doc_freq: dict[str, int] = {}
+    for e in entries:
+        # Tokenize both key and value for each entry
+        text = f"{e.get('key', '')} {e.get('value', '')}"
+        tokens = set(_normalize_tokens(text))
+        for t in tokens:
+            doc_freq[t] = doc_freq.get(t, 0) + 1
+
+    # IDF with smoothing: log((N + 1) / (df + 1)) + 1
+    # This prevents zero weights and handles terms in all docs
+    idf: dict[str, float] = {}
+    for token, df in doc_freq.items():
+        idf[token] = math.log((n_docs + 1) / (df + 1)) + 1
+
+    _idf_cache = idf
+    _idf_cache_size = n_docs
+    return idf
+
+
+def _invalidate_idf_cache() -> None:
+    """Clear the IDF cache when entries change."""
+    global _idf_cache, _idf_cache_size
+    _idf_cache = {}
+    _idf_cache_size = 0
+
+
+def _tfidf_score(query_tokens: list[str], target_tokens: list[str],
+                  idf: dict[str, float]) -> float:
+    """Compute TF-IDF weighted cosine similarity between two token lists.
+    Returns 0.0-1.0. Higher = more relevant."""
     if not query_tokens or not target_tokens:
         return 0.0
-    q_set = set(query_tokens)
-    t_set = set(target_tokens)
-    overlap = q_set & t_set
-    # Score: what fraction of query tokens appear in target
-    return len(overlap) / len(q_set) if q_set else 0.0
+
+    import math
+
+    # Build TF vectors (term frequency = count in this document)
+    q_tf: dict[str, int] = {}
+    for t in query_tokens:
+        q_tf[t] = q_tf.get(t, 0) + 1
+
+    t_tf: dict[str, int] = {}
+    for t in target_tokens:
+        t_tf[t] = t_tf.get(t, 0) + 1
+
+    # Weighted vectors: TF * IDF
+    q_weighted: dict[str, float] = {}
+    for t, tf in q_tf.items():
+        q_weighted[t] = tf * idf.get(t, 1.0)  # default weight 1.0 for unknown
+
+    t_weighted: dict[str, float] = {}
+    for t, tf in t_tf.items():
+        t_weighted[t] = tf * idf.get(t, 1.0)
+
+    # Cosine similarity
+    common = set(q_weighted.keys()) & set(t_weighted.keys())
+    dot = sum(q_weighted[t] * t_weighted[t] for t in common)
+
+    q_norm = math.sqrt(sum(v * v for v in q_weighted.values()))
+    t_norm = math.sqrt(sum(v * v for v in t_weighted.values()))
+
+    if q_norm == 0 or t_norm == 0:
+        return 0.0
+
+    return dot / (q_norm * t_norm)
 
 
-def _score_match(text: str, query: str) -> float:
+def _score_match(text: str, query: str, idf: dict[str, float] | None = None) -> float:
     """Relevance score for key matching. Returns 0.0-1.0.
 
     Scoring tiers:
       - Exact match: 1.0
       - Key starts with query: 0.9 (prefix match)
       - Key contains query as substring: 0.7
-      - Token overlap: 0.0-0.6 (Jaccard-like)
+      - TF-IDF cosine similarity: 0.0-0.6
     """
     query_lower = query.lower()
     key_lower = text.lower()
@@ -225,20 +298,22 @@ def _score_match(text: str, query: str) -> float:
     if query_lower in key_lower:
         return 0.7
 
-    # Token overlap
+    # TF-IDF scoring
     query_tokens = _normalize_tokens(query)
     key_tokens = _normalize_tokens(text)
-    return _token_overlap_score(query_tokens, key_tokens) * 0.6
+    if idf is None:
+        idf = _compute_idf(_load_all())
+    return _tfidf_score(query_tokens, key_tokens, idf) * 0.6
 
 
-def _score_value(value: str, query: str) -> float:
+def _score_value(value: str, query: str, idf: dict[str, float] | None = None) -> float:
     """Score how relevant a value is to the query. Returns 0.0-0.5.
 
     Scoring tiers:
       - Exact value match: 0.5
       - Value starts with query: 0.45
       - Value contains query: 0.4
-      - Token overlap: 0.0-0.3
+      - TF-IDF cosine similarity: 0.0-0.3
     """
     query_lower = query.lower()
     value_lower = value.lower()
@@ -252,9 +327,12 @@ def _score_value(value: str, query: str) -> float:
     if query_lower in value_lower:
         return 0.4
 
+    # TF-IDF scoring
     query_tokens = _normalize_tokens(query)
     value_tokens = _normalize_tokens(value)
-    return _token_overlap_score(query_tokens, value_tokens) * 0.3
+    if idf is None:
+        idf = _compute_idf(_load_all())
+    return _tfidf_score(query_tokens, value_tokens, idf) * 0.3
 
 
 # ----------------------------------------------------------- L1 primitives
@@ -330,6 +408,9 @@ def store(
         _append_entry(entry)
         status = "stored"
 
+    # Invalidate IDF cache since corpus changed
+    _invalidate_idf_cache()
+
     return {"id": mem_id, "key": key, "category": category, "status": status}
 
 
@@ -368,13 +449,16 @@ def retrieve(
     limit = max(1, min(limit, MAX_RETRIEVE_RESULTS))
     entries = _load_all()
 
+    # Compute IDF weights once for the entire scoring pass
+    idf = _compute_idf(entries)
+
     # Score and filter
     scored: list[tuple[float, dict[str, Any]]] = []
     for e in entries:
         if category and e.get("category") != category:
             continue
-        key_score = _score_match(e.get("key", ""), query)
-        value_score = _score_value(e.get("value", ""), query)
+        key_score = _score_match(e.get("key", ""), query, idf=idf)
+        value_score = _score_value(e.get("value", ""), query, idf=idf)
         total = max(key_score, value_score)
         # Tag boost: if query terms appear in tags, boost score
         tags = e.get("tags", [])
@@ -463,6 +547,7 @@ def forget(key: str, category: str | None = None) -> dict[str, Any]:
     found = len(entries) < original_count
     if found:
         _save_all(entries)
+        _invalidate_idf_cache()
 
     return {"key": key, "found": found}
 
@@ -617,6 +702,7 @@ def maintenance(
 
     if len(keep) < len(entries):
         _save_all(keep)
+        _invalidate_idf_cache()
 
     return {
         "archived": len(entries) - len(keep),

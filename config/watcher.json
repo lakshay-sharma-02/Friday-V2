@@ -599,14 +599,14 @@
         "at": "12:00",
         "days": ["mon", "tue", "wed", "thu", "fri"]
       },
-      "enabled": false,
+      "enabled": true,
       "notify": true,
       "allow": [
         "screenshot.capture",
         "vision.describe",
         "notify.notify_send"
       ],
-      "_docs": "ADDED 2026-08-23: the vision trigger - captures a screenshot, uses the free vision model (oc/mimo-v2.5-free) to describe what's on screen, and notifies the user. Deterministic plan (no L4 LLM): screenshot.capture -> vision.describe -> notify. Requires FRIDAY_ALLOW_DANGEROUS=1 for vision.describe permission bypass. Disabled by default - enable to test the full vision pipeline."
+      "_docs": "ADDED 2026-08-23, ENABLED 2026-08-24: the vision trigger - captures a screenshot, uses the free vision model (oc/mimo-v2.5-free) to describe what's on screen, and notifies the user. Deterministic plan (no L4 LLM): screenshot.capture -> vision.describe -> notify. Requires FRIDAY_ALLOW_DANGEROUS=1 for vision.describe permission bypass."
     }
   ]
 }
