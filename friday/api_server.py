@@ -79,6 +79,11 @@ class FridayAPIHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
 
+        # Serve dashboard at root
+        if path == "" or path == "/":
+            self._serve_dashboard()
+            return
+
         if path == "/health":
             self._json_response(200, {
                 "status": "ok",
@@ -313,6 +318,19 @@ class FridayAPIHandler(BaseHTTPRequestHandler):
             "goal": goal,
             "message": f"Goal accepted. Poll GET /goal/{run_id} for result.",
         })
+
+    def _serve_dashboard(self):
+        """Serve the web dashboard HTML."""
+        dashboard_path = PROJECT_ROOT / "friday" / "dashboard.html"
+        try:
+            html = dashboard_path.read_text(encoding="utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(html.encode())
+        except OSError:
+            self._json_response(404, {"error": "dashboard_not_found", "message": "Dashboard HTML not found"})
 
     def _json_response(self, status: int, data: dict):
         """Send a JSON response."""
