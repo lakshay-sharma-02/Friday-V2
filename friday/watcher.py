@@ -643,16 +643,12 @@ def _emit_heartbeat(
     started: float,
     last_trigger_id: str | None,
     last_trigger_at: str | None,
+    trigger_stats: dict[str, int] | None = None,
 ) -> None:
     """One daemon.alive line on the heartbeat interval - the seed of an
-    ambient event bus, deliberately minimal: uptime, the last trigger
-    that fired (id + UTC time), and two capability-gap counts: the TOTAL
-    records ever (capability_gaps) and the UNPROCESSED ones still
-    awaiting triage (gaps_pending_triage) - the latter is the real
-    backlog signal the reviewer watches to decide whether proposals are
-    outpacing human review (a total that only grows is not actionable;
-    the pending count is what triage has not yet drafted). Best-effort:
-    a broken gap file reports -1, never a crash."""
+    ambient event bus. Reports uptime, last trigger fired, capability-gap
+    counts, memory stats, and trigger success/failure counts. Best-effort:
+    broken files report -1, never a crash."""
     from friday.capability_gaps import all_gaps, unprocessed_gaps
 
     try:
@@ -661,17 +657,46 @@ def _emit_heartbeat(
     except Exception:
         gap_count = -1
         pending = -1
+
+    # Memory stats
+    try:
+        from friday.l1.memory import summary as mem_summary
+        mem = mem_summary()
+        memory_entries = mem.get("total", 0)
+    except Exception:
+        memory_entries = -1
+
+    # Task counts from tasks.jsonl
+    tasks_file = Path(__file__).resolve().parents[2] / "var" / "logs" / "tasks.jsonl"
+    task_total = -1
+    task_passing = -1
+    try:
+        lines = tasks_file.read_text(encoding="utf-8").strip().splitlines()
+        task_total = len(lines)
+        task_passing = sum(1 for l in lines if "gate6_passed\": true" in l.lower())
+    except Exception:
+        pass
+
+    args: dict[str, Any] = {
+        "uptime_s": int(time.monotonic() - started),
+        "last_trigger": last_trigger_id or "none",
+        "last_trigger_at": last_trigger_at or "",
+        "capability_gaps": gap_count,
+        "gaps_pending_triage": pending,
+        "memory_entries": memory_entries,
+        "tasks_total": task_total,
+        "tasks_passing": task_passing,
+    }
+    if trigger_stats:
+        args["trigger_runs"] = trigger_stats.get("total", 0)
+        args["trigger_success"] = trigger_stats.get("success", 0)
+        args["trigger_failed"] = trigger_stats.get("failed", 0)
+
     emit_event(
         layer="WATCH",
         primitive="daemon.alive",
         result="ALIVE",
-        args={
-            "uptime_s": int(time.monotonic() - started),
-            "last_trigger": last_trigger_id or "none",
-            "last_trigger_at": last_trigger_at or "",
-            "capability_gaps": gap_count,
-            "gaps_pending_triage": pending,
-        },
+        args=args,
     )
 
 
@@ -716,6 +741,8 @@ def run_watcher(
     last_attempts: dict[str, float] = {}
     seen: set[str] = set()
     started = time.monotonic()
+    # Trigger success/failure counters for heartbeat reporting.
+    trigger_stats: dict[str, int] = {"total": 0, "success": 0, "failed": 0}
     # NOTE: last_heartbeat starts at `started`, NOT 0.0 - time.monotonic()
     # is boot-relative, so `elapsed - 0` would look like an instant
     # deadline and fire the first heartbeat immediately.
@@ -754,7 +781,12 @@ def run_watcher(
                 else:
                     due = bool(_new_files(t, seen))
                 if due:
+                    trigger_stats["total"] += 1
                     ok, detail = _run_trigger(t, plan_cache)
+                    if ok or detail.get("status") == "REFUSED":
+                        trigger_stats["success"] += 1
+                    else:
+                        trigger_stats["failed"] += 1
                     # The trigger run scoped the observability run_id to
                     # itself; restore the process-default so daemon.alive
                     # heartbeats (and any other ambient line) are NOT
@@ -782,7 +814,7 @@ def run_watcher(
             elapsed = time.monotonic()
             if heartbeat_s and elapsed - last_heartbeat >= heartbeat_s:
                 last_heartbeat = elapsed
-                _emit_heartbeat(started, last_trigger_id, last_trigger_at)
+                _emit_heartbeat(started, last_trigger_id, last_trigger_at, trigger_stats)
             time.sleep(poll_s)
     except KeyboardInterrupt:
         emit_event(layer="WATCH", primitive="watcher", result="STOP", extra={"reason": "interrupt"})

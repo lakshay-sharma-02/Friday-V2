@@ -102,12 +102,38 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
     verify_token: str = DEFAULT_VERIFY_TOKEN
     app_secret: str = ""
+    _start_time: float = 0.0
+    _request_count: int = 0
+    _error_count: int = 0
 
     def do_GET(self) -> None:
-        """Handle webhook verification (Meta sends this on setup)."""
+        """Handle webhook verification (Meta sends this on setup)
+        and health check endpoint."""
         from urllib.parse import parse_qs, urlparse
 
         parsed = urlparse(self.path)
+
+        # Health check: GET /health returns server status
+        if parsed.path == "/health":
+            import json as _json
+            import time as _time
+
+            uptime = _time.time() - self._start_time
+            health = {
+                "status": "ok",
+                "uptime_seconds": round(uptime, 1),
+                "request_count": self._request_count,
+                "error_count": self._error_count,
+                "verify_token_set": bool(self.verify_token),
+                "app_secret_set": bool(self.app_secret),
+            }
+            body = _json.dumps(health, indent=2)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body.encode("utf-8"))
+            return
+
         params = parse_qs(parsed.query)
 
         mode = params.get("hub.mode", [None])[0]
@@ -123,6 +149,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
             )
             self._respond(200, challenge)
         else:
+            self._error_count += 1
             emit_event(
                 layer="WEBHOOK",
                 primitive="verify",
@@ -215,8 +242,28 @@ def run_server(
     app_secret: str = "",
 ) -> None:
     """Start the webhook server. Blocks until interrupted."""
+    import time
+
     WebhookHandler.verify_token = verify_token
     WebhookHandler.app_secret = app_secret
+    WebhookHandler._start_time = time.time()
+    WebhookHandler._request_count = 0
+    WebhookHandler._error_count = 0
+
+    # Wrap the handler to count requests
+    original_do_GET = WebhookHandler.do_GET
+    original_do_POST = WebhookHandler.do_POST
+
+    def _counting_do_GET(self):
+        self._request_count = getattr(self, '_request_count', 0) + 1
+        original_do_GET(self)
+
+    def _counting_do_POST(self):
+        self._request_count = getattr(self, '_request_count', 0) + 1
+        original_do_POST(self)
+
+    WebhookHandler.do_GET = _counting_do_GET  # type: ignore[method-assign]
+    WebhookHandler.do_POST = _counting_do_POST  # type: ignore[method-assign]
 
     server = ThreadingHTTPServer(("0.0.0.0", port), WebhookHandler)
     emit_event(
@@ -231,6 +278,7 @@ def run_server(
         print("  App secret: configured (HMAC verification enabled)")
     else:
         print("  App secret: not set (HMAC verification disabled)")
+    print(f"  Health check: http://localhost:{port}/health")
     print("  Press Ctrl+C to stop")
 
     try:

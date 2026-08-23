@@ -178,6 +178,28 @@ def _tool_schema(fn: Any) -> dict[str, Any]:
     return schema
 
 
+# Tool categories for MCP client UI grouping
+_TOOL_CATEGORIES: dict[str, str] = {
+    "window": "Window Management",
+    "media": "Media Control",
+    "browser": "Web Browser",
+    "dev": "Developer Tools",
+    "files": "File Operations",
+    "git": "Git Repository",
+    "gmail": "Email (Gmail)",
+    "calendar": "Calendar",
+    "clipboard": "Clipboard",
+    "screenshot": "Screenshots",
+    "whatsapp": "WhatsApp",
+    "telegram": "Telegram",
+    "discord": "Discord",
+    "notify": "Notifications",
+    "memory": "Memory Store",
+    "system": "System Info",
+    "digestcheck": "Digest Verification",
+}
+
+
 def _tool_description(qualified: str) -> str:
     """Contract precondition/postcondition + docstring summary - the same
     contract surface the planner advertises, so an MCP client sees the
@@ -186,9 +208,15 @@ def _tool_description(qualified: str) -> str:
     mod_name, _, fn_name = qualified.partition(".")
     fn = getattr(importlib.import_module(f"friday.l1.{mod_name}"), fn_name)
     doc = inspect.getdoc(fn) or ""
-    lines: list[str] = [f"Friday primitive {qualified} (idempotency={c.idempotency.value})."]
+    category = _TOOL_CATEGORIES.get(mod_name, "Other")
+    lines: list[str] = [
+        f"Friday primitive {qualified} (category: {category}, idempotency={c.idempotency.value}).",
+    ]
     if doc:
-        lines.append(doc.split("\n")[0].strip() or doc.strip())
+        # Take the first paragraph (up to first blank line)
+        first_para = doc.split("\n\n")[0].strip()
+        if first_para:
+            lines.append(first_para)
     if c.precondition:
         lines.append(f"Precondition: {c.precondition}")
     if c.postcondition:
@@ -239,6 +267,8 @@ def _call_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
     """Handle a tools/call for one tool. Returns an MCP result dict; a
     refused or failed call is an isError result (the client sees the
     message), never a protocol-level crash."""
+    import time as _time
+
     # Rate limit check: prevent abuse from a single client session
     rate_err = _rate_limit_check()
     if rate_err:
@@ -248,18 +278,53 @@ def _call_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
         }
     _ensure_registry()
     qualified = name.replace("__", ".", 1)
+
+    # Check if the tool exists before calling
+    if qualified not in REGISTRY:
+        similar = [q for q in REGISTRY if q.startswith(qualified.split(".")[0])]
+        hint = f" Did you mean: {', '.join(similar[:3])}?" if similar else ""
+        return {
+            "content": [{"type": "text", "text": f"ERROR: unknown tool '{name}' (resolved to '{qualified}').{hint}"}],
+            "isError": True,
+        }
+
+    if qualified in EXECUTOR_BLOCKED:
+        return {
+            "content": [{"type": "text", "text": f"ERROR: tool '{name}' is blocked from execution (destructive operation)."}],
+            "isError": True,
+        }
+
+    start = _time.monotonic()
     try:
         result = _invoke(qualified, arguments or {})
-    except (FridayError, TypeError, ValueError, KeyError) as exc:
+    except FridayError as exc:
         return {
             "content": [{"type": "text", "text": f"ERROR: {type(exc).__name__}: {exc}"}],
             "isError": True,
         }
+    except TypeError as exc:
+        return {
+            "content": [{"type": "text", "text": f"ERROR: wrong arguments for {name}: {exc}"}],
+            "isError": True,
+        }
+    except Exception as exc:
+        return {
+            "content": [{"type": "text", "text": f"ERROR: unexpected {type(exc).__name__}: {exc}"}],
+            "isError": True,
+        }
+    elapsed_ms = round((_time.monotonic() - start) * 1000, 1)
     try:
         text = json.dumps(result, default=str, ensure_ascii=False)
     except (TypeError, ValueError):
         text = str(result)
-    return {"content": [{"type": "text", "text": text}], "isError": False}
+    # Truncate very large results for MCP transport
+    if len(text) > 100_000:
+        text = text[:100_000] + f"...<truncated, {len(text)} chars total>"
+    return {
+        "content": [{"type": "text", "text": text}],
+        "isError": False,
+        "_meta": {"elapsed_ms": elapsed_ms},
+    }
 
 
 # ----------------------------------------------------------- protocol

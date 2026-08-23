@@ -215,7 +215,7 @@ ALLOWED_IMPORTS = frozenset(
 # made to execute (unlike a shell or interpreter). Git was added 2026-08-18
 # to enable git-based primitives (git.log, git.status) to pass the gate.
 # Add a tool here deliberately, with the same reasoning as the import allowlist.
-_CAPTURE_TOOLS = frozenset({"grim", "slurp", "import", "git"})
+_CAPTURE_TOOLS = frozenset({"grim", "slurp", "import", "git", "tesseract"})
 
 # Danger calls mirroring what the shipped gates already treat as dangerous
 # (dev.run_shell / dev.run(allow_bypass_permissions=True) behind

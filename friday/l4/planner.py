@@ -234,11 +234,14 @@ _L1_MODULES = (
     "calendar",
     "clipboard",
     "screenshot",
+    "vision",
     "whatsapp",
     "telegram",
     "discord",
     "gmail",
     "notify",
+    "memory",
+    "system",
 )
 
 DEFAULT_ATTEMPTS = 3
@@ -609,6 +612,23 @@ FRAMEWORK NOTES (always on):
   dev.run_shell to wait out a timer - they invoke the LLM CLI, cost a
   call, and are not a reliable clock; the step's "verify_wait_s" IS the
   wait mechanism.
+- For VISION tasks (reading text from screenshots, analyzing images):
+  vision.extract_text(image_path) is FREE and LOCAL (Tesseract OCR) —
+  use it for goals like "read the error on my screen" or "extract the
+  total from this receipt". Verify with checks.vision_text_nonempty or
+  checks.vision_text_contains on expected text. vision.describe(image_path,
+  instruction) costs ~$0.01 (LLM call) — use it ONLY when you need
+  visual understanding ("what's wrong with this UI", "summarize this
+  chart") that OCR alone cannot answer. To capture a screenshot first,
+  use screenshot.capture(target, output_path) then pass the returned
+  path to vision.extract_text.  The two-step shape is:
+  screenshot.capture -> vision.extract_text -> verify text content.
+- MEMORY CONTEXT (below) includes past successful plans for similar goals.
+  When you see a SUCCESS record, study its step sequence: which primitives
+  were used, in what order, with what verify checks. If the current goal is
+  similar to a past success, prefer the proven step pattern — same primitives,
+  same ordering, same verify checks — rather than inventing a new approach.
+  This is how Friday learns from what worked.
 
 {catalog}
 

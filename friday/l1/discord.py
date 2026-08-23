@@ -177,3 +177,194 @@ def send_text(text: str, channel_id: str | None = None) -> dict[str, Any]:
             state="message status unknown",
         )
     return {"message_id": str(message_id), "channel_id": target, "api": body}
+
+
+# ---- inbound message polling (2026-08-23) ----
+# Discord bots can read channel messages via REST API (GET /channels/{id}/messages).
+# For receiving, the standard approach is the gateway websocket, but REST polling
+# works for simpler use cases (reading recent messages, checking for attachments).
+# The offset mechanism tracks the last processed message ID.
+
+import json as _json
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_OFFSET_FILE = PROJECT_ROOT / "var" / "state" / "discord_offset.json"
+
+
+def _offset_file() -> Path:
+    return Path(os.environ.get(
+        "FRIDAY_DISCORD_OFFSET_FILE", str(DEFAULT_OFFSET_FILE)
+    ))
+
+
+def _load_offset() -> int:
+    """Load the last processed message ID. Returns 0 on any error."""
+    try:
+        data = _json.loads(_offset_file().read_text(encoding="utf-8"))
+        return int(data.get("offset", 0))
+    except (OSError, ValueError, KeyError):
+        return 0
+
+
+def _save_offset(offset: int) -> None:
+    """Persist the last processed message ID. Atomic write, best-effort."""
+    path = _offset_file()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(_json.dumps({"offset": offset}) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+@contract(
+    precondition="bot_token and channel_id are configured and valid.",
+    postcondition="Returns new messages since the last poll. Each message dict contains: id, author, content, timestamp, and any attachments.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PrimitiveError on API failure.",
+    returns="list[dict]: messages with id, author, content, timestamp, attachments.",
+)
+def poll_messages(limit: int = 50) -> list[dict[str, Any]]:
+    """Poll for new messages in the configured channel.
+
+    Uses the REST API to get recent messages, filtering by the last
+    processed message ID to avoid re-processing. Returns messages with
+    their content, author, and attachments.
+
+    Note: This reads messages the bot can see. The bot must have
+    'Read Message History' permission in the channel.
+    """
+    token, channel_id = _auth()
+    if not channel_id:
+        raise PreconditionError(
+            "poll_messages requires a channel_id: configure one in credentials"
+        )
+
+    after_id = _load_offset()
+    params: dict[str, Any] = {"limit": min(limit, 100)}
+    if after_id > 0:
+        params["after"] = str(after_id)
+
+    try:
+        resp = requests.get(
+            f"{API_BASE}/channels/{channel_id}/messages",
+            headers={"Authorization": f"Bot {token}"},
+            params=params,
+            timeout=30,
+        )
+    except requests.Timeout as exc:
+        raise PrimitiveError(
+            "discord getMessages timed out", state="offset not updated"
+        ) from exc
+    if resp.status_code != 200:
+        raise PrimitiveError(
+            f"discord getMessages failed ({resp.status_code}): {resp.text[:300]}",
+            state="offset not updated",
+        )
+
+    messages_raw = resp.json()
+    if not isinstance(messages_raw, list):
+        raise PrimitiveError(
+            f"discord getMessages returned non-list: {resp.text[:300]}",
+            state="offset not updated",
+        )
+
+    # Discord returns newest-first; reverse for chronological order
+    messages_raw.reverse()
+
+    messages: list[dict[str, Any]] = []
+    max_id = after_id
+
+    for msg in messages_raw:
+        msg_id = int(msg.get("id", "0"))
+        if msg_id <= after_id:
+            continue
+        if msg_id > max_id:
+            max_id = msg_id
+
+        # Skip messages from the bot itself
+        author = msg.get("author", {})
+        if author.get("bot", False):
+            continue
+
+        parsed = {
+            "id": str(msg_id),
+            "author": author.get("username", ""),
+            "author_id": author.get("id", ""),
+            "content": msg.get("content", ""),
+            "timestamp": msg.get("timestamp", ""),
+            "attachments": [
+                {
+                    "filename": a.get("filename", ""),
+                    "url": a.get("url", ""),
+                    "size": a.get("size", 0),
+                    "content_type": a.get("content_type", ""),
+                }
+                for a in msg.get("attachments", [])
+            ],
+        }
+        if msg.get("embeds"):
+            parsed["embeds"] = len(msg["embeds"])
+        messages.append(parsed)
+
+    # Advance offset
+    if max_id > after_id:
+        _save_offset(max_id)
+
+    return messages
+
+
+@contract(
+    precondition="file_url is a valid Discord CDN URL; bot_token is configured.",
+    postcondition="The file is downloaded to dest_dir.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PreconditionError for empty URL; PrimitiveError on download failure.",
+    returns="dict: {path, filename, file_size}.",
+)
+def download_attachment(
+    file_url: str,
+    dest_dir: str | None = None,
+    filename: str | None = None,
+) -> dict[str, Any]:
+    """Download a file attachment from Discord's CDN.
+
+    Use the URL from poll_messages() attachments to download the file.
+    No authentication needed for Discord CDN URLs (they are public).
+    """
+    if not file_url or not file_url.strip():
+        raise PreconditionError("download_attachment requires a non-empty file_url")
+
+    dest = Path(dest_dir) if dest_dir else Path.home() / "Downloads"
+    if not dest.is_dir():
+        raise PreconditionError(f"download_attachment: dest_dir does not exist: {dest}")
+
+    try:
+        resp = requests.get(file_url.strip(), timeout=TIMEOUT_S)
+    except requests.Timeout as exc:
+        raise PrimitiveError(
+            f"discord file download timed out after {TIMEOUT_S}s",
+            state="file not downloaded",
+        ) from exc
+    if resp.status_code != 200:
+        raise PrimitiveError(
+            f"discord file download failed ({resp.status_code})",
+            state="file not downloaded",
+        )
+
+    if not filename:
+        # Try to extract from Content-Disposition header
+        cd = resp.headers.get("Content-Disposition", "")
+        if "filename=" in cd:
+            filename = cd.split("filename=")[-1].strip('"\' ')
+        else:
+            filename = Path(file_url.split("?")[0]).name or "discord_download.bin"
+
+    out_path = dest / filename
+    out_path.write_bytes(resp.content)
+
+    return {
+        "path": str(out_path),
+        "filename": filename,
+        "file_size": len(resp.content),
+    }

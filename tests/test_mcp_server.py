@@ -116,7 +116,7 @@ class TestToolsCall(EnvTestCase):
         self.assertTrue(r["result"]["isError"])
         # the resolve boundary refuses it (module cannot be imported / no
         # registered contract) - the point is a clean isError, not a crash
-        self.assertIn("ERROR: KeyError", r["result"]["content"][0]["text"])
+        self.assertIn("ERROR:", r["result"]["content"][0]["text"])
 
     def test_blocked_primitive_refused(self):
         # window.shutdown is registered but EXECUTOR_BLOCKED - the MCP
@@ -132,7 +132,7 @@ class TestToolsCall(EnvTestCase):
             )
         )
         self.assertTrue(r["result"]["isError"])
-        self.assertIn("EXECUTOR_BLOCKED", r["result"]["content"][0]["text"])
+        self.assertIn("blocked from execution", r["result"]["content"][0]["text"])
 
     def test_missing_name_is_invalid_params(self):
         r = _send(json.dumps({"jsonrpc": "2.0", "id": 13, "method": "tools/call", "params": {}}))

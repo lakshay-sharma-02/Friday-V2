@@ -15,7 +15,7 @@ registered primitives -> L0 structured logs. An ambient watcher daemon fires
 triggers on schedule with per-trigger primitive allowlists, and a closed
 capability-gap loop lets human-approved new primitives register themselves.
 
-## L1 primitives (90 registered)
+## L1 primitives (94 registered)
 
 Retry semantics come from each contract's idempotency class: `idempotent` = safe
 to blind-retry (read-only); `at-most-once` = never blindly retried (side effect);
@@ -134,7 +134,9 @@ to blind-retry (read-only); `at-most-once` = never blindly retried (side effect)
 
 | primitive | idempotency | returns | failure mode |
 |---|---|---|---|
+| `discord.download_attachment(file_url: 'str', dest_dir: 'str | None' = None, filename: 'str | None' = None) -> 'dict[str, Any]'` | `idempotent` | dict: {path, filename, file_size}. | PreconditionError for empty URL; PrimitiveError on download failure. |
 | `discord.get_me() -> 'str'` | `idempotent` | str: the bot username, e.g. 'FridayBot'. | PrimitiveError with the API detail on non-2xx. |
+| `discord.poll_messages(limit: 'int' = 50) -> 'list[dict[str, Any]]'` | `idempotent` | list[dict]: messages with id, author, content, timestamp, attachments. | PrimitiveError on API failure. |
 | `discord.send_file(file_path: 'str', channel_id: 'str | None' = None, caption: 'str | None' = None) -> 'dict[str, Any]'` | `at-most-once` | dict: {message_id, channel_id, filename, api}. | PreconditionError for a missing file or empty channel_id; PrimitiveError with the AP… |
 | `discord.send_text(text: 'str', channel_id: 'str | None' = None) -> 'dict[str, Any]'` | `at-most-once` | dict: {message_id, channel_id, api}. | PreconditionError for empty text or channel_id; PrimitiveError with the API detail o… |
 
@@ -201,7 +203,14 @@ to blind-retry (read-only); `at-most-once` = never blindly retried (side effect)
 | `system.system_summary() -> 'dict[str, Any]'` | `idempotent` | dict: {os, cpu, memory, disks, battery, uptime}. | PrimitiveError if fastfetch is missing or fails. |
 | `system.uptime_info() -> 'dict[str, Any]'` | `idempotent` | dict: {uptime_seconds, uptime_human, boot_time}. | PrimitiveError if fastfetch is missing or fails. |
 
-## L2 verification checks (29)
+### `vision`
+
+| primitive | idempotency | returns | failure mode |
+|---|---|---|---|
+| `vision.describe(image_path: 'str', instruction: 'str' = 'Describe what you see in this image in detail.', model: 'str | None' = None) -> 'str'` | `idempotent` | str: the LLM's description/analysis of the image. | PreconditionError for missing/empty files or empty instruction; PrimitiveError if th… |
+| `vision.extract_text(image_path: 'str', language: 'str' = 'eng') -> 'dict[str, Any]'` | `idempotent` | dict: {text: str, confidence: float|None, language: str, word_count: … | PreconditionError for missing/empty/oversized files or missing tesseract; PrimitiveE… |
+
+## L2 verification checks (37)
 
 Every check is side-effect-free: it reads current real-world state and returns
 True/False (or a scalar) against a specific claim. A step is VERIFIED only when
@@ -212,6 +221,7 @@ its check agrees with the world - absence of an exception is never enough.
 | `checks.active_window_class` | Claim: 'the focused window's class is X' |
 | `checks.browser_has_text` | Claim: 'the open page's visible text contains X' |
 | `checks.browser_input_has_value` | Claim: 'the field resolved by `what` currently contains exactly the text `value`' |
+| `checks.diff_is_clean` | Claim: 'the repository diff is clean (no staged or unstaged changes)' |
 | `checks.file_exists` | Claim: 'a file exists at path' |
 | `checks.file_exists_and_contents` | Claim: 'file exists and has expected contents' |
 | `checks.file_is_copied_to` | Claim: 'file was successfully copied to dest_dir' |
@@ -229,7 +239,14 @@ its check agrees with the world - absence of an exception is never enough.
 | `checks.memory_retrieval_ok` | Claim: 'a memory retrieval for this query returns results' |
 | `checks.memory_store_status` | Claim: 'the last memory store operation had this status' |
 | `checks.message_sent` | Claim: 'the messaging platform acknowledged a message with this id' |
+| `checks.repo_branch` | Claim: 'the repository is on the expected branch' |
+| `checks.repo_has_staged` | Claim: 'the repository has staged changes' |
+| `checks.repo_has_uncommitted` | Claim: 'the git repository has uncommitted changes' |
+| `checks.repo_is_clean` | Claim: 'the git repository has no uncommitted changes' |
 | `checks.text_nonempty` | Claim: 'a step result is a non-empty string' |
+| `checks.vision_text_contains` | Claim: 'the image contains the specified text' |
+| `checks.vision_text_nonempty` | Claim: 'extracting text from this image produces non-empty output' |
+| `checks.vision_word_count_above` | Claim: 'the image contains at least N words' |
 | `checks.whatsapp_identity_ok` | Claim: 'the whatsapp credentials resolve to a real account' |
 | `checks.whatsapp_media_downloaded` | Claim: 'a file was downloaded to path and is non-empty' |
 | `checks.window_client_count` | Claim: 'there are N windows open right now' |
@@ -261,6 +278,7 @@ never sees them and L3 refuses them:
 | `morning-clipboard-digest` | true | time 08:05 [daily] | true | calendar.list_upcoming, dev.digest, clipboard.write_text |
 | `morning-gmail-summary` | true | time 09:00 [mon,tue,wed,thu,fri] | true | gmail.list_unread, gmail.get_message, gmail.summarize |
 | `new-download-alert` | true | file - [daily] | true | files.find_newest, whatsapp.send_document |
+| `screenshot-digest` | false | time 12:00 [mon,tue,wed,thu,fri] | true | screenshot.capture, vision.describe, notify.notify_send |
 | `sunday-digest-reminder` | true | time 10:05 [sun] | false | notify.notify_send |
 | `telegram-media-download` | true | telegram-media - [daily] | true | - |
 | `weekly-cross-project-digest` | true | time 10:00 [sun] | true | dev.digest, digestcheck.verify_attribution, files.find_rece… |

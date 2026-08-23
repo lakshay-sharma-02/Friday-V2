@@ -56,10 +56,14 @@ not by omission. Full completion record: `gates/PLAN_STATUS.md`.
 
 ```
 friday/
+  __main__.py       CLI entry point (interactive REPL, one-shot goals, status,
+                    triggers, primitives, logs, memory, lessons, gaps)
   contracts.py      L1 contract registry (pre/post/idempotency/failure)
   errors.py         exception hierarchy (FridayError, PreconditionError, ...)
   observability.py  L0: one structured JSON line per call (redaction + clip +
                     per-primitive log projection + size-based rotation)
+  log_query.py      L0 log querying: filter/aggregate friday.jsonl (by layer,
+                    primitive, run_id, duration, errors)
   secrets.py        pass-based credential store (friday/<service>)
   l1/               L1 primitives (each contract-registered; see below)
     window.py       hyprctl IPC  (open/close/focus/list/move/shutdown)
@@ -68,7 +72,7 @@ friday/
     browser.py      Playwright persistent context (DOM, not screenshots)
     dev.py          claude -p subprocess (bypass is explicit opt-in); digest()
                     LLM-in-primitive cross-project synthesis (Phase C)
-    git.py          read-only git log (repo history, no diffs) - Phase C
+    git.py          read-only git log + status + diff + branch + commit
     digestcheck.py  verify_attribution - MECHANICAL digest attribution check
                     (every "X's <mechanism>" claim must appear in X's own
                     gathered content - the v2.1 confabulation fix)
@@ -86,12 +90,25 @@ friday/
                     write_text — wl-paste/wl-copy on Wayland, xclip on X11;
                     the WRITE shape's stdout/stderr=DEVNULL is the
                     daemon-fork fix from the 2026-08-14 deadlock)
-    notify.py       desktop notifications (notify-send) - the watch loop's
-                    feedback channel
-    telegram.py     Telegram Bot API (send_text / send_document)
-    discord.py      Discord Bot API (send_text / send_file)
+    screenshot.py   gate-registered capture (grim on Wayland, PIL on Windows)
+    vision.py       two-tier image analysis: extract_text (Tesseract OCR, free)
+                    and describe (LLM-based, ~$0.01/call)
+    notify.py       desktop notifications (notify-send / PowerShell)
+    memory.py       persistent cross-session knowledge store (JSONL-backed,
+                    category-filtered retrieval, decay/maintenance)
+    system.py       system info via fastfetch (CPU/RAM/disk/battery/uptime)
+    telegram.py     Telegram Bot API (send_text / send_document / poll_updates /
+                    download_file — inbound media polling via getUpdates)
+    discord.py      Discord Bot API (send_text / send_file / poll_messages /
+                    download_attachment — inbound message polling via REST)
+    whatsapp.py     WhatsApp Cloud API (get_me / send_text / send_document /
+                    upload_document / download_media)
+  mcp_server.py     MCP stdio server (JSON-RPC 2.0; every primitive as a tool)
+  webhook_server.py webhook server for WhatsApp Cloud API incoming messages
+                    (health check at GET /health)
   watcher.py        ambient watch loop (config/ triggers -> goals -> tasks.jsonl;
-                    daemon.alive heartbeat; deployed via deploy/friday-watcher.service)
+                    daemon.alive heartbeat with trigger stats + memory + tasks;
+                    deployed via deploy/friday-watcher.service)
   capability_gaps.py structured refusal records (var/logs/capability_gaps.jsonl)
   gap_triage.py     groups gaps, LLM-drafts proposed primitives (review-only)
   automated_gate.py AST checks (imports/danger/contract-fn/dead-args) +
@@ -103,7 +120,7 @@ friday/
   goal_proposals.py the goals-proposal stage: recurring FAILED goals from
                     tasks.jsonl + L0 failures -> INERT trigger proposals
                     (gates/proposed_triggers/) for human approval
-tests/               dependency-free unittest suite (571 tests, all mocked)
+tests/               dependency-free unittest suite (571+ tests, all mocked)
   l2/
     checks.py       L2 verification: read-only checks (catalog below)
   l3/
@@ -136,16 +153,17 @@ state already matches).
 | `browser` | `goto`, `read_page_text`, `find_locator`, `click`, `type_text`, `press_key`, `upload_file`, `login`, `credentials` (returns secret — result redacted in the log), `close` |
 | `dev` | `run` (claude -p), `run_shell` — **arbitrary shell, requires `FRIDAY_ALLOW_DANGEROUS=1`** (checked before claude runs), `digest(context, instruction)` — LLM-in-primitive cross-project digest synthesis (Phase C, the gmail.summarize exception) |
 | `files` | `find_file(name, directory, recursive)`, `find_file_exact(name, directory)` — gate-registered exact-match probe returning `''` when absent, `find_newest(name, directory)` — gate-registered mtime-newest match ('' when none), `read_text(path, max_chars)` — bounded read-only text reader, `find_recent_doc(repo_path)` — most recently modified status/planning doc (PLAN_STATUS/ROADMAP/DEVLOG/STATUS/TODO/CHANGELOG shapes, README fallback), `write_text(path, text, append)` — gate-registered first files.* WRITE primitive (commutative-safe; absolute/`..`/`~` targets rejected by the automated gate's fs-scope checks) |
-| `git` | `log(repo_path, count, days)` — read-only recent commit entries (hash/author/date/subject, no diffs), the cross-project digest's eyes (Phase C) |
+| `git` | `log(repo_path, count, days)` — read-only recent commit entries (hash/author/date/subject, no diffs), the cross-project digest's eyes (Phase C); `status(repo_path)` — branch + staged/unstaged/conflict status; `diff(repo_path)` — staged + unstaged diffs; `branch(repo_path)` — current branch + all local branches; `commit(repo_path, message, files)` — stage + commit (at-most-once) |
 | `digestcheck` | `verify_attribution(digest, context)` — mechanical per-repo attribution check: every "X's <mechanism>" claim must appear in X's own gathered content, not just anywhere in the combined prompt (Phase C, the v2.1 confabulation fix) |
 | `notify` | `notify_send(title, body, timeout_ms)` — desktop notification |
 | `gmail` | `list_unread(sender, max_results)`, `get_message(message_id)`, `summarize(message_id)` — OAuth2 read-only, auto token refresh; `send_document(file_path, to=None, subject, body)` — **gate-registered, the loop's first side-effecting primitive** (at-most-once; recipient redacted from the L0 result line); send scope requires the one-time re-consent in `gates/GMAIL_SETUP.md` §6.5 |
 | `calendar` | `list_upcoming(days)` — OAuth2 read-only, auto token refresh, summaries redacted in the L0 line (gate-registered; refresh-grant auth fix 2026-08-14); `add_event(summary, start, end)` — **gate-registered first calendar WRITE** (at-most-once; needs the `calendar.events` scope added at consent time — see `gates/_calendar_oauth_setup.py`) |
 | `clipboard` | `read_text()` — gate-registered clipboard read (wl-paste/wl-copy Wayland, xclip X11; content redacted in the L0 line), `write_text(text)` — gate-registered clipboard write (echoes text back; DEVNULL subprocess shape so the tool's forked daemon can't block the pipe) |
 | `screenshot` | `capture(target, output_path)` — **gate-registered capture primitive** (2026-08-15): full / active-window / window-selector capture via grim, returns the PNG path for a send primitive to attach (the capture half of "send me a screenshot" goals; the gate's CAPTURE subprocess shape admits a literal allowlisted tool binary with runtime geometry) |
+| `vision` | `extract_text(image_path, language)` — **free, local** OCR via Tesseract: extracts all visible text from an image (no network, no cost); `describe(image_path, instruction)` — **LLM-based** visual understanding (~$0.01/call): the "LLM-in-primitive exception" for tasks OCR alone cannot answer |
 | `whatsapp` | `get_me`, `upload_document`, `send_document`, `send_text` |
-| `telegram` | `get_me`, `send_document`, `send_text` |
-| `discord` | `get_me`, `send_file`, `send_text` |
+| `telegram` | `get_me`, `send_document`, `send_text`, `poll_updates` (inbound media polling), `download_file` |
+| `discord` | `get_me`, `send_file`, `send_text`, `poll_messages` (inbound message polling), `download_attachment` |
 
 ## L2 checks (read-only; the only thing a plan step may verify with)
 
@@ -163,6 +181,10 @@ accessors. Catalog:
   `text_nonempty` (a read/synthesis step produced text) — Phase C
 - messaging: `whatsapp_identity_ok`, `message_sent`
 - gmail: `gmail_unread_exists`, `gmail_message_matches`
+- git: `repo_is_clean`, `repo_has_uncommitted`, `repo_branch`, `repo_has_staged`, `diff_is_clean`
+- memory: `memory_has_key`, `memory_age_days`, `memory_retrieval_ok`, `memory_store_status`
+- file operations: `file_size_equals`, `file_exists_and_contents`, `file_is_copied_to`, `file_is_moved_from`, `file_is_deleted`
+- system: `http_status_ok`, `http_status_code`, `whatsapp_media_downloaded`
 
 `checks.window_only_classes` is the **sufficient** check for a
 `window.close_all(exclude_classes=...)` step: it asserts that no client
@@ -815,3 +837,48 @@ and the true blockers still live only in Lakshay's head.
 
 The output is captured to `gates/GATE1_PROOF.md` as the gate's raw proof
 artifact. A gate is not green until that artifact shows the DoD lines.
+
+## CLI (interactive entry point)
+
+Friday ships a CLI for daily use:
+
+```sh
+python -m friday                          # interactive REPL
+python -m friday run "pause all audio"    # one-shot goal execution
+python -m friday status                   # system health check
+python -m friday triggers                 # list configured triggers
+python -m friday primitives               # list registered primitives
+python -m friday primitives --catalog     # full catalog (for LLM context)
+python -m friday logs -n 50               # recent log entries
+python -m friday memory search "calendar" # search the memory store
+python -m friday memory summary           # memory store overview
+python -m friday memory store key value   # store a memory entry
+python -m friday lessons                  # lessons loop status
+python -m friday gaps                     # capability gap status
+python -m friday version                  # version info
+```
+
+The REPL accepts natural-language goals and runs them through the full
+L4→L3→L2→L1 pipeline, printing the plan and execution trace. Built-in
+commands (`status`, `triggers`, `primitives`, `logs`, `memory`, `lessons`,
+`gaps`) work without LLM calls.
+
+## Log querying
+
+`friday.log_query` provides structured querying for the JSON log:
+
+```python
+from friday.log_query import query_logs, summarize_by_primitive, get_recent_goals
+
+# Show all failed steps in the last 24 hours
+fails = query_logs(hours=24, has_error=True)
+
+# Average duration by primitive
+summary = summarize_by_primitive(hours=24)
+
+# Recent goals
+goals = get_recent_goals(hours=48)
+```
+
+Useful for diagnosing why a trigger failed, which primitives are slow,
+or tracking goal completion rates.

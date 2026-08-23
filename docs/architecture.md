@@ -87,9 +87,30 @@ checks.browser_input_has_value(what: str, value: str) -> bool
 
 # File verification
 checks.file_exists(path: str) -> bool
+checks.file_size_equals(path: str, expected_bytes: int) -> bool
+
+# Git verification
+checks.repo_is_clean(repo_path: str) -> bool
+checks.repo_has_uncommitted(repo_path: str) -> bool
+checks.repo_branch(repo_path: str, expected_branch: str) -> bool
+checks.repo_has_staged(repo_path: str) -> bool
+def diff_is_clean(repo_path: str) -> bool
+
+# Memory verification
+checks.memory_has_key(key: str) -> bool
+checks.memory_retrieval_ok(query: str) -> bool
+
+# Vision verification
+checks.vision_text_nonempty(image_path: str) -> bool
+checks.vision_text_contains(image_path: str, substring: str) -> bool
+checks.vision_word_count_above(image_path: str, min_words: int) -> bool
 
 # Messaging verification
 checks.message_sent(platform: str, message_id: str) -> bool
+
+# Shape checks (Phase C)
+checks.list_nonempty(value: list) -> bool
+def text_nonempty(value: str) -> bool
 ```
 
 ### Layer 3 - Execution (L3)
@@ -237,3 +258,49 @@ Result
 5. **Allowlists**: Triggers limited to safe primitives
 6. **Capability gap recording**: Unresolved primitives become proposals, never fail silently
 7. **Result redaction**: Secrets and sensitive data never in logs
+
+---
+
+## Additional Modules
+
+### Memory System (`friday/l1/memory.py`)
+
+Persistent cross-session knowledge store backed by JSONL files.
+
+- **Storage**: `var/state/memory.jsonl` with atomic writes and file locking
+- **Retrieval**: Token-overlap scoring with category filtering
+- **Decay**: Memories have `last_accessed` and `access_count` fields; old, low-access memories are archived by the `memory-maintenance` watcher trigger
+- **Categories**: facts, preferences, context, decisions, lessons, conversations
+- **Integration**: `build_memory_context()` injects relevant memories into the planner prompt
+
+### CLI (`friday/__main__.py`)
+
+Interactive entry point for daily use:
+- **REPL mode**: Natural-language goals run through L4→L3→L2→L1
+- **One-shot**: `friday run "goal"` executes and exits
+- **Status**: Health check (version, primitives, triggers, tasks, gaps, memory)
+- **Queries**: logs, memory, lessons, gaps — all without LLM calls
+
+### Log Query (`friday/log_query.py`)
+
+Structured querying for `friday.jsonl`:
+- Filter by layer, primitive, run_id, error status, duration
+- Aggregate by primitive (count, errors, avg/p95 duration)
+- Summarize by run (goal, steps, status, errors)
+- Get recent goals with outcomes
+
+### MCP Server (`friday/mcp_server.py`)
+
+Model Context Protocol server over stdio:
+- Every executor-accessible primitive as an MCP tool
+- JSON Schema derived from real signatures
+- Rate limiting (60 calls/min)
+- Tool categories for client UI grouping
+
+### Webhook Server (`friday/webhook_server.py`)
+
+WhatsApp Cloud API incoming message handler:
+- Health check at `GET /health`
+- HMAC-SHA256 signature verification
+- Media extraction and enqueueing to pending queue
+- Threading for concurrent requests

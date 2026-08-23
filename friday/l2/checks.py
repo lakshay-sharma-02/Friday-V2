@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from friday.errors import PreconditionError, PrimitiveError
+from friday.errors import PreconditionError, PrimitiveError, PrimitiveTimeout
 from friday.l1 import files, media, window  # (read-only accessors only)
 from friday.l1.browser import Locator, find_locator, read_page_text
 from friday.l1.gmail import get_message as gmail_message, list_unread as gmail_unread
@@ -368,3 +368,108 @@ def file_is_deleted(path: str) -> bool:
     if not p:
         return False
     return not p.exists()
+
+
+# ---------------------------------------------------------------- git
+# Import discipline: git.status, git.diff, git.branch, git.log are all
+# contract idempotency=idempotent (read-only). No mutator (commit) is
+# imported here.
+
+from friday.l1 import git
+
+
+@observe(layer="L2")
+def repo_is_clean(repo_path: str) -> bool:
+    """Claim: 'the git repository has no uncommitted changes'.
+    Read-only: calls git.status and checks is_clean."""
+    try:
+        result = git.status(repo_path)
+        return result.get("is_clean", False)
+    except (PreconditionError, PrimitiveError):
+        return False
+
+
+@observe(layer="L2")
+def repo_has_uncommitted(repo_path: str) -> bool:
+    """Claim: 'the git repository has uncommitted changes'.
+    Read-only: the inverse of repo_is_clean."""
+    try:
+        result = git.status(repo_path)
+        return not result.get("is_clean", True)
+    except (PreconditionError, PrimitiveError):
+        return False
+
+
+@observe(layer="L2")
+def repo_branch(repo_path: str, expected_branch: str) -> bool:
+    """Claim: 'the repository is on the expected branch'.
+    Read-only: calls git.branch and checks current name."""
+    try:
+        result = git.branch(repo_path)
+        return result.get("current", "").lower() == expected_branch.lower()
+    except (PreconditionError, PrimitiveError):
+        return False
+
+
+@observe(layer="L2")
+def repo_has_staged(repo_path: str) -> bool:
+    """Claim: 'the repository has staged changes'.
+    Read-only: calls git.status and checks if staged list is non-empty."""
+    try:
+        result = git.status(repo_path)
+        return bool(result.get("staged"))
+    except (PreconditionError, PrimitiveError):
+        return False
+
+
+@observe(layer="L2")
+def diff_is_clean(repo_path: str) -> bool:
+    """Claim: 'the repository diff is clean (no staged or unstaged changes)'.
+    Read-only: calls git.diff and checks is_clean."""
+    try:
+        result = git.diff(repo_path)
+        return result.get("is_clean", False)
+    except (PreconditionError, PrimitiveError):
+        return False
+
+
+# ---------------------------------------------------------------- vision
+# Import discipline: vision.extract_text is idempotent (read-only).
+# vision.describe is also idempotent but costs money — the L2 check
+# verifies its result, not its cost.
+
+from friday.l1 import vision
+
+
+@observe(layer="L2")
+def vision_text_nonempty(image_path: str, language: str = "eng") -> bool:
+    """Claim: 'extracting text from this image produces non-empty output'.
+    Read-only: calls vision.extract_text and checks if any text was found."""
+    try:
+        result = vision.extract_text(image_path, language=language)
+        return bool(result.get("text", "").strip())
+    except (PreconditionError, PrimitiveError, PrimitiveTimeout):
+        return False
+
+
+@observe(layer="L2")
+def vision_text_contains(image_path: str, substring: str, language: str = "eng") -> bool:
+    """Claim: 'the image contains the specified text'.
+    Read-only: extracts text and checks for substring match (case-insensitive)."""
+    try:
+        result = vision.extract_text(image_path, language=language)
+        text = result.get("text", "")
+        return substring.lower() in text.lower()
+    except (PreconditionError, PrimitiveError, PrimitiveTimeout):
+        return False
+
+
+@observe(layer="L2")
+def vision_word_count_above(image_path: str, min_words: int, language: str = "eng") -> bool:
+    """Claim: 'the image contains at least N words'.
+    Read-only: extracts text and checks word count."""
+    try:
+        result = vision.extract_text(image_path, language=language)
+        return result.get("word_count", 0) >= min_words
+    except (PreconditionError, PrimitiveError, PrimitiveTimeout):
+        return False

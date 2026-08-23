@@ -182,10 +182,34 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def _normalize_tokens(text: str) -> list[str]:
+    """Split text into lowercase tokens, stripping punctuation.
+    This is the normalization step shared by all scoring functions."""
+    import re
+    return [t for t in re.split(r'[^a-z0-9]+', text.lower()) if t]
+
+
+def _token_overlap_score(query_tokens: list[str], target_tokens: list[str]) -> float:
+    """Compute token overlap score between two token lists.
+    Returns 0.0-1.0 based on Jaccard-like overlap weighted by query coverage."""
+    if not query_tokens or not target_tokens:
+        return 0.0
+    q_set = set(query_tokens)
+    t_set = set(target_tokens)
+    overlap = q_set & t_set
+    # Score: what fraction of query tokens appear in target
+    return len(overlap) / len(q_set) if q_set else 0.0
+
+
 def _score_match(text: str, query: str) -> float:
-    """Simple term-overlap relevance score. Returns 0.0-1.0.
-    Exact key match = 1.0; partial key = 0.7; value term overlap = 0.0-0.5.
-    Good enough for a first version — embeddings are the upgrade path."""
+    """Relevance score for key matching. Returns 0.0-1.0.
+
+    Scoring tiers:
+      - Exact match: 1.0
+      - Key starts with query: 0.9 (prefix match)
+      - Key contains query as substring: 0.7
+      - Token overlap: 0.0-0.6 (Jaccard-like)
+    """
     query_lower = query.lower()
     key_lower = text.lower()
 
@@ -193,36 +217,44 @@ def _score_match(text: str, query: str) -> float:
     if query_lower == key_lower:
         return 1.0
 
-    # Key contains query
+    # Prefix match (strong signal)
+    if key_lower.startswith(query_lower):
+        return 0.9
+
+    # Substring match
     if query_lower in key_lower:
         return 0.7
 
-    # Term overlap in key
-    query_terms = set(query_lower.split())
-    key_terms = set(key_lower.split())
-    if query_terms and key_terms:
-        overlap = len(query_terms & key_terms)
-        key_score = overlap / len(query_terms) * 0.5
-    else:
-        key_score = 0.0
-
-    return key_score
+    # Token overlap
+    query_tokens = _normalize_tokens(query)
+    key_tokens = _normalize_tokens(text)
+    return _token_overlap_score(query_tokens, key_tokens) * 0.6
 
 
 def _score_value(value: str, query: str) -> float:
-    """Score how relevant a value is to the query."""
+    """Score how relevant a value is to the query. Returns 0.0-0.5.
+
+    Scoring tiers:
+      - Exact value match: 0.5
+      - Value starts with query: 0.45
+      - Value contains query: 0.4
+      - Token overlap: 0.0-0.3
+    """
     query_lower = query.lower()
     value_lower = value.lower()
 
-    if query_lower in value_lower:
+    if query_lower == value_lower:
         return 0.5
 
-    query_terms = set(query_lower.split())
-    value_terms = set(value_lower.split())
-    if query_terms and value_terms:
-        overlap = len(query_terms & value_terms)
-        return min(overlap / len(query_terms) * 0.3, 0.3)
-    return 0.0
+    if value_lower.startswith(query_lower):
+        return 0.45
+
+    if query_lower in value_lower:
+        return 0.4
+
+    query_tokens = _normalize_tokens(query)
+    value_tokens = _normalize_tokens(value)
+    return _token_overlap_score(query_tokens, value_tokens) * 0.3
 
 
 # ----------------------------------------------------------- L1 primitives
