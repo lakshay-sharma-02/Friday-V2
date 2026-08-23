@@ -31,7 +31,7 @@ import os
 import sys
 import time
 import threading
-from http.server import BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn
 from typing import Any
@@ -385,7 +385,7 @@ def _execute_goal(goal: str, run_id: str):
 _start_time = time.time()
 
 
-class ThreadedHTTPServer(ThreadingMixIn):
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     """Threaded HTTP server for handling concurrent requests."""
     daemon_threads = True
 
