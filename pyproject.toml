@@ -42,6 +42,7 @@ test = [
 
 [project.scripts]
 friday = "friday.__main__:main"
+friday-api = "friday.api_server:main"
 friday-mcp = "friday.mcp_server:main"
 friday-webhook = "friday.webhook_server:main"
 
