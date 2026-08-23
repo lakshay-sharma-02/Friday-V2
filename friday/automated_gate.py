@@ -157,9 +157,11 @@ _OBSERVED_STDLIB = frozenset(
         "contextlib",
         "ctypes",
         "fnmatch",
+        "hashlib",
         "json",
         "os",
         "re",
+        "shutil",
         "signal",
         "socket",
         "subprocess",
@@ -176,8 +178,10 @@ _OBSERVED_STDLIB = frozenset(
 # tempfile.gettempdir() so the primitive (and its tests) are
 # Windows-portable; 'ctypes' added 2026-08-18: the win32 window backend
 # (window.py) drives the Windows API through stdlib ctypes so the port
-# needs no pywin32 dependency. All pure-compute, no side effects of their
-# own.
+# needs no pywin32 dependency; 'shutil' added 2026-08-20: files.py uses
+# shutil.copy/move for the file-operation primitives (copy, move); 'hashlib'
+# added 2026-08-20: memory.py uses hashlib.sha256 for deterministic memory
+# ID generation. All pure-compute, no side effects of their own.
 _OBSERVED_THIRD_PARTY = frozenset({"requests", "playwright"})
 _EXTRA_SAFE_STDLIB = frozenset(
     {
