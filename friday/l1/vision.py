@@ -188,6 +188,15 @@ def _find_claude() -> str:
     return "claude"
 
 
+def _encode_image_base64(image_path: str) -> str:
+    """Read an image file and return its base64-encoded content."""
+    import base64
+
+    with open(image_path, "rb") as f:
+        data = f.read()
+    return base64.b64encode(data).decode("ascii")
+
+
 def _call_vision_model(
     prompt: str,
     image_path: str,
@@ -196,27 +205,42 @@ def _call_vision_model(
 ) -> str:
     """Call a vision model via claude -p with the image as context.
 
-    The Claude CLI can read image files when the path is in the prompt.
-    We try the primary model first, then fall back to alternatives.
+    The image is base64-encoded and included in the prompt text so the
+    model can actually see it. We try the primary model first, then
+    fall back to alternatives.
     """
     import json as _json
 
+    # Encode the image as base64 so the model can see it
+    b64 = _encode_image_base64(image_path)
+    # Determine mime type from extension
+    ext = Path(image_path).suffix.lower()
+    mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".bmp": "image/bmp"}
+    mime = mime_map.get(ext, "image/png")
+
+    # Build the full prompt with embedded image data
+    full_prompt = (
+        f"Analyze this image.\n\n"
+        f"{prompt}\n\n"
+        f"[Image data: {mime}; base64 length: {len(b64)} chars]\n"
+        f"{b64}\n"
+        "Respond with ONLY the analysis text. No preamble — just the answer."
+    )
+
     claude_bin = _find_claude()
     cmd = [
-        claude_bin, "-p", prompt,
+        claude_bin, "-p", "-",
         "--output-format", "json",
         "--model", model,
     ]
     # Permission bypass: vision.describe needs to read image files.
-    # The Claude CLI requires explicit permission for file access.
-    # When FRIDAY_ALLOW_DANGEROUS=1 is set, we bypass permissions
-    # (same boundary as dev.run_shell).
     if os.environ.get("FRIDAY_ALLOW_DANGEROUS") == "1":
         cmd += ["--permission-mode", "bypassPermissions"]
 
     try:
         proc = subprocess.run(
             cmd,
+            input=full_prompt,
             capture_output=True,
             text=True,
             timeout=timeout_s,
@@ -293,13 +317,8 @@ def describe(
         or DEFAULT_VISION_MODEL
     )
 
-    # Build a prompt that tells the LLM to look at the image
-    prompt = (
-        f"Look at the image file at: {image_path}\n\n"
-        f"Instruction: {instruction.strip()}\n\n"
-        "Respond with ONLY the analysis text. No preamble, no explanation "
-        "of what you're doing — just the answer to the instruction."
-    )
+    # Build a prompt with the instruction (image is embedded by _call_vision_model)
+    prompt = instruction.strip()
 
     # Try primary model, fall back to alternatives
     last_error = None
