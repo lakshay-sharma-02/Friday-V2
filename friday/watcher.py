@@ -135,9 +135,17 @@ def _validate_trigger(t: Any, seen: set[str]) -> None:
         # Telegram media trigger: polls Telegram for incoming media
         # messages and downloads them. No extra schedule fields needed.
         pass
+    elif typ == "telegram-text":
+        # Telegram text trigger: polls for text messages and executes
+        # them as goals through L4→L3→L2→L1.
+        pass
+    elif typ == "discord-text":
+        # Discord text trigger: polls for text messages and executes
+        # them as goals through L4→L3→L2→L1.
+        pass
     else:
         raise FridayError(
-            f"watcher: trigger {tid!r} schedule 'type' must be 'time', 'file', 'whatsapp-media', or 'telegram-media'"
+            f"watcher: trigger {tid!r} schedule 'type' must be 'time', 'file', 'whatsapp-media', 'telegram-media', 'telegram-text', or 'discord-text'"
         )
 
 
@@ -315,6 +323,302 @@ def _run_telegram_media_trigger(
             {"filename": d["filename"], "path": d["path"], "sender": d.get("sender", "")}
             for d in downloaded
         ]
+    except FridayError as exc:
+        detail["status"] = "FAILED"
+        detail["error"] = str(exc)[:500]
+    except Exception as exc:
+        detail["status"] = "ERROR"
+        detail["error"] = f"{type(exc).__name__}: {exc}"[:500]
+    return detail
+
+
+# ------------------------------------------------------------------ command prefix
+#
+# Inbound text triggers only execute messages that start with a command
+# prefix (default: /goal). This prevents casual chat from triggering
+# expensive LLM plans. Set FRIDAY_COMMAND_PREFIX to customize (e.g.
+# "!friday" or "@Friday"). Set to empty string to disable prefix
+# filtering (all messages become goals — not recommended).
+
+DEFAULT_COMMAND_PREFIX = "/goal"
+
+
+def _get_command_prefix() -> str:
+    """The configured command prefix. Empty string disables filtering."""
+    return os.environ.get("FRIDAY_COMMAND_PREFIX", DEFAULT_COMMAND_PREFIX)
+
+
+def _extract_goal(text: str, prefix: str) -> str | None:
+    """If text starts with the command prefix, return the goal text
+    (everything after the prefix, stripped). Returns None if the text
+    does not start with the prefix (meaning: not a goal command).
+
+    Examples with prefix="/goal":
+      "/goal pause the music" -> "pause the music"
+      "/goal  take a screenshot" -> "take a screenshot"
+      "hey what's up" -> None
+      "/goal" -> None (no goal text after prefix)
+    """
+    if not prefix:
+        # No prefix configured — every message is a goal (legacy mode)
+        return text.strip() if text.strip() else None
+    text_stripped = text.strip()
+    # Case-insensitive prefix match
+    if text_stripped.lower().startswith(prefix.lower()):
+        goal = text_stripped[len(prefix):].strip()
+        return goal if goal else None
+    return None
+
+
+# ------------------------------------------------------------------ goal execution
+#
+# Shared helper for inbound-text triggers: runs a natural-language goal
+# through the full L4→L3→L2→L1 pipeline. Extracted so both Telegram and
+# Discord text triggers use the same execution path.
+
+def _execute_goal_sync(goal: str, run_id: str) -> dict[str, Any]:
+    """Run a goal synchronously through L4→L3→L2→L1. Returns a result
+    dict with status, steps, _result (human-readable text), and duration_s.
+    Never raises — every outcome is captured in the returned dict."""
+    from friday.l4.planner import plan as llm_plan
+
+    t0 = time.monotonic()
+    try:
+        p = llm_plan(goal, run_id=run_id)
+        exec_result = run_plan(p, run_id=run_id)
+        exec_time = time.monotonic() - t0
+
+        # Extract the most useful result text from the last verified step
+        result_text = ""
+        for sr in reversed(exec_result.steps):
+            if sr.status == "VERIFIED" and sr.result is not None:
+                r = sr.result
+                if isinstance(r, str):
+                    result_text = r
+                elif isinstance(r, dict):
+                    for k in ("text", "body", "description", "summary", "content"):
+                        if k in r and isinstance(r[k], str):
+                            result_text = r[k]
+                            break
+                    if not result_text:
+                        result_text = json.dumps(r, default=str)[:2000]
+                else:
+                    result_text = json.dumps(r, default=str)[:2000]
+                break
+
+        return {
+            "status": exec_result.status,
+            "duration_s": round(exec_time, 2),
+            "_result": result_text[:2000],
+            "steps": [
+                {
+                    "step_id": sr.step_id,
+                    "primitive": sr.primitive,
+                    "status": sr.status,
+                    "attempts": sr.attempts,
+                }
+                for sr in exec_result.steps
+            ],
+        }
+    except FridayError as exc:
+        return {
+            "status": "ABORT",
+            "error": str(exc)[:500],
+            "_result": str(exc)[:500],
+            "duration_s": round(time.monotonic() - t0, 2),
+            "steps": [],
+        }
+    except Exception as exc:
+        return {
+            "status": "ERROR",
+            "error": f"{type(exc).__name__}: {exc}"[:500],
+            "_result": f"Error: {exc}"[:500],
+            "duration_s": round(time.monotonic() - t0, 2),
+            "steps": [],
+        }
+
+
+def _has_telegram_text() -> bool:
+    """Check if there are new text messages waiting on Telegram."""
+    try:
+        from friday.l1.telegram import _get_token, _load_offset, _api_url
+        import requests as _req
+
+        token = _get_token()
+        offset = _load_offset()
+        params: dict[str, Any] = {"limit": 1, "timeout": 0}
+        if offset > 0:
+            params["offset"] = offset
+        resp = _req.get(_api_url(token, "getUpdates"), params=params, timeout=10)
+        body = resp.json()
+        updates = body.get("result", [])
+        for u in updates:
+            msg = u.get("message", {})
+            if msg.get("text"):
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def _run_telegram_text_trigger(
+    trigger: dict[str, Any], run_id: str
+) -> dict[str, Any]:
+    """Handle telegram-text triggers: poll for new text messages, execute
+    each as a natural-language goal through L4→L3→L2→L1, and send the
+    result back to the originating chat.
+
+    Only messages starting with the command prefix (default: /goal) are
+    executed. Set FRIDAY_COMMAND_PREFIX to customize or empty to disable."""
+    from friday.l1.telegram import poll_text_messages, send_text
+
+    t_id = trigger["id"]
+    prefix = _get_command_prefix()
+    detail: dict[str, Any] = {"trigger": t_id}
+    try:
+        messages = poll_text_messages(limit=10)
+        if not messages:
+            detail["status"] = "COMPLETED"
+            detail["messages_processed"] = 0
+            return detail
+
+        results: list[dict[str, Any]] = []
+        skipped = 0
+        for msg in messages:
+            text = msg.get("text", "")
+            chat_id = msg.get("chat_id", "")
+            sender = msg.get("from", "")
+            if not text or not chat_id:
+                continue
+
+            # Extract goal from command prefix
+            goal = _extract_goal(text, prefix)
+            if goal is None:
+                skipped += 1
+                continue
+
+            msg_run_id = f"{run_id}-tg-{msg.get('message_id', '')}"
+            result = _execute_goal_sync(goal, msg_run_id)
+
+            # Send the result back to the originating chat
+            reply = result.get("_result", "") or result.get("error", "Done.")
+            status = result.get("status", "UNKNOWN")
+            if status == "COMPLETED":
+                reply_text = f"✅ {reply[:1800]}"
+            else:
+                reply_text = f"❌ {status}: {reply[:1800]}"
+
+            try:
+                send_text(reply_text, to=chat_id)
+            except Exception as send_exc:
+                emit_event(
+                    layer="WATCH",
+                    primitive="telegram.send_text",
+                    exception=f"failed to reply to {chat_id}: {send_exc}",
+                    result="FAILED",
+                )
+
+            results.append({
+                "message_id": msg.get("message_id"),
+                "sender": sender,
+                "goal": goal[:200],
+                "status": status,
+                "duration_s": result.get("duration_s", 0),
+            })
+
+        detail["status"] = "COMPLETED"
+        detail["messages_processed"] = len(results)
+        detail["messages_skipped"] = skipped
+        detail["results"] = results
+    except FridayError as exc:
+        detail["status"] = "FAILED"
+        detail["error"] = str(exc)[:500]
+    except Exception as exc:
+        detail["status"] = "ERROR"
+        detail["error"] = f"{type(exc).__name__}: {exc}"[:500]
+    return detail
+
+
+def _has_discord_text() -> bool:
+    """Check if there are new text messages waiting on Discord."""
+    try:
+        from friday.l1.discord import poll_messages
+
+        msgs = poll_messages(limit=1)
+        return bool(msgs)
+    except Exception:
+        return False
+
+
+def _run_discord_text_trigger(
+    trigger: dict[str, Any], run_id: str
+) -> dict[str, Any]:
+    """Handle discord-text triggers: poll for new text messages, execute
+    each as a natural-language goal through L4→L3→L2→L1, and send the
+    result back to the originating channel.
+
+    Only messages starting with the command prefix (default: /goal) are
+    executed. Set FRIDAY_COMMAND_PREFIX to customize or empty to disable."""
+    from friday.l1.discord import poll_messages, send_text
+
+    t_id = trigger["id"]
+    prefix = _get_command_prefix()
+    detail: dict[str, Any] = {"trigger": t_id}
+    try:
+        messages = poll_messages(limit=10)
+        if not messages:
+            detail["status"] = "COMPLETED"
+            detail["messages_processed"] = 0
+            return detail
+
+        results: list[dict[str, Any]] = []
+        skipped = 0
+        for msg in messages:
+            text = msg.get("content", "")
+            channel_id = msg.get("channel_id", "")
+            author = msg.get("author", "")
+            if not text or not channel_id:
+                continue
+
+            # Extract goal from command prefix
+            goal = _extract_goal(text, prefix)
+            if goal is None:
+                skipped += 1
+                continue
+
+            msg_run_id = f"{run_id}-dc-{msg.get('id', '')}"
+            result = _execute_goal_sync(goal, msg_run_id)
+
+            # Send the result back to the originating channel
+            reply = result.get("_result", "") or result.get("error", "Done.")
+            status = result.get("status", "UNKNOWN")
+            if status == "COMPLETED":
+                reply_text = f"✅ {reply[:1800]}"
+            else:
+                reply_text = f"❌ {status}: {reply[:1800]}"
+
+            try:
+                send_text(reply_text, channel_id=channel_id)
+            except Exception as send_exc:
+                emit_event(
+                    layer="WATCH",
+                    primitive="discord.send_text",
+                    exception=f"failed to reply to {channel_id}: {send_exc}",
+                    result="FAILED",
+                )
+
+            results.append({
+                "message_id": msg.get("id"),
+                "sender": author,
+                "goal": goal[:200],
+                "status": status,
+                "duration_s": result.get("duration_s", 0),
+            })
+
+        detail["status"] = "COMPLETED"
+        detail["messages_processed"] = len(results)
+        detail["messages_skipped"] = skipped
+        detail["results"] = results
     except FridayError as exc:
         detail["status"] = "FAILED"
         detail["error"] = str(exc)[:500]
@@ -546,6 +850,12 @@ def _run_trigger(
         elif trigger.get("schedule", {}).get("type") == "telegram-media":
             detail = _run_telegram_media_trigger(trigger, run_id)
             ok = detail.get("status") == "COMPLETED"
+        elif trigger.get("schedule", {}).get("type") == "telegram-text":
+            detail = _run_telegram_text_trigger(trigger, run_id)
+            ok = detail.get("status") == "COMPLETED"
+        elif trigger.get("schedule", {}).get("type") == "discord-text":
+            detail = _run_discord_text_trigger(trigger, run_id)
+            ok = detail.get("status") == "COMPLETED"
         else:
             plan_dict = _make_plan(trigger, plan_cache, run_id)
             allowed = trigger.get("allow")
@@ -776,6 +1086,14 @@ def run_watcher(
                     )
                 elif sch["type"] == "telegram-media":
                     due = _has_telegram_media() and not _in_retry_backoff(
+                        t["id"], last_attempts
+                    )
+                elif sch["type"] == "telegram-text":
+                    due = _has_telegram_text() and not _in_retry_backoff(
+                        t["id"], last_attempts
+                    )
+                elif sch["type"] == "discord-text":
+                    due = _has_discord_text() and not _in_retry_backoff(
                         t["id"], last_attempts
                     )
                 else:

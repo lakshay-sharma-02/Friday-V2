@@ -23,9 +23,11 @@ Run:
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
+import struct
 import sys
 import time
 import threading
@@ -58,6 +60,87 @@ _ws_lock = threading.Lock()
 # In-memory goal results (for quick access)
 _goal_results: dict[str, dict] = {}
 _goal_lock = threading.Lock()
+
+# ── WebSocket helpers ──
+WS_MAGIC = b"258EAFA5-E914-47DA-95CA-5AB9FFB319F5"
+
+
+def _ws_accept_key(key: str) -> str:
+    """Compute Sec-WebSocket-Accept from the client's Sec-WebSocket-Key."""
+    return base64.b64encode(
+        hashlib.sha1((key.strip() + WS_MAGIC).encode()).digest()
+    ).decode()
+
+
+def _ws_send_frame(sock: Any, data: str, opcode: int = 0x1) -> None:
+    """Send a single WebSocket frame (server → client, unmasked)."""
+    payload = data.encode("utf-8")
+    length = len(payload)
+    header = bytes([0x80 | opcode])
+    if length < 126:
+        header += bytes([length])
+    elif length < 65536:
+        header += bytes([126]) + struct.pack("!H", length)
+    else:
+        header += bytes([127]) + struct.pack("!Q", length)
+    sock.sendall(header + payload)
+
+
+def _ws_read_frame(sock: Any) -> tuple[int, str] | None:
+    """Read one WebSocket frame. Returns (opcode, payload_text) or None
+    on close/error."""
+    try:
+        header = sock.recv(2)
+        if len(header) < 2:
+            return None
+        opcode = header[0] & 0x0F
+        masked = bool(header[1] & 0x80)
+        length = header[1] & 0x7F
+        if length == 126:
+            raw = sock.recv(2)
+            if len(raw) < 2:
+                return None
+            length = struct.unpack("!H", raw)[0]
+        elif length == 127:
+            raw = sock.recv(8)
+            if len(raw) < 8:
+                return None
+            length = struct.unpack("!Q", raw)[0]
+        mask_key = None
+        if masked:
+            mask_key = sock.recv(4)
+            if len(mask_key) < 4:
+                return None
+        payload = b""
+        while len(payload) < length:
+            chunk = sock.recv(length - len(payload))
+            if not chunk:
+                return None
+            payload += chunk
+        if mask_key and mask_key:
+            payload = bytes(b ^ mask_key[i % 4] for i, b in enumerate(payload))
+        return opcode, payload.decode("utf-8", errors="replace")
+    except Exception:
+        return None
+
+
+def _ws_upgrade(handler: BaseHTTPRequestHandler) -> Any | None:
+    """Perform WebSocket handshake and return the raw socket.
+    Returns None if the handshake fails."""
+    key = handler.headers.get("Sec-WebSocket-Key", "")
+    if not key:
+        return None
+    accept = _ws_accept_key(key)
+    response = (
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        f"Sec-WebSocket-Accept: {accept}\r\n"
+        "\r\n"
+    )
+    handler.wfile.write(response.encode())
+    handler.wfile.flush()
+    return handler.request
 
 
 def _check_rate_limit() -> bool:
@@ -104,13 +187,16 @@ def _save_goals(goals: list[dict]) -> None:
 
 
 def _add_goal(goal_data: dict) -> None:
-    """Add a goal to persistent storage."""
+    """Add a goal to persistent storage AND seed the in-memory cache."""
     goals = _load_goals()
     # Remove old completed goals if too many
     if len(goals) > 100:
         goals = [g for g in goals if g.get("status") in ("running", "pending")][-50:]
     goals.insert(0, goal_data)
     _save_goals(goals)
+    # Seed in-memory cache so /goal/:id polling hits it immediately
+    with _goal_lock:
+        _goal_results[goal_data["run_id"]] = dict(goal_data)
 
 
 def _update_goal(run_id: str, updates: dict) -> None:
@@ -134,7 +220,7 @@ def _broadcast_ws(data: dict) -> None:
         dead = []
         for ws in _ws_clients:
             try:
-                ws.send_message(msg)
+                _ws_send_frame(ws, msg)
             except Exception:
                 dead.append(ws)
         for ws in dead:
@@ -163,9 +249,31 @@ def _execute_goal_thread(goal: str, run_id: str):
         exec_result = run_plan(p, run_id=run_id)
         exec_time = time.monotonic() - t0
 
+        # Extract the most useful result text from the last verified step
+        result_text = ""
+        for sr in reversed(exec_result.steps):
+            if sr.status == "VERIFIED" and sr.result is not None:
+                r = sr.result
+                if isinstance(r, str):
+                    result_text = r
+                elif isinstance(r, dict):
+                    # Try common result keys
+                    for k in ("text", "body", "description", "summary", "content"):
+                        if k in r and isinstance(r[k], str):
+                            result_text = r[k]
+                            break
+                    if not result_text:
+                        import json as _json
+                        result_text = _json.dumps(r, default=str)[:2000]
+                else:
+                    import json as _json
+                    result_text = _json.dumps(r, default=str)[:2000]
+                break
+
         result = {
             "status": exec_result.status,
             "duration_s": round(exec_time, 2),
+            "_result": result_text[:2000],
             "steps": [{
                 "step_id": sr.step_id,
                 "primitive": sr.primitive,
@@ -179,6 +287,7 @@ def _execute_goal_thread(goal: str, run_id: str):
         result = {
             "status": "ERROR",
             "error": str(exc),
+            "_result": str(exc)[:500],
         }
 
     _update_goal(run_id, {
@@ -190,6 +299,30 @@ def _execute_goal_thread(goal: str, run_id: str):
         "run_id": run_id,
         **result,
     })
+
+    # Auto-store goal outcomes in memory for future reference.
+    # Best-effort: a memory failure must never break goal execution.
+    if result.get("status") == "COMPLETED":
+        try:
+            from friday.l1.memory import record_success
+            record_success(
+                goal=goal,
+                outcome=result.get("_result", "completed successfully")[:500],
+                tags=["source:api"],
+            )
+        except Exception:
+            pass
+    elif result.get("status") in ("ABORT", "ERROR"):
+        try:
+            from friday.l1.memory import store as mem_store
+            mem_store(
+                key=f"failure:{goal.strip()[:80]}",
+                value=f"Status: {result.get('status')}. Error: {result.get('error', 'unknown')[:300]}",
+                category="context",
+                tags=["type:failure", "source:api"],
+            )
+        except Exception:
+            pass
 
 
 class FridayAPIHandler(BaseHTTPRequestHandler):
@@ -218,6 +351,12 @@ class FridayAPIHandler(BaseHTTPRequestHandler):
             self._handle_websocket()
             return
 
+        # Favicon
+        if path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
+            return
+
         if not _check_auth(self):
             self._json_response(401, {"error": "unauthorized"})
             return
@@ -241,7 +380,12 @@ class FridayAPIHandler(BaseHTTPRequestHandler):
         elif path == "/memory":
             params = parse_qs(parsed.query)
             query = params.get("q", [None])[0]
-            self._handle_memory(query)
+            category = params.get("category", [None])[0]
+            tags_raw = params.get("tags", [None])[0]
+            tags = [t.strip() for t in tags_raw.split(",")] if tags_raw else None
+            offset = int(params.get("offset", ["0"])[0])
+            limit = int(params.get("limit", ["20"])[0])
+            self._handle_memory(query, category=category, tags=tags, offset=offset, limit=limit)
         elif path == "/logs":
             params = parse_qs(parsed.query)
             count = int(params.get("n", ["20"])[0])
@@ -265,6 +409,10 @@ class FridayAPIHandler(BaseHTTPRequestHandler):
 
         if path == "/goal":
             self._handle_goal()
+        elif path == "/memory":
+            self._handle_memory_store()
+        elif path == "/memory/forget":
+            self._handle_memory_forget()
         else:
             self._json_response(404, {"error": "not_found"})
 
@@ -286,8 +434,37 @@ class FridayAPIHandler(BaseHTTPRequestHandler):
     # ---- WebSocket ----
 
     def _handle_websocket(self):
-        """Handle WebSocket upgrade (simplified - returns error for now)."""
-        self._json_response(400, {"error": "websocket_not_implemented", "message": "Use polling with GET /goal/:id"})
+        """Handle WebSocket upgrade and push real-time goal updates."""
+        sock = _ws_upgrade(self)
+        if sock is None:
+            self._json_response(400, {"error": "bad_websocket_handshake"})
+            return
+        # Register this client
+        with _ws_lock:
+            _ws_clients.append(sock)
+        # Send current status immediately
+        try:
+            status_msg = {"type": "connected", "version": "0.8.0"}
+            _ws_send_frame(sock, json.dumps(status_msg))
+        except Exception:
+            pass
+        # Listen for close frames (keep connection alive)
+        try:
+            while True:
+                frame = _ws_read_frame(sock)
+                if frame is None:
+                    break
+                opcode, _ = frame
+                if opcode == 0x8:  # close
+                    break
+                if opcode == 0x9:  # ping
+                    _ws_send_frame(sock, "", opcode=0xA)  # pong
+        except Exception:
+            pass
+        finally:
+            with _ws_lock:
+                if sock in _ws_clients:
+                    _ws_clients.remove(sock)
 
     # ---- Goals ----
 
@@ -438,24 +615,93 @@ class FridayAPIHandler(BaseHTTPRequestHandler):
 
     # ---- Memory ----
 
-    def _handle_memory(self, query: str | None):
-        """Query memory store."""
+    def _handle_memory(self, query: str | None, category: str | None = None, tags: list[str] | None = None, offset: int = 0, limit: int = 20):
+        """Query, list, or search memory store.
+
+        GET /memory                    — summary
+        GET /memory?q=...              — search by relevance
+        GET /memory?category=facts     — list by category
+        GET /memory?tags=proj:friday   — list by tags (comma-separated)
+        GET /memory?q=...&tags=...     — search with tag filter
+        """
         try:
-            from friday.l1.memory import retrieve, summary as mem_summary
+            from friday.l1.memory import retrieve, list_memories, summary as mem_summary
             if query:
-                results = retrieve(query, limit=10)
+                results = retrieve(query, category=category, tags=tags, limit=min(limit, 20))
                 self._json_response(200, {
                     "query": query,
+                    "category": category,
+                    "tags": tags,
                     "results": [{
+                        "id": r.get("id", ""),
                         "key": r.get("key", ""),
                         "value": r.get("value", "")[:500],
                         "category": r.get("category", ""),
+                        "tags": r.get("tags", []),
                         "relevance": r.get("relevance", 0),
+                        "access_count": r.get("access_count", 0),
                     } for r in results],
                 })
+            elif category or tags:
+                result = list_memories(category=category, tags=tags, offset=offset, limit=limit)
+                self._json_response(200, result)
             else:
                 s = mem_summary()
+                # Also include category list for the UI
+                from friday.l1.memory import list_categories
+                cats = list_categories()
+                s["category_counts"] = cats.get("categories", {})
                 self._json_response(200, s)
+        except Exception as e:
+            self._json_response(500, {"error": "internal_error", "message": str(e)})
+
+    def _handle_memory_store(self):
+        """Store a memory entry."""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body.decode("utf-8"))
+        except (json.JSONDecodeError, ValueError):
+            self._json_response(400, {"error": "bad_request", "message": "Invalid JSON"})
+            return
+
+        key = data.get("key", "").strip()
+        value = data.get("value", "").strip()
+        category = data.get("category", "facts")
+        tags = data.get("tags")
+
+        if not key or not value:
+            self._json_response(400, {"error": "bad_request", "message": "key and value are required"})
+            return
+
+        try:
+            from friday.l1.memory import store
+            result = store(key=key, value=value, category=category, tags=tags)
+            self._json_response(200, result)
+        except Exception as e:
+            self._json_response(500, {"error": "internal_error", "message": str(e)})
+
+    def _handle_memory_forget(self):
+        """Delete a memory entry."""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body.decode("utf-8"))
+        except (json.JSONDecodeError, ValueError):
+            self._json_response(400, {"error": "bad_request", "message": "Invalid JSON"})
+            return
+
+        key = data.get("key", "").strip()
+        category = data.get("category")
+
+        if not key:
+            self._json_response(400, {"error": "bad_request", "message": "key is required"})
+            return
+
+        try:
+            from friday.l1.memory import forget
+            result = forget(key=key, category=category)
+            self._json_response(200, result)
         except Exception as e:
             self._json_response(500, {"error": "internal_error", "message": str(e)})
 
@@ -535,6 +781,18 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     allow_reuse_address = True
 
 
+def _seed_goal_cache() -> None:
+    """Seed the in-memory goal cache from persistent storage on startup,
+    so GET /goal/:id works immediately after a restart without waiting
+    for the polling loop to reload."""
+    goals = _load_goals()
+    with _goal_lock:
+        for g in goals:
+            rid = g.get("run_id")
+            if rid and rid not in _goal_results:
+                _goal_results[rid] = dict(g)
+
+
 def main(argv: list[str] | None = None):
     """Entry point for the API server."""
     parser = argparse.ArgumentParser(description="Friday API Server")
@@ -546,6 +804,9 @@ def main(argv: list[str] | None = None):
     if root not in sys.path:
         sys.path.insert(0, root)
 
+    # Seed in-memory goal cache from disk
+    _seed_goal_cache()
+
     server = ThreadedHTTPServer((args.host, args.port), FridayAPIHandler)
 
     api_key = os.environ.get("FRIDAY_API_KEY")
@@ -554,6 +815,7 @@ def main(argv: list[str] | None = None):
     print(f"\n🤖 Friday API Server v0.8.0")
     print(f"   http://{args.host}:{args.port}")
     print(f"   Auth: {auth_status}")
+    print(f"   WebSocket: ws://{args.host}:{args.port}/ws")
     print(f"\n   Dashboard:  http://localhost:{args.port}/")
     print(f"   API:        http://localhost:{args.port}/status")
     print(f"   Goal:       POST http://localhost:{args.port}/goal")

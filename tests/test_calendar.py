@@ -161,9 +161,8 @@ class TestListUpcoming(EnvTestCase):
             mock.patch("friday.l1.calendar.requests.get", return_value=resp),
         ):
             calendar.list_upcoming(days=7)
-        lines = [
-            json.loads(l) for l in open(log, encoding="utf-8").read().splitlines() if l.strip()
-        ]
+        with open(log, encoding="utf-8") as f:
+            lines = [json.loads(l) for l in f.read().splitlines() if l.strip()]
         cal_line = [l for l in lines if l["primitive"] == "calendar.list_upcoming"][-1]
         self.assertEqual(cal_line["result"][0]["summary"], "<redacted>")
         self.assertEqual(cal_line["result"][0]["event_id"], "ev-1")

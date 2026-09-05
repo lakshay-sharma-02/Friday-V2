@@ -162,11 +162,12 @@ class TestGmailChecks(EnvTestCase):
         self.set_env(FRIDAY_LOG_FILE=str(log))
         with mock.patch.object(checks, "gmail_unread", return_value=[]):
             checks.gmail_unread_exists("a@b")
-        n = sum(
-            1
-            for l in open(log, encoding="utf-8")
-            if json.loads(l).get("primitive") == "checks.gmail_unread_exists"
-        )
+        with open(log, encoding="utf-8") as f:
+            n = sum(
+                1
+                for l in f
+                if json.loads(l).get("primitive") == "checks.gmail_unread_exists"
+            )
         self.assertEqual(n, 1)
 
 
@@ -177,7 +178,8 @@ class TestL2Observed(EnvTestCase):
         self.set_env(FRIDAY_LOG_FILE=str(log))
         with mock.patch.object(checks.window, "list_clients", return_value=[]):
             checks.window_client_count()
-        lines = [json.loads(l) for l in open(log, encoding="utf-8") if l.strip()]
+        with open(log, encoding="utf-8") as f:
+            lines = [json.loads(l) for l in f if l.strip()]
         self.assertEqual(lines[0]["layer"], "L2")
         self.assertEqual(lines[0]["primitive"], "checks.window_client_count")
 

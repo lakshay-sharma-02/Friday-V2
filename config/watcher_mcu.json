@@ -1,0 +1,45 @@
+{
+  "_docs": "MCU Friday AMBIENT WATCH LOOP triggers (config/watcher_mcu.json).\n\nThis file is deliberately SEPARATE from config/watcher.json (the V8 watcher's\nfile): the two registries differ (e.g. MCU has no files.find_recent_doc or\ndigestcheck.verify_attribution), so sharing a config made one watcher abort on\nthe other's triggers. Edit THIS file to opt in for the MCU daemon\n(.venv/bin/python -m friday_mcu.watcher --once or --poll 30).\n\nEach trigger:\n  id        - unique name (appears in var/logs/mcu_tasks.jsonl as mcu-watch:<id>)\n  goal      - natural-language goal, planned through L4 (LLM) and cached per daemon run\n  plan      - INLINE deterministic plan dict (no LLM) - preferred for unattended triggers\n  schedule  - {\"type\": \"time\", \"at\": \"HH:MM\", \"days\": [\"mon\"...]} fires once per day;\n              {\"type\": \"file\", \"directory\": ..., \"name\": <substring>} fires once per\n              new matching file (seen state persists across restarts); special types:\n              whatsapp-media, telegram-media, telegram-text, discord-text\n  enabled   - false = inert; set true to activate\n  notify    - desktop notification on completion (default true)\n  allow     - optional primitive allowlist (exact names or 'mod.*' patterns); any plan\n              step not on the list is REFUSED before execution. Keep the allowlist\n              tight for unattended triggers - see config/watcher.json for precedent.\n\nCredentials come from config/credentials.json (gitignored) or env vars; see\nfriday_mcu/env.py for the mapping.\n\nALL TRIGGERS BELOW ARE INERT (enabled: false) until you flip them on.\n",
+  "triggers": [
+    {
+      "id": "mcu-morning-gmail-summary",
+      "goal": "check unread emails and summarize the most recent one from the configured sender in at most 5 plain sentences",
+      "schedule": {"type": "time", "at": "09:00", "days": ["mon", "tue", "wed", "thu", "fri"]},
+      "enabled": false,
+      "allow": ["gmail.list_unread", "gmail.get_message", "gmail.summarize"],
+      "notify": true
+    },
+    {
+      "id": "mcu-morning-calendar-summary",
+      "plan": {
+        "goal": "list today's calendar events",
+        "steps": [
+          {
+            "primitive": "calendar.list_upcoming",
+            "args": {"days": 1},
+            "verify": {"check": "checks.list_nonempty", "args": {"value": "$steps.1.result"}, "expect": true}
+          }
+        ]
+      },
+      "schedule": {"type": "time", "at": "08:00"},
+      "enabled": false,
+      "allow": ["calendar.list_upcoming"],
+      "notify": true
+    },
+    {
+      "id": "mcu-download-alert",
+      "goal": "find the newest pdf in my downloads and send it to me",
+      "schedule": {"type": "file", "directory": "~/Downloads", "name": ".pdf"},
+      "enabled": false,
+      "allow": ["files.find_newest", "whatsapp.send_document", "notify.notify_send"],
+      "notify": true
+    },
+    {
+      "id": "mcu-telegram-inbound",
+      "goal": "process inbound telegram messages",
+      "schedule": {"type": "telegram-text"},
+      "enabled": false,
+      "notify": false
+    }
+  ]
+}

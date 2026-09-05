@@ -17,7 +17,27 @@ from friday.contracts import Idempotency, contract
 from friday.errors import PreconditionError, PrimitiveError, PrimitiveTimeout
 from friday.lessons import render_known_mistakes
 
-CLAUDE = "claude"
+def _find_claude() -> str:
+    """Find the claude CLI executable. On Windows, subprocess can't find
+    .CMD files by bare name even when they're in PATH, so we resolve
+    with shutil.which."""
+    import shutil
+
+    found = shutil.which("claude")
+    if found:
+        return found
+    # Fallback: try common locations on Windows
+    for candidate in [
+        os.path.expanduser("~/AppData/Roaming/npm/claude.CMD"),
+        os.path.expanduser("~/AppData/Roaming/npm/claude.cmd"),
+        "/usr/local/bin/claude",
+    ]:
+        if os.path.isfile(candidate):
+            return candidate
+    return "claude"  # hope for the best
+
+
+CLAUDE = _find_claude()
 
 # Default model alias for this machine. The stock default is broken here
 # (cc/claude-sonnet-5 -> 404; the 'haiku'/'sonnet' aliases route to EOL
@@ -64,13 +84,17 @@ def _run_claude(
     # FRIDAY_MODEL can in turn supersede.
     if os.environ.get("FRIDAY_MODEL"):
         model = os.environ["FRIDAY_MODEL"]
-    cmd = [CLAUDE, "-p", task, "--output-format", "json"]
+    cmd = [CLAUDE, "-p", "--output-format", "json"]
     if model:
         cmd += ["--model", model]
     if bypass:
         cmd += ["--permission-mode", "bypassPermissions"]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s, cwd=cwd)
+        # Pass task via stdin to avoid Windows command-line length limit
+        # (error 206 when the prompt exceeds ~32K chars).
+        proc = subprocess.run(
+            cmd, input=task, capture_output=True, text=True, timeout=timeout_s, cwd=cwd
+        )
     except subprocess.TimeoutExpired as exc:
         raise PrimitiveTimeout(
             f"claude -p did not finish within {timeout_s}s (task: {task[:120]}...)",

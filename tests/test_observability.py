@@ -69,7 +69,8 @@ class TestRunIdLifecycle(EnvTestCase):
         obs.reset_run_id()
         obs.emit_event(layer="WATCH", primitive="daemon.alive", result="ALIVE")
 
-        lines = [json.loads(l) for l in open(log, encoding="utf-8") if l.strip()]
+        with open(log, encoding="utf-8") as f:
+            lines = [json.loads(l) for l in f if l.strip()]
         self.assertEqual(lines[0]["run_id"], "watch-some-trigger-20260814T000000")
         # The heartbeat line must NOT inherit the trigger's run_id.
         self.assertNotEqual(lines[1]["run_id"], "watch-some-trigger-20260814T000000")
@@ -78,7 +79,8 @@ class TestRunIdLifecycle(EnvTestCase):
 
 class TestObserveWrapper(EnvTestCase):
     def _last_line(self, path) -> dict:
-        lines = [l for l in open(path, encoding="utf-8") if l.strip()]
+        with open(path, encoding="utf-8") as f:
+            lines = [l for l in f if l.strip()]
         return json.loads(lines[-1])
 
     def test_success_line_shape(self):
@@ -176,7 +178,8 @@ class TestRotation(EnvTestCase):
     def _vals(self, path):
         if not os.path.exists(path):
             return []
-        return [json.loads(l)["args"]["i"] for l in open(path, encoding="utf-8") if l.strip()]
+        with open(path, encoding="utf-8") as f:
+            return [json.loads(l)["args"]["i"] for l in f if l.strip()]
 
     def test_rotation_preserves_order_and_drops_oldest(self):
         d = self.mktmp()
@@ -218,9 +221,10 @@ class TestRotation(EnvTestCase):
         self._emit(log, 10)
         for p in (log, f"{log}.1", f"{log}.2"):
             if os.path.exists(p):
-                for line in open(p, encoding="utf-8"):
-                    if line.strip():
-                        json.loads(line)
+                with open(p, encoding="utf-8") as f:
+                    for line in f:
+                        if line.strip():
+                            json.loads(line)
 
 
 if __name__ == "__main__":

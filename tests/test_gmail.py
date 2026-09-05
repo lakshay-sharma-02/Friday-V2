@@ -141,7 +141,8 @@ class TestSummarizeFlow(EnvTestCase):
         self.set_env(FRIDAY_LOG_FILE=str(log))
         with self._patched({"result": "ok summary"}, msg=self._msg(body="SECRET MAIL BODY TEXT")):
             self.assertEqual(gmail.summarize("m1"), "ok summary")
-        dump = open(log, encoding="utf-8").read()
+        with open(log, encoding="utf-8") as f:
+            dump = f.read()
         self.assertNotIn("SECRET MAIL BODY TEXT", dump)
         prims = [json.loads(l)["primitive"] for l in dump.splitlines() if l.strip()]
         self.assertEqual(prims.count("gmail.summarize"), 1)
@@ -199,9 +200,8 @@ class TestSendDocument(EnvTestCase):
             mock.patch("friday.l1.gmail.requests.post", return_value=self._resp()),
         ):
             gmail.send_document(str(self._pdf()), to="me@example.com")
-        lines = [
-            json.loads(l) for l in open(log, encoding="utf-8").read().splitlines() if l.strip()
-        ]
+        with open(log, encoding="utf-8") as f:
+            lines = [json.loads(l) for l in f.read().splitlines() if l.strip()]
         send_line = [l for l in lines if l["primitive"] == "gmail.send_document"][-1]
         self.assertEqual(send_line["result"]["to"], "<redacted>")
         self.assertEqual(send_line["result"]["message_id"], "msg-1")

@@ -768,7 +768,26 @@ def plan(
     layer=L4. `facts` / `file_paths` / `recipients` override the
     corresponding PROJECT FACTS section (default: config/planner_facts.json,
     or built-in defaults if absent); $facts.<name> references in the
-    model's output are resolved against them before validation."""
+    model's output are resolved against them before validation.
+
+    Template shortcut: if the goal matches a known template, the plan
+    is returned immediately without an LLM call (free, instant).
+    """
+    # Try template match first (free, instant, deterministic)
+    try:
+        from friday.templates import match_template
+        template_plan = match_template(goal)
+        if template_plan is not None:
+            emit_event(
+                layer="L4",
+                primitive="plan",
+                args={"goal": goal},
+                result="TEMPLATE_MATCH",
+            )
+            return template_plan
+    except Exception:
+        pass  # template module unavailable or error — fall through to LLM
+
     from friday.l1.dev import run as dev_run
 
     if run_id:
@@ -807,6 +826,10 @@ def plan(
                 ),
                 cwd=str(PROJECT_ROOT),
                 timeout_s=timeout_s,
+                # Use haiku for planning: fast (~5-10s) vs opus (~60-120s).
+                # Planning only needs to output a JSON schema — no need for
+                # the most expensive model. Override via FRIDAY_PLANNER_MODEL.
+                model=os.environ.get("FRIDAY_PLANNER_MODEL", "haiku"),
             )
         except FridayError as exc:
             last_error = f"LLM call failed: {exc}"

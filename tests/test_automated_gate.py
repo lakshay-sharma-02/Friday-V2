@@ -49,7 +49,6 @@ CONTRACT_PREFIX = (
 )
 
 BAD_IMPORTS = [
-    "import numpy\n\ndef f(x):\n    return x\n",
     "import evil.thing\n\ndef f(x):\n    return x\n",
     "from requests_oauthlib import x\n\ndef f():\n    return 1\n",
 ]
@@ -95,6 +94,8 @@ class TestImportAllowlist(EnvTestCase):
     def test_allowed_imports_pass(self):
         self.assertEqual(check_imports("import os\n"), [])
         self.assertEqual(check_imports("import requests\n"), [])
+        self.assertEqual(check_imports("import numpy\n"), [])
+        self.assertEqual(check_imports("import sentence_transformers\n"), [])
         self.assertEqual(check_imports("from friday.contracts import contract\n"), [])
         self.assertEqual(check_imports("from pathlib import Path\n"), [])
 

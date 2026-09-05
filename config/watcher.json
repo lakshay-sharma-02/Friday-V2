@@ -642,26 +642,11 @@
     },
     {
       "id": "telegram-inbound-text",
-      "goal": "poll for new Telegram text messages and store them for processing",
-      "plan": {
-        "goal": "poll for new Telegram text messages",
-        "steps": [
-          {
-            "primitive": "telegram.poll_text_messages",
-            "args": {"limit": 10},
-            "verify": {
-              "check": "checks.list_nonempty",
-              "args": {"value": "$steps.1.result"},
-              "expect": true
-            }
-          }
-        ]
-      },
-      "schedule": {"type": "time", "at": "12:00", "days": ["mon","tue","wed","thu","fri","sat","sun"]},
-      "enabled": false,
-      "notify": false,
-      "allow": ["telegram.poll_text_messages", "telegram.enqueue_text_message"],
-      "_docs": "ADDED 2026-08-24: polls Telegram for new text messages and enqueues them for processing. Fires once daily at 12:00. For more frequent polling, set up a cron job that runs: ./.venv/bin/python -m friday.watcher --once"
+      "goal": "poll for new Telegram text messages and execute them as goals",
+      "schedule": {"type": "telegram-text"},
+      "enabled": true,
+      "notify": true,
+      "_docs": "ENABLED 2026-08-27 (updated): polls Telegram for new text messages, executes each as a natural-language goal through L4→L3→L2→L1, and sends the result back to the originating chat. Uses the dedicated telegram-text handler in the watcher (no LLM plan needed for the trigger itself - the goal IS the message text)."
     },
     {
       "id": "discord-inbound",
@@ -697,26 +682,11 @@
     },
     {
       "id": "discord-inbound-text",
-      "goal": "poll for new Discord text messages and store them for processing",
-      "plan": {
-        "goal": "poll for new Discord text messages",
-        "steps": [
-          {
-            "primitive": "discord.poll_messages",
-            "args": {"limit": 10},
-            "verify": {
-              "check": "checks.list_nonempty",
-              "args": {"value": "$steps.1.result"},
-              "expect": true
-            }
-          }
-        ]
-      },
-      "schedule": {"type": "time", "at": "12:10", "days": ["mon","tue","wed","thu","fri","sat","sun"]},
-      "enabled": false,
-      "notify": false,
-      "allow": ["discord.poll_messages", "discord.enqueue_text_message"],
-      "_docs": "ADDED 2026-08-24: polls Discord for new text messages and enqueues them for processing. Fires once daily at 12:10. For more frequent polling, set up a cron job."
+      "goal": "poll for new Discord text messages and execute them as goals",
+      "schedule": {"type": "discord-text"},
+      "enabled": true,
+      "notify": true,
+      "_docs": "ENABLED 2026-08-27 (updated): polls Discord for new text messages, executes each as a natural-language goal through L4→L3→L2→L1, and sends the result back to the originating channel. Uses the dedicated discord-text handler in the watcher."
     },
     {
       "id": "morning-email-digest",

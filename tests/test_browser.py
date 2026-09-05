@@ -138,7 +138,8 @@ class BrowserTestCase(EnvTestCase):
     def _lines(self):
         if not self._log.exists():
             return []
-        return [json.loads(l) for l in open(self._log, encoding="utf-8") if l.strip()]
+        with open(self._log, encoding="utf-8") as f:
+            return [json.loads(l) for l in f if l.strip()]
 
 
 class TestFindLocator(BrowserTestCase):

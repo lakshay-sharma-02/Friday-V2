@@ -207,7 +207,8 @@ class TestWhatsAppMediaTrigger(EnvTestCase):
         }
         with unittest.mock.patch("friday.l1.whatsapp.download_media", return_value=fake_result):
             run_watcher(str(cfg), once=True)
-        recs = [json.loads(l) for l in open(tasks, encoding="utf-8") if l.strip()]
+        with open(tasks, encoding="utf-8") as f:
+            recs = [json.loads(l) for l in f if l.strip()]
         self.assertEqual(len(recs), 1)
         self.assertTrue(recs[0]["gate6_passed"])
         proof = json.loads(recs[0]["proof"])
@@ -626,7 +627,8 @@ class TestRunWatcher(EnvTestCase):
         tasks = d / "tasks.jsonl"
         self.set_env(FRIDAY_TASKS_FILE=str(tasks))
         run_watcher(str(cfg), once=True)
-        recs = [json.loads(l) for l in open(tasks, encoding="utf-8") if l.strip()]
+        with open(tasks, encoding="utf-8") as f:
+            recs = [json.loads(l) for l in f if l.strip()]
         self.assertEqual(sorted(r["task_id"] for r in recs), ["watch:run-file", "watch:run-time"])
         for r in recs:
             self.assertTrue(r["gate6_passed"])
@@ -657,7 +659,8 @@ class TestRunWatcher(EnvTestCase):
         tasks = d / "tasks.jsonl"
         self.set_env(FRIDAY_TASKS_FILE=str(tasks))
         run_watcher(str(cfg), once=True)
-        recs = [json.loads(l) for l in open(tasks, encoding="utf-8") if l.strip()]
+        with open(tasks, encoding="utf-8") as f:
+            recs = [json.loads(l) for l in f if l.strip()]
         self.assertEqual(len(recs), 1)
         self.assertFalse(recs[0]["gate6_passed"])  # failures are data, never deleted
         self.assertEqual(json.loads(recs[0]["proof"])["status"], "ABORT")
@@ -688,7 +691,8 @@ class TestRunWatcher(EnvTestCase):
             "friday.watcher.notify_send", side_effect=PrimitiveError("no daemon", state="x")
         ):
             run_watcher(str(cfg), once=True)
-        recs = [json.loads(l) for l in open(tasks, encoding="utf-8") if l.strip()]
+        with open(tasks, encoding="utf-8") as f:
+            recs = [json.loads(l) for l in f if l.strip()]
         self.assertTrue(recs[0]["gate6_passed"])
 
     def test_poll_s_must_be_positive(self):
@@ -734,7 +738,8 @@ class TestFiredState(EnvTestCase):
     def _records(tasks: Path) -> list[dict]:
         if not tasks.is_file():
             return []  # nothing fired -> no task file yet (expected in no-refire)
-        return [json.loads(l) for l in open(tasks, encoding="utf-8") if l.strip()]
+        with open(tasks, encoding="utf-8") as f:
+            return [json.loads(l) for l in f if l.strip()]
 
     def test_restart_same_day_does_not_refire(self):
         """The regression: a restart after today's firing must not produce
@@ -824,7 +829,8 @@ class TestRetryOnFailure(EnvTestCase):
         self.set_env(FRIDAY_TASKS_FILE=str(tasks), FRIDAY_FIRED_FILE=str(fired))
         run_watcher(str(cfg), once=True)  # attempt 1: FAILS
         run_watcher(str(cfg), once=True)  # a later pass: eligible again
-        recs = [json.loads(l) for l in open(tasks, encoding="utf-8") if l.strip()]
+        with open(tasks, encoding="utf-8") as f:
+            recs = [json.loads(l) for l in f if l.strip()]
         self.assertEqual(len(recs), 2, "a FAILED run must not consume the day's slot")
         self.assertTrue(all(not r["gate6_passed"] for r in recs))
         saved = json.loads(fired.read_text()) if fired.is_file() else {}
@@ -855,7 +861,8 @@ class TestRetryOnFailure(EnvTestCase):
         self.set_env(FRIDAY_TASKS_FILE=str(tasks), FRIDAY_FIRED_FILE=str(fired))
         run_watcher(str(cfg), once=True)
         run_watcher(str(cfg), once=True)  # restart same day
-        recs = [json.loads(l) for l in open(tasks, encoding="utf-8") if l.strip()]
+        with open(tasks, encoding="utf-8") as f:
+            recs = [json.loads(l) for l in f if l.strip()]
         self.assertEqual(len(recs), 1)
         self.assertTrue(recs[0]["gate6_passed"])
         self.assertEqual(json.loads(fired.read_text())["daily"], datetime.now().date().isoformat())
@@ -902,7 +909,8 @@ class TestRetryOnFailure(EnvTestCase):
         )
         run_watcher(str(cfg), once=True)
         run_watcher(str(cfg), once=True)  # restart same day
-        recs = [json.loads(l) for l in open(tasks, encoding="utf-8") if l.strip()]
+        with open(tasks, encoding="utf-8") as f:
+            recs = [json.loads(l) for l in f if l.strip()]
         self.assertEqual(len(recs), 1, "a REFUSED run is terminal for the day - no retry storm")
         self.assertEqual(json.loads(recs[0]["proof"])["status"], "REFUSED")
         saved = json.loads(fired.read_text()) if fired.is_file() else {}
@@ -1214,7 +1222,8 @@ class TestAllowList(EnvTestCase):
         self.assertEqual(detail["forbidden"], ["whatsapp.send_text"])
         run.assert_not_called()  # refused before any execution
         self.assertEqual(cache, {})  # refused plan popped, replanned next firing
-        recs = [json.loads(l) for l in open(tasks, encoding="utf-8") if l.strip()]
+        with open(tasks, encoding="utf-8") as f:
+            recs = [json.loads(l) for l in f if l.strip()]
         self.assertEqual(len(recs), 1)
         self.assertFalse(recs[0]["gate6_passed"])  # honest failure, never deleted
         self.assertEqual(json.loads(recs[0]["proof"])["status"], "REFUSED")
@@ -1249,7 +1258,8 @@ class TestAllowList(EnvTestCase):
         tasks = d / "tasks.jsonl"
         self.set_env(FRIDAY_TASKS_FILE=str(tasks))
         run_watcher(str(cfg), once=True)
-        recs = [json.loads(l) for l in open(tasks, encoding="utf-8") if l.strip()]
+        with open(tasks, encoding="utf-8") as f:
+            recs = [json.loads(l) for l in f if l.strip()]
         self.assertEqual(len(recs), 1)
         self.assertTrue(recs[0]["gate6_passed"])  # files.find_file matches files.*
         self.assertEqual(json.loads(recs[0]["proof"])["status"], "COMPLETED")

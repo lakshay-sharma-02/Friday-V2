@@ -68,6 +68,10 @@ MEMORY_REINFORCE_THRESHOLD = 5
 MAX_RETRIEVE_RESULTS = 20
 # Max value length stored (chars) — prevents unbounded growth
 MAX_VALUE_CHARS = 5_000
+# Minimum key similarity to consider a duplicate (0.0-1.0)
+DUPLICATE_THRESHOLD = 0.85
+# Max tags per memory entry
+MAX_TAGS = 20
 
 
 # --------------------------------------------------------------- storage
@@ -189,19 +193,90 @@ def _normalize_tokens(text: str) -> list[str]:
     return [t for t in re.split(r'[^a-z0-9]+', text.lower()) if t]
 
 
-# ---- TF-IDF scoring ----
-# IDF weights rare terms higher than common ones. "gmail" (appears in
-# 2 entries) scores much higher than "the" (appears in 50 entries).
-# The IDF cache is invalidated when entries change.
+# ---- Semantic search (sentence-transformers) ----
+# Uses all-MiniLM-L6-v2 (384-dim, ~80MB, CPU-only) for real semantic
+# matching. Falls back to TF-IDF when the model is unavailable.
 
-_idf_cache: dict[str, float] = {}  # token -> IDF weight
-_idf_cache_size: int = 0           # number of docs when cache was built
+_model = None  # lazy-loaded SentenceTransformer
+_model_name = "all-MiniLM-L6-v2"
+_embedding_cache: dict[str, list[float]] = {}  # entry_id -> embedding
+_embedding_cache_dirty = False
+
+
+def _get_model():
+    """Lazy-load the sentence-transformers model. Returns None if
+    the library or model is unavailable (falls back to TF-IDF)."""
+    global _model
+    if _model is not None:
+        return _model
+    try:
+        from sentence_transformers import SentenceTransformer
+        _model = SentenceTransformer(_model_name)
+        return _model
+    except (ImportError, Exception):
+        return None
+
+
+def _embed_text(text: str) -> list[float] | None:
+    """Embed a single text string. Returns None on failure."""
+    model = _get_model()
+    if model is None:
+        return None
+    try:
+        import numpy as np
+        emb = model.encode(text, normalize_embeddings=True)
+        return emb.tolist()
+    except Exception:
+        return None
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Compute cosine similarity between two vectors."""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(x * x for x in b) ** 0.5
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _get_entry_embedding(entry: dict[str, Any]) -> list[float] | None:
+    """Get or compute the embedding for a memory entry. Uses a cache
+    keyed by entry id to avoid re-encoding unchanged entries."""
+    global _embedding_cache_dirty
+    eid = entry.get("id", "")
+    if not eid:
+        return None
+    # Check cache
+    if eid in _embedding_cache:
+        return _embedding_cache[eid]
+    # Compute: embed key + value together for richer representation
+    text = f"{entry.get('key', '')}: {entry.get('value', '')}"
+    emb = _embed_text(text)
+    if emb is not None:
+        _embedding_cache[eid] = emb
+        _embedding_cache_dirty = True
+    return emb
+
+
+def _invalidate_embeddings() -> None:
+    """Clear the embedding cache when entries change."""
+    global _embedding_cache, _embedding_cache_dirty
+    _embedding_cache = {}
+    _embedding_cache_dirty = False
+
+
+# ---- TF-IDF fallback ----
+# Used when sentence-transformers is unavailable.
+
+_idf_cache: dict[str, float] = {}
+_idf_cache_size: int = 0
 
 
 def _compute_idf(entries: list[dict[str, Any]]) -> dict[str, float]:
-    """Compute IDF weights for all tokens across memory entries.
-    IDF(t) = log(N / df(t)) where N = total docs, df(t) = docs containing t.
-    Rare terms get high weights; common terms get low weights."""
+    """Compute IDF weights for all tokens across memory entries."""
     global _idf_cache, _idf_cache_size
     n_docs = len(entries)
     if n_docs == _idf_cache_size and _idf_cache:
@@ -210,14 +285,11 @@ def _compute_idf(entries: list[dict[str, Any]]) -> dict[str, float]:
     import math
     doc_freq: dict[str, int] = {}
     for e in entries:
-        # Tokenize both key and value for each entry
         text = f"{e.get('key', '')} {e.get('value', '')}"
         tokens = set(_normalize_tokens(text))
         for t in tokens:
             doc_freq[t] = doc_freq.get(t, 0) + 1
 
-    # IDF with smoothing: log((N + 1) / (df + 1)) + 1
-    # This prevents zero weights and handles terms in all docs
     idf: dict[str, float] = {}
     for token, df in doc_freq.items():
         idf[token] = math.log((n_docs + 1) / (df + 1)) + 1
@@ -228,7 +300,6 @@ def _compute_idf(entries: list[dict[str, Any]]) -> dict[str, float]:
 
 
 def _invalidate_idf_cache() -> None:
-    """Clear the IDF cache when entries change."""
     global _idf_cache, _idf_cache_size
     _idf_cache = {}
     _idf_cache_size = 0
@@ -236,69 +307,54 @@ def _invalidate_idf_cache() -> None:
 
 def _tfidf_score(query_tokens: list[str], target_tokens: list[str],
                   idf: dict[str, float]) -> float:
-    """Compute TF-IDF weighted cosine similarity between two token lists.
-    Returns 0.0-1.0. Higher = more relevant."""
+    """TF-IDF weighted cosine similarity. Returns 0.0-1.0."""
     if not query_tokens or not target_tokens:
         return 0.0
-
     import math
-
-    # Build TF vectors (term frequency = count in this document)
     q_tf: dict[str, int] = {}
     for t in query_tokens:
         q_tf[t] = q_tf.get(t, 0) + 1
-
     t_tf: dict[str, int] = {}
     for t in target_tokens:
         t_tf[t] = t_tf.get(t, 0) + 1
-
-    # Weighted vectors: TF * IDF
-    q_weighted: dict[str, float] = {}
-    for t, tf in q_tf.items():
-        q_weighted[t] = tf * idf.get(t, 1.0)  # default weight 1.0 for unknown
-
-    t_weighted: dict[str, float] = {}
-    for t, tf in t_tf.items():
-        t_weighted[t] = tf * idf.get(t, 1.0)
-
-    # Cosine similarity
+    q_weighted = {t: tf * idf.get(t, 1.0) for t, tf in q_tf.items()}
+    t_weighted = {t: tf * idf.get(t, 1.0) for t, tf in t_tf.items()}
     common = set(q_weighted.keys()) & set(t_weighted.keys())
     dot = sum(q_weighted[t] * t_weighted[t] for t in common)
-
     q_norm = math.sqrt(sum(v * v for v in q_weighted.values()))
     t_norm = math.sqrt(sum(v * v for v in t_weighted.values()))
-
     if q_norm == 0 or t_norm == 0:
         return 0.0
-
     return dot / (q_norm * t_norm)
 
 
-def _score_match(text: str, query: str, idf: dict[str, float] | None = None) -> float:
-    """Relevance score for key matching. Returns 0.0-1.0.
+# ---- unified scoring ----
+# Semantic (sentence-transformers) is primary; TF-IDF is fallback.
+# Exact/prefix/substring matches are always boosted on top.
 
-    Scoring tiers:
-      - Exact match: 1.0
-      - Key starts with query: 0.9 (prefix match)
-      - Key contains query as substring: 0.7
-      - TF-IDF cosine similarity: 0.0-0.6
-    """
+def _score_match(text: str, query: str, query_emb: list[float] | None = None,
+                  entry_emb: list[float] | None = None,
+                  idf: dict[str, float] | None = None) -> float:
+    """Relevance score for key matching. Returns 0.0-1.0."""
     query_lower = query.lower()
     key_lower = text.lower()
 
     # Exact key match
     if query_lower == key_lower:
         return 1.0
-
-    # Prefix match (strong signal)
+    # Prefix match
     if key_lower.startswith(query_lower):
         return 0.9
-
     # Substring match
     if query_lower in key_lower:
         return 0.7
 
-    # TF-IDF scoring
+    # Semantic similarity (primary)
+    if query_emb is not None and entry_emb is not None:
+        sim = _cosine_similarity(query_emb, entry_emb)
+        return sim * 0.8  # scale to leave room for boosts
+
+    # TF-IDF fallback
     query_tokens = _normalize_tokens(query)
     key_tokens = _normalize_tokens(text)
     if idf is None:
@@ -306,33 +362,26 @@ def _score_match(text: str, query: str, idf: dict[str, float] | None = None) -> 
     return _tfidf_score(query_tokens, key_tokens, idf) * 0.6
 
 
-def _score_value(value: str, query: str, idf: dict[str, float] | None = None) -> float:
-    """Score how relevant a value is to the query. Returns 0.0-0.5.
-
-    Scoring tiers:
-      - Exact value match: 0.5
-      - Value starts with query: 0.45
-      - Value contains query: 0.4
-      - TF-IDF cosine similarity: 0.0-0.3
-    """
+def _score_value(value: str, query: str, query_emb: list[float] | None = None,
+                 value_emb_hint: list[float] | None = None,
+                 idf: dict[str, float] | None = None) -> float:
+    """Score how relevant a value is to the query. Returns 0.0-0.8."""
     query_lower = query.lower()
     value_lower = value.lower()
 
     if query_lower == value_lower:
-        return 0.5
-
+        return 0.8
     if value_lower.startswith(query_lower):
-        return 0.45
-
+        return 0.75
     if query_lower in value_lower:
-        return 0.4
+        return 0.7
 
-    # TF-IDF scoring
+    # TF-IDF fallback for value (semantic is done at entry level)
     query_tokens = _normalize_tokens(query)
     value_tokens = _normalize_tokens(value)
     if idf is None:
         idf = _compute_idf(_load_all())
-    return _tfidf_score(query_tokens, value_tokens, idf) * 0.3
+    return _tfidf_score(query_tokens, value_tokens, idf) * 0.4
 
 
 # ----------------------------------------------------------- L1 primitives
@@ -386,6 +435,37 @@ def store(
             existing_idx = i
             break
 
+    # Duplicate detection: if no exact id match, check for semantically
+    # similar keys in the same category. If found, update instead of
+    # creating a duplicate.
+    if existing_idx is None and entries:
+        # Try semantic similarity first
+        query_emb = _embed_text(f"{key}: {value}")
+        best_score = 0.0
+        best_idx = -1
+        for i, e in enumerate(entries):
+            if e.get("category") != category:
+                continue
+            if query_emb is not None:
+                # Semantic: embed the existing entry and compare
+                e_emb = _get_entry_embedding(e)
+                if e_emb is not None:
+                    score = _cosine_similarity(query_emb, e_emb)
+                else:
+                    score = 0.0
+            else:
+                # TF-IDF fallback
+                idf = _compute_idf(entries)
+                query_tokens = _normalize_tokens(key)
+                e_tokens = _normalize_tokens(e.get("key", ""))
+                score = _tfidf_score(query_tokens, e_tokens, idf)
+            if score > best_score:
+                best_score = score
+                best_idx = i
+        if best_score >= DUPLICATE_THRESHOLD and best_idx >= 0:
+            existing_idx = best_idx
+            mem_id = entries[best_idx].get("id", mem_id)
+
     entry: dict[str, Any] = {
         "id": mem_id,
         "key": key,
@@ -425,17 +505,19 @@ def store(
 def retrieve(
     query: str,
     category: str | None = None,
+    tags: list[str] | None = None,
     limit: int = 5,
 ) -> list[dict[str, Any]]:
     """Search memories by relevance.
 
     Returns the most relevant memories matching the query, optionally
-    filtered by category. Access timestamps are updated for returned
-    memories (reinforcement).
+    filtered by category and/or tags. Access timestamps are updated
+    for returned memories (reinforcement).
 
     Args:
         query: Search terms (matched against keys and values).
         category: Optional category filter.
+        tags: Optional list of tags — entries must contain ALL listed tags.
         limit: Max results (default 5, max 20).
     """
     if not query or not query.strip():
@@ -445,29 +527,65 @@ def retrieve(
         raise PreconditionError(
             f"retrieve: category must be one of {sorted(CATEGORIES)}, got {category!r}"
         )
+    if tags and not isinstance(tags, list):
+        raise PreconditionError("retrieve: tags must be a list of strings")
 
     limit = max(1, min(limit, MAX_RETRIEVE_RESULTS))
     entries = _load_all()
 
-    # Compute IDF weights once for the entire scoring pass
-    idf = _compute_idf(entries)
+    # Compute query embedding once (semantic search)
+    query_emb = _embed_text(query)
+
+    # Compute IDF weights once for TF-IDF fallback
+    idf = _compute_idf(entries) if query_emb is None else None
+
+    # Tag filter set
+    tag_filter = set(t.lower() for t in tags) if tags else None
 
     # Score and filter
     scored: list[tuple[float, dict[str, Any]]] = []
     for e in entries:
         if category and e.get("category") != category:
             continue
-        key_score = _score_match(e.get("key", ""), query, idf=idf)
-        value_score = _score_value(e.get("value", ""), query, idf=idf)
+        # Tag filtering: entry must contain ALL requested tags
+        if tag_filter:
+            entry_tags = set(t.lower() for t in (e.get("tags") or []) if isinstance(t, str))
+            if not tag_filter.issubset(entry_tags):
+                continue
+
+        # Get entry embedding for semantic comparison
+        entry_emb = _get_entry_embedding(e) if query_emb is not None else None
+
+        key_score = _score_match(
+            e.get("key", ""), query,
+            query_emb=query_emb, entry_emb=entry_emb, idf=idf,
+        )
+        value_score = _score_value(
+            e.get("value", ""), query,
+            query_emb=query_emb, idf=idf,
+        )
         total = max(key_score, value_score)
-        # Tag boost: if query terms appear in tags, boost score
-        tags = e.get("tags", [])
-        if tags:
+
+        # Tag boost
+        entry_tags = e.get("tags", [])
+        if entry_tags:
             query_terms = set(query.lower().split())
-            tag_terms = {t.lower() for t in tags if isinstance(t, str)}
+            tag_terms = {t.lower() for t in entry_tags if isinstance(t, str)}
             if query_terms & tag_terms:
                 total = min(total + 0.2, 1.0)
-        if total > 0:
+
+        # Freshness boost: recently accessed entries get a small bump
+        try:
+            last = e.get("last_accessed", "")
+            if last:
+                from datetime import datetime as _dt
+                age_days = (_dt.now(UTC) - _dt.fromisoformat(last.replace("Z", "+00:00"))).days
+                if age_days < 7:
+                    total = min(total + 0.05, 1.0)
+        except (ValueError, AttributeError):
+            pass
+
+        if total > 0.05:  # lower threshold for semantic search
             scored.append((total, e))
 
     # Sort by relevance, then by last_accessed (most recent first)
@@ -655,6 +773,155 @@ def reinforce(key: str, category: str | None = None) -> dict[str, Any]:
     return {"key": key, "found": found, "access_count": count}
 
 
+# -------------------------------------------------------- list / export
+
+
+@contract(
+    precondition="None.",
+    postcondition="Returns a paginated list of memory entries, optionally filtered by category and/or tags. Read-only.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PrimitiveError on storage read failure.",
+    returns="dict: {entries: list[dict], total: int, offset: int, limit: int}.",
+)
+def list_memories(
+    category: str | None = None,
+    tags: list[str] | None = None,
+    offset: int = 0,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """List memory entries with optional filtering and pagination.
+
+    Args:
+        category: Optional category filter.
+        tags: Optional list of tags — entries must contain ALL listed tags.
+        offset: Pagination offset (default 0).
+        limit: Max results per page (default 20, max 100).
+    """
+    if category is not None and category not in CATEGORIES:
+        raise PreconditionError(
+            f"list_memories: category must be one of {sorted(CATEGORIES)}, got {category!r}"
+        )
+    if tags and not isinstance(tags, list):
+        raise PreconditionError("list_memories: tags must be a list of strings")
+
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    entries = _load_all()
+
+    # Filter
+    filtered: list[dict[str, Any]] = []
+    for e in entries:
+        if category and e.get("category") != category:
+            continue
+        if tags:
+            entry_tags = set(t.lower() for t in (e.get("tags") or []) if isinstance(t, str))
+            query_tags = set(t.lower() for t in tags)
+            if not query_tags.issubset(entry_tags):
+                continue
+        filtered.append(e)
+
+    # Sort by last_accessed (most recent first)
+    filtered.sort(key=lambda e: e.get("last_accessed", ""), reverse=True)
+
+    total = len(filtered)
+    page = filtered[offset : offset + limit]
+
+    return {
+        "entries": [
+            {
+                "id": e.get("id", ""),
+                "key": e.get("key", ""),
+                "value": e.get("value", "")[:500],
+                "category": e.get("category", ""),
+                "tags": e.get("tags", []),
+                "created_at": e.get("created_at", ""),
+                "last_accessed": e.get("last_accessed", ""),
+                "access_count": e.get("access_count", 0),
+            }
+            for e in page
+        ],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+@contract(
+    precondition="None.",
+    postcondition="Returns all memory entries as a JSON string for backup. Read-only.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PrimitiveError on storage read failure.",
+    returns="dict: {data: str (JSON), count: int, exported_at: str}.",
+)
+def export_memories() -> dict[str, Any]:
+    """Export all memories as a JSON string for backup.
+
+    Returns the raw JSONL data as a single JSON array string, plus
+    metadata. Import with import_memories().
+    """
+    entries = _load_all()
+    return {
+        "data": json.dumps(entries, ensure_ascii=False, indent=2),
+        "count": len(entries),
+        "exported_at": _now_iso(),
+    }
+
+
+@contract(
+    precondition="data is a non-empty JSON string (array of memory entries).",
+    postcondition="Imports entries from the JSON data. Merges by id (updates existing, appends new).",
+    idempotency=Idempotency.COMMUTATIVE_SAFE,
+    failure_mode="PreconditionError for empty/malformed data; PrimitiveError on storage failure.",
+    returns="dict: {imported: int, updated: int, skipped: int}.",
+)
+def import_memories(data: str) -> dict[str, Any]:
+    """Import memories from a JSON export.
+
+    Merges by id: entries with an existing id are updated, new entries
+    are appended. Skips malformed entries.
+
+    Args:
+        data: JSON string (array of memory entry objects).
+    """
+    if not data or not data.strip():
+        raise PreconditionError("import_memories requires non-empty 'data'")
+
+    try:
+        incoming = json.loads(data)
+    except json.JSONDecodeError as exc:
+        raise PreconditionError(f"import_memories: invalid JSON: {exc}")
+
+    if not isinstance(incoming, list):
+        raise PreconditionError("import_memories: data must be a JSON array")
+
+    existing = _load_all()
+    existing_by_id = {e.get("id"): i for i, e in enumerate(existing)}
+
+    imported = 0
+    updated = 0
+    skipped = 0
+
+    for entry in incoming:
+        if not isinstance(entry, dict) or "key" not in entry:
+            skipped += 1
+            continue
+        entry_id = entry.get("id") or _make_id(entry.get("key", ""), entry.get("category", "facts"))
+        entry["id"] = entry_id
+        if entry_id in existing_by_id:
+            idx = existing_by_id[entry_id]
+            existing[idx] = entry
+            updated += 1
+        else:
+            existing.append(entry)
+            imported += 1
+
+    if imported or updated:
+        _save_all(existing)
+        _invalidate_idf_cache()
+
+    return {"imported": imported, "updated": updated, "skipped": skipped}
+
+
 # -------------------------------------------------------- maintenance
 
 
@@ -717,20 +984,61 @@ def maintenance(
 def build_memory_context(query: str, category: str | None = None, limit: int = 5) -> str:
     """Build a memory context block for the planner prompt.
 
-    Returns a formatted string of relevant memories, or an empty string
-    if nothing matches. Called by the planner when building prompts.
+    Returns a formatted string of relevant memories, including:
+    - Successful goal patterns (what worked before)
+    - Relevant facts and preferences
+    - Lessons from past failures
+    Called by the planner when building prompts.
     """
     try:
+        # Get general relevant memories
         results = retrieve(query, category=category, limit=limit)
+
+        # Also fetch recent successes for similar goals
+        success_results = []
+        try:
+            success_results = retrieve(
+                query,
+                category="context",
+                tags=["type:success"],
+                limit=3,
+            )
+        except Exception:
+            pass
+
+        # Also fetch relevant lessons
+        lesson_results = []
+        try:
+            lesson_results = retrieve(
+                query,
+                category="lessons",
+                limit=2,
+            )
+        except Exception:
+            pass
     except Exception:
         return ""
-    if not results:
+
+    # Deduplicate by id across all result sets
+    seen_ids: set[str] = set()
+    all_results: list[dict[str, Any]] = []
+    for r in results + success_results + lesson_results:
+        rid = r.get("id", "")
+        if rid and rid not in seen_ids:
+            seen_ids.add(rid)
+            all_results.append(r)
+
+    if not all_results:
         return ""
+
     lines = ["Known from past sessions:"]
-    for r in results:
+    for r in all_results:
         cat = r.get("category", "")
         key = r.get("key", "")
         value = r.get("value", "")
+        # Truncate long values in the context block
+        if len(value) > 200:
+            value = value[:200] + "..."
         lines.append(f"  [{cat}] {key}: {value}")
     return "\n".join(lines)
 
