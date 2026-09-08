@@ -616,23 +616,105 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--llm", action="store_true", help="LLM-draft schedules/allowlists (off by default - cost)"
     )
+    ap.add_argument(
+        "--semantic", action="store_true", help="use semantic clustering for richer proposals"
+    )
+    ap.add_argument(
+        "--embeddings", action="store_true", help="use embedding-based similarity (requires sentence-transformers)"
+    )
     args = ap.parse_args(argv)
 
     clusters = mine(days=args.days, min_recurrence=args.min_recurrence)
     summary = l0_failure_summary()
-    print(f"recurring-failure clusters: {len(clusters)}")
-    for c in clusters:
-        print(f"  {c['occurrences']}x {c['goal'][:70]} (last {str(c.get('last_failed_at'))[:16]})")
+
+    # Enhance with semantic clustering if requested
+    if args.semantic:
+        try:
+            from friday.semantic_clustering import (
+                detect_semantic_category,
+                extract_semantic_keywords,
+                mine_with_semantics,
+            )
+            clusters = mine_with_semantics(
+                days=args.days,
+                min_recurrence=args.min_recurrence,
+                use_embeddings=args.embeddings,
+            )
+            print(f"recurring-failure clusters (semantic enhanced): {len(clusters)}")
+            for c in clusters:
+                cat = c.get("semantic_category", "unknown")
+                keywords = c.get("semantic_keywords", [])
+                kw_str = ", ".join(keywords[:5]) if keywords else "none"
+                print(f"  {c['occurrences']}x [{cat}] {c['goal'][:60]} | keywords: {kw_str}")
+        except ImportError:
+            print("Warning: semantic_clustering module not available, using basic clustering")
+            print(f"recurring-failure clusters: {len(clusters)}")
+            for c in clusters:
+                print(f"  {c['occurrences']}x {c['goal'][:70]} (last {str(c.get('last_failed_at'))[:16]})")
+    else:
+        print(f"recurring-failure clusters: {len(clusters)}")
+        for c in clusters:
+            print(f"  {c['occurrences']}x {c['goal'][:70]} (last {str(c.get('last_failed_at'))[:16]})")
+
     print("top L0 failure signatures (context, not a trigger source by itself):")
     for s in summary[:5]:
         print(f"  {s['count']:3d}  {s['layer']}/{s['primitive']}  {s['exception'][:70]}")
-    written = propose(
-        limit=args.limit,
-        days=args.days,
-        min_recurrence=args.min_recurrence,
-        use_llm=args.llm,
-        dry_run=args.dry_run,
-    )
+
+    # Use enhanced mining if semantic clustering is enabled
+    if args.semantic:
+        from friday.semantic_clustering import mine_with_semantics
+
+        triggers = existing_triggers()
+        taken = {t["id"] for t in triggers if isinstance(t.get("id"), str)}
+        enhanced_clusters = mine_with_semantics(
+            days=args.days,
+            min_recurrence=args.min_recurrence,
+            use_embeddings=args.embeddings,
+        )
+        written: list[str] = []
+        for c in enhanced_clusters:
+            if args.limit is not None and len(written) >= args.limit:
+                break
+            # Convert semantic cluster back to regular format for draft
+            regular_cluster = {
+                k: v for k, v in c.items()
+                if k in ["goal", "occurrences", "task_ids", "timestamps", "last_failed_at", "l0_evidence"]
+            }
+            trigger = _draft_trigger(regular_cluster, use_llm=args.llm, taken_ids=taken)
+            d = proposal_dir(trigger["id"])
+            if (d / "trigger.json").is_file():
+                continue
+            taken.add(trigger["id"])
+            if args.dry_run:
+                print(
+                    f"  WOULD propose {trigger['id']} ({c['occurrences']} failures): {c['goal'][:60]}"
+                )
+                if c.get("semantic_category"):
+                    print(f"    category: {c['semantic_category']}")
+            else:
+                # Add semantic info to rationale
+                _write_proposal(c, trigger)
+                # Update rationale with semantic info
+                rationale_file = d / "rationale.md"
+                if rationale_file.exists():
+                    content = rationale_file.read_text(encoding="utf-8")
+                    semantic_section = ""
+                    if c.get("semantic_category"):
+                        semantic_section = f"\n## Semantic Analysis\n\nCategory: {c['semantic_category']}\n"
+                    if c.get("related_clusters"):
+                        semantic_section += f"Related clusters: {', '.join(c['related_clusters'][:3])}\n"
+                    if semantic_section:
+                        rationale_file.write_text(content + semantic_section, encoding="utf-8")
+            written.append(str(d))
+    else:
+        written = propose(
+            limit=args.limit,
+            days=args.days,
+            min_recurrence=args.min_recurrence,
+            use_llm=args.llm,
+            dry_run=args.dry_run,
+        )
+
     print(
         f"{'would propose' if args.dry_run else 'proposed'}: {len(written)} -> {_proposals_dir()}"
     )

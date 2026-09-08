@@ -242,6 +242,7 @@ _L1_MODULES = (
     "notify",
     "memory",
     "system",
+    "workflow",
 )
 
 DEFAULT_ATTEMPTS = 3

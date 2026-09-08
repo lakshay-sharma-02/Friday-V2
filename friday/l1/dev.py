@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
+from collections import defaultdict
 from typing import Any, cast
 
 from friday.contracts import Idempotency, contract
 from friday.errors import PreconditionError, PrimitiveError, PrimitiveTimeout
 from friday.lessons import render_known_mistakes
+from friday.semantic_clustering import SEMANTIC_CATEGORIES, detect_semantic_category, extract_semantic_keywords
 
 def _find_claude() -> str:
     """Find the claude CLI executable. On Windows, subprocess can't find
@@ -201,6 +204,8 @@ def run_shell(
 # repo, (b) at most 1-2 CONCRETE suggestions for how something in one
 # repo could apply to the other - an actual specific pattern or piece of
 # code, never vague "consider synergies" language.
+# Enhanced with semantic extraction: identify semantic themes, categorize
+# mechanisms, and provide cross-repo pattern suggestions.
 DEFAULT_DIGEST_INSTRUCTION = (
     "You are Friday's cross-project digest. Below is recent activity from "
     "the user's projects, each under a label. Produce:\n"
@@ -210,6 +215,12 @@ DEFAULT_DIGEST_INSTRUCTION = (
     "or approach that could transfer, not vague 'consider synergies' "
     "language. If the content is too thin for a specific suggestion, say so "
     "honestly rather than inventing one.\n"
+    "(c) Identify 1-2 semantic themes/categories evident across the repos "
+    "(e.g., 'email processing', 'security hardening', 'UI retheme', 'kernel setup') "
+    "and note if any patterns could transfer between repos.\n"
+    "(d) Focus suggestions on semantic patterns that actually exist in each repo's "
+    "own content - do not invent mechanisms or attribute patterns to repos that "
+    "don't have them.\n"
     "Reply with ONLY the digest text."
 )
 
@@ -219,7 +230,8 @@ DEFAULT_DIGEST_INSTRUCTION = (
     "content (strings or lists of strings); instruction (if given) is a "
     "non-empty string.",
     postcondition="Returns an LLM-generated plain-text digest of the "
-    "gathered context. Makes NO state changes. NOTE: internally invokes "
+    "gathered context, enhanced with semantic extraction information. "
+    "Makes NO state changes. NOTE: internally invokes "
     "the LLM via _run_claude - a DELIBERATE, documented exception to the "
     "rule 'primitives don't call LLMs' (a digest is a terminal read-only "
     "artifact, exactly like gmail.summarize).",
@@ -242,13 +254,21 @@ def digest(
     changelog") to content - strings or lists of strings, the outputs of
     read-only gather primitives (git.log / files.read_text). The LLM
     receives label-tagged content, so its summary can name each project;
-    the returned text is the digest deliverable. Uses the same documented
-    LLM-in-primitive exception as gmail.summarize (a digest is a terminal
-    read-only artifact with no external state to verify against)."""
+    the returned text is the digest deliverable.
+
+    Enhanced with semantic extraction: automatically detects semantic
+    categories (email, security, browser, etc.) from each context item
+    and provides keyword-based clustering for richer cross-project
+    analysis. Falls back gracefully when embedding libraries are not
+    available."""
     if not isinstance(context, dict) or not context:
         raise PreconditionError("digest requires a non-empty 'context' dict")
     if not instruction or not instruction.strip():
         raise PreconditionError("digest requires a non-empty instruction")
+
+    # Semantic extraction: analyze context for categories and keywords
+    semantic_info = _extract_semantic_info(context)
+
     blocks: list[str] = []
     for label, content in context.items():
         if isinstance(content, (list, tuple)):
@@ -256,11 +276,21 @@ def digest(
             blocks.append(f"[{label}]\n{rows}")
         else:
             blocks.append(f"[{label}]\n{str(content)[:12000]}")
+
+    # Add semantic analysis section for the LLM
+    semantic_section = _format_semantic_section(semantic_info)
+
     # the bounded, human-approved KNOWN MISTAKES block for synthesis
     # ("" when none approved) - most importantly the attribution lesson:
     # never credit a repo with a mechanism that is not in ITS OWN context
     known = render_known_mistakes("digest")
-    task = f"{instruction}\n{known}\n\n--- gathered context ---\n\n" + "\n\n".join(blocks)
+    task = (
+        f"{instruction}\n"
+        f"{semantic_section}\n"
+        f"{known}\n"
+        f"\n--- gathered context ---\n\n"
+        + "\n\n".join(blocks)
+    )
     # Deliberate, documented exception (mirrors gmail.summarize): call the
     # private _run_claude directly instead of the observed dev.run - the
     # task string embeds repo content, and the redaction discipline keeps
@@ -281,3 +311,74 @@ def digest(
             state="digest not produced",
         )
     return digest_text
+
+
+def _extract_semantic_info(context: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Extract semantic categories and keywords from each context item.
+
+    Returns a dict mapping label -> {category, keywords, repo_name}.
+    """
+    result: dict[str, dict[str, Any]] = {}
+
+    for label, content in context.items():
+        # Extract text content
+        if isinstance(content, (list, tuple)):
+            text = "\n".join(str(x) for x in content)
+        else:
+            text = str(content)
+
+        # Get the repo name from label (e.g., "friday git log" -> "friday")
+        repo_match = re.match(r"^([\w-]+)", label.lower())
+        repo_name = repo_match.group(1) if repo_match else label.split()[0] if label else "unknown"
+
+        # Detect semantic category
+        category = detect_semantic_category(text[:5000] if len(text) > 5000 else text)
+
+        # Extract keywords
+        keywords = extract_semantic_keywords(text[:5000] if len(text) > 5000 else text)
+
+        result[label] = {
+            "repo_name": repo_name,
+            "category": category,
+            "keywords": keywords[:10],  # Limit keywords for readability
+            "content_length": len(text),
+        }
+
+    return result
+
+
+def _format_semantic_section(semantic_info: dict[str, dict[str, Any]]) -> str:
+    """Format semantic information for LLM consumption."""
+    if not semantic_info:
+        return ""
+
+    lines = ["", "=== SEMANTIC EXTRACTION (for cross-project analysis) ==="]
+
+    # Group by category
+    by_category: dict[str, list[str]] = defaultdict(list)
+    by_repo: dict[str, list[str]] = defaultdict(list)
+
+    for label, info in semantic_info.items():
+        category = info.get("category", "other")
+        repo = info.get("repo_name", "unknown")
+        keywords = info.get("keywords", [])
+
+        by_category[category].append(f"  - {label}: {', '.join(keywords[:5]) if keywords else 'no clear theme'}")
+        by_repo[repo].append(f"  - {label}: [{category}]")
+
+    # Add category summary
+    if by_category:
+        lines.append("")
+        lines.append("Recognized semantic categories:")
+        for cat, labels in sorted(by_category.items()):
+            if cat and cat != "other":
+                lines.append(f"  [{cat}]:")
+                for entry in labels:
+                    lines.append(entry)
+
+    # Add cross-repo pattern hint
+    lines.append("")
+    lines.append("Cross-project pattern hints:")
+    lines.append("  Look for similar categories across repos and suggest specific mechanism transfers.")
+
+    return "\n".join(lines)

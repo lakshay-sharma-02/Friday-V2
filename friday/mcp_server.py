@@ -197,6 +197,7 @@ _TOOL_CATEGORIES: dict[str, str] = {
     "memory": "Memory Store",
     "system": "System Info",
     "digestcheck": "Digest Verification",
+    "workflow": "Workflow Orchestration",
 }
 
 

@@ -12,16 +12,22 @@ content fetched FOR that repo. Claims that cannot be confirmed are
 FLAGGED in the delivered digest rather than silently passed - absence
 of a name match means \"not confirmed\", never \"false\" (paraphrases and
 synonyms cannot be verified mechanically, and the appendix says so).
+
+Enhanced with semantic pattern verification: identifies semantic categories
+and checks that attributed mechanisms actually belong to attributed repos
+based on semantic keyword matching.
 """
 
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from typing import Any
 
 from friday.contracts import Idempotency, contract
 from friday.errors import PreconditionError
 from friday.lessons import record_lesson_event
+from friday.semantic_clustering import SEMANTIC_CATEGORIES, detect_semantic_category, extract_semantic_keywords
 
 # Words too generic to distinguish a mechanism claim (a phrase made only
 # of these proves nothing about which repo the mechanism lives in).
@@ -156,7 +162,7 @@ def _verify_phrase(
     "appendix: every 'X's <mechanism>' claim is checked for a name-match "
     "token in X's own gathered content; unconfirmed claims are flagged in "
     "the returned text (never silently passed). Read-only and pure - no "
-    "state changes, no LLM call.",
+    "state changes, no LLM call. Also includes semantic pattern verification.",
     idempotency=Idempotency.IDEMPOTENT,
     failure_mode="PreconditionError for an empty digest or empty/malformed "
     "context. Never raises on an unverified claim - absence of proof is "
@@ -168,7 +174,11 @@ def verify_attribution(digest: str, context: dict[str, Any]) -> str:
     """Verify that mechanisms the digest attributes to each repo actually
     appear in that repo's own gathered content; flag what cannot be
     confirmed. Delivered to the user as part of the digest so unearned
-    confidence is never presented as fact."""
+    confidence is never presented as fact.
+
+    Enhanced with semantic pattern verification: checks that semantic
+    claims (e.g., 'Friday's email pattern') are backed by content that
+    actually contains the relevant semantic keywords for that category."""
     if not digest or not digest.strip():
         raise PreconditionError("verify_attribution requires a non-empty 'digest'")
     if not isinstance(context, dict) or not context:
@@ -176,6 +186,9 @@ def verify_attribution(digest: str, context: dict[str, Any]) -> str:
 
     repos = _repo_tokens(context)
     content_by_repo = {token: _content_str(context[key]).lower() for token, key in repos.items()}
+
+    # Build semantic repo info for enhanced verification
+    repo_semantic_info = _build_repo_semantic_info(repos, context)
 
     norm = digest.translate(_QUOTE_FIX)
     claims = _claims(norm, repos)
@@ -200,6 +213,11 @@ def verify_attribution(digest: str, context: dict[str, Any]) -> str:
                 f"{owner.title()}, but no token of it is confirmed in "
                 f"{owner.title()}'s OWN gathered content{loc}."
             )
+
+    # Semantic pattern verification: check if attributed mechanisms have
+    # matching semantic categories in the attributed repo
+    semantic_flags = _verify_semantic_patterns(norm, repo_semantic_info, repos)
+    flags.extend(semantic_flags)
 
     # Dotted mechanism names anywhere in the digest (gmail.summarize,
     # sync.sh) must exist in at least one repo's content.
@@ -248,3 +266,99 @@ def verify_attribution(digest: str, context: dict[str, Any]) -> str:
     appendix += flags
     appendix += ["", _HONESTY_NOTE]
     return digest + "\n".join(appendix)
+
+
+def _build_repo_semantic_info(
+    repos: dict[str, str], context: dict[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """Build semantic info for each repo from its gathered content."""
+    info: dict[str, dict[str, Any]] = {}
+    for token, label in repos.items():
+        content = context.get(label, "")
+        if isinstance(content, (list, tuple)):
+            text = "\n".join(str(x) for x in content)
+        else:
+            text = str(content)
+
+        # Get first 5000 chars for category detection
+        sample = text[:5000] if len(text) > 5000 else text
+
+        info[token] = {
+            "category": detect_semantic_category(sample),
+            "keywords": extract_semantic_keywords(sample)[:15],
+            "token_matches": _extract_repo_tokens(sample),
+        }
+    return info
+
+
+def _extract_repo_tokens(text: str) -> set[str]:
+    """Extract potential mechanism tokens from text (words that could be mechanisms)."""
+    # Look for patterns that could be mechanism names
+    tokens: set[str] = set()
+
+    # Dotted names like gmail.summarize, sync.sh
+    for dm in _DOTTED.findall(text):
+        tokens.add(dm.lower())
+
+    # Also extract single words that are meaningful (3+ chars, not stopwords)
+    STOPWORDS = {"the", "and", "for", "with", "was", "are", "not", "all", "has", "have", "had"}
+
+    for word in re.findall(r"[a-z][a-z0-9_\-]{2,30}", text.lower()):
+        if word not in STOPWORDS:
+            tokens.add(word)
+
+    return tokens
+
+
+def _verify_semantic_patterns(
+    digest_text: str,
+    repo_semantic_info: dict[str, dict[str, Any]],
+    repos: dict[str, str],
+) -> list[str]:
+    """Verify semantic pattern claims against repo semantic categories."""
+    flags: list[str] = []
+
+    # Find sentences that attribute semantic categories to repos
+    # Pattern: "Repo's <category> pattern" or "Repo's <keyword> mechanism"
+    pattern = re.compile(
+        r"([a-z][a-z0-9_\-]*?)[\'’]s\s+([a-z0-9_\-\.]+)\s+(pattern|mechanism|approach|feature|system|method)",
+        re.IGNORECASE,
+    )
+
+    for m in pattern.finditer(digest_text):
+        owner = m.group(1).lower()
+        mechanism = m.group(2).lower()
+        mech_type = m.group(3)
+
+        # Check if owner is a known repo
+        if owner not in repos:
+            continue
+
+        owner_info = repo_semantic_info.get(owner, {})
+        keywords = owner_info.get("keywords", [])
+
+        # Check if the mechanism/keyword appears in the repo's semantic keywords
+        mechanism_in_keywords = any(
+            mech in " ".join(keywords) or keyword in mech for keyword in keywords
+        )
+        mechanism_in_tokens = any(
+            mech in " ".join(owner_info.get("token_matches", []))
+            or token in mech
+            or mech in token
+        )
+
+        if not mechanism_in_keywords and not mechanism_in_tokens:
+            # Check if it's at least related to the repo's category
+            category = owner_info.get("category", "")
+            mech_words = mechanism.split(".")
+            category_match = any(word in category for word in mech_words) if category else False
+
+            if not category_match:
+                flags.append(
+                    f"- UNVERIFIED semantic attribution: '{mechanism}' attributed to "
+                    f"{owner.title()} as a {mech_type}, but does not match "
+                    f"that repo's semantic category ({category or 'unknown'}) "
+                    f"or keywords."
+                )
+
+    return flags
