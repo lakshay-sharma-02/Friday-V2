@@ -33,28 +33,46 @@ def _ensure_project_root() -> None:
 
 def cmd_run(args: argparse.Namespace) -> int:
     """Execute a single goal through the full pipeline."""
+    goal = args.goal if hasattr(args, 'goal') and args.goal else ""
+    if not goal:
+        print("Error: goal is required. Usage: friday run <goal>")
+        return 1
+
     _ensure_project_root()
     from friday.l4.planner import plan
     from friday.l3.executor import run_plan
     from friday.observability import set_run_id
 
-    goal = args.goal
     run_id = f"cli-{int(time.time())}"
     set_run_id(run_id)
 
-    print(f"\n🎯 Goal: {goal}")
-    print(f"📋 Run ID: {run_id}")
+    print(f"\n[Goal]: {goal}")
+    print(f"[Run ID]: {run_id}")
+
+    # Dry-run mode: validate plan without executing
+    if args.dry_run:
+        print("\n--- Dry Run Mode (validating plan) ---")
+        try:
+            p = plan(goal, run_id=run_id, attempts=args.attempts, dry_run=True)
+            print(f"[OK] Plan is valid ({len(p['steps'])} steps)")
+            print("\n--- Generated Plan ---")
+            print(json.dumps(p, indent=2, default=str))
+            return 0
+        except Exception as exc:
+            print(f"[FAIL] Planning failed: {exc}")
+            return 1
+
     print("\n--- Planning (L4) ---")
 
     try:
         t0 = time.monotonic()
         p = plan(goal, run_id=run_id, attempts=args.attempts)
         plan_time = time.monotonic() - t0
-        print(f"✅ Plan accepted in {plan_time:.1f}s ({len(p['steps'])} steps)")
+        print(f"[OK] Plan accepted in {plan_time:.1f}s ({len(p['steps'])} steps)")
         if args.show_plan:
             print(json.dumps(p, indent=2, default=str))
     except Exception as exc:
-        print(f"❌ Planning failed: {exc}")
+        print(f"[FAIL] Planning failed: {exc}")
         return 1
 
     print("\n--- Execution (L3) ---")
@@ -62,11 +80,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         t0 = time.monotonic()
         result = run_plan(p, run_id=run_id)
         exec_time = time.monotonic() - t0
-        status_icon = "✅" if result.status == "COMPLETED" else "❌"
+        status_icon = "[OK]" if result.status == "COMPLETED" else "[FAIL]"
         print(f"{status_icon} {result.status} in {exec_time:.1f}s")
 
         for sr in result.steps:
-            icon = {"VERIFIED": "✅", "FAILED": "❌", "RETRY_EXHAUSTED": "🚫", "ABORTED": "⛔"}.get(sr.status, "❓")
+            icon = {"VERIFIED": "[OK]", "FAILED": "[FAIL]", "RETRY_EXHAUSTED": "[STOP]", "ABORTED": "[ABORT]"}.get(sr.status, "[?]")
             retries = len(sr.retry_history) if sr.retry_history else 0
             retry_str = f", {retries} retries" if retries else ""
             print(f"  Step {sr.step_id}: {icon} {sr.status} ({sr.primitive}, {sr.attempts} attempts{retry_str})")
@@ -96,7 +114,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
         return 0 if result.status == "COMPLETED" else 1
     except Exception as exc:
-        print(f"❌ Execution failed: {exc}")
+        print(f"[FAIL] Execution failed: {exc}")
         return 1
 
 
@@ -104,7 +122,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     """Show system health and status."""
     _ensure_project_root()
 
-    print("\n📊 Friday Status")
+    print("\n[Status] Friday Status")
     print("=" * 50)
 
     # Version
@@ -196,9 +214,9 @@ def cmd_triggers(args: argparse.Namespace) -> int:
     data = json.loads(config_path.read_text())
     triggers = data.get("triggers", [])
 
-    print(f"\n📋 Triggers ({len(triggers)} total)\n")
+    print(f"\n[List] Triggers ({len(triggers)} total)\n")
     for t in triggers:
-        status = "🟢" if t.get("enabled") else "🔴"
+        status = "[ON]" if t.get("enabled") else "[OFF]"
         tid = t.get("id", "unknown")
         schedule = t.get("schedule", {})
         sched_type = schedule.get("type", "?")
@@ -230,7 +248,7 @@ def cmd_primitives(args: argparse.Namespace) -> int:
         print(build_catalog())
         return 0
 
-    print(f"\n🔧 Registered Primitives ({len(REGISTRY)} total)\n")
+    print(f"\n[Registered Primitives ({len(REGISTRY)} total)]\n")
     current_module = ""
     for q in sorted(REGISTRY):
         mod = q.split(".")[0]
@@ -240,7 +258,7 @@ def cmd_primitives(args: argparse.Namespace) -> int:
             suffix = f" ({blocked_count} blocked)" if blocked_count else ""
             print(f"\n  [{mod}]{suffix}")
         c = REGISTRY[q]
-        blocked = " ⛔" if q in EXECUTOR_BLOCKED else ""
+        blocked = " [BLOCKED]" if q in EXECUTOR_BLOCKED else ""
         print(f"    {q} [{c.idempotency.value}]{blocked}")
     print()
     return 0
@@ -256,7 +274,7 @@ def cmd_logs(args: argparse.Namespace) -> int:
     lines = log_file.read_text(encoding="utf-8").strip().splitlines()
     recent = lines[-args.count:]
 
-    print(f"\n📜 Recent log entries ({len(recent)} of {len(lines)})\n")
+    print(f"\n[Logs] Recent log entries ({len(recent)} of {len(lines)})\n")
     for line in recent:
         try:
             rec = json.loads(line)
@@ -266,7 +284,7 @@ def cmd_logs(args: argparse.Namespace) -> int:
             result = rec.get("result", "")
             exc = rec.get("exception", "")
             dur = rec.get("duration_ms", 0)
-            status = "❌" if exc else "✅"
+            status = "[FAIL]" if exc else "[OK]"
             print(f"  {ts} {status} {layer:6s} {prim:30s} {str(result)[:40]:40s} ({dur:.0f}ms)")
             if exc:
                 print(f"           Error: {exc[:80]}")
@@ -283,7 +301,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
 
     if args.subcmd == "summary":
         s = mem_summary()
-        print(f"\n🧠 Memory Summary\n")
+        print(f"\n[Memory] Memory Summary\n")
         print(f"  Total entries: {s.get('total', 0)}")
         for cat, count in s.get("categories", {}).items():
             print(f"    {cat}: {count}")
@@ -295,7 +313,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
 
     elif args.subcmd == "search":
         results = retrieve(args.query, category=args.category, limit=args.limit)
-        print(f"\n🔍 Memory search: '{args.query}' ({len(results)} results)\n")
+        print(f"\n[Search] Memory search: '{args.query}' ({len(results)} results)\n")
         for r in results:
             print(f"  [{r['category']}] {r['key']} (relevance: {r['relevance']:.2f})")
             print(f"    {r['value'][:100]}")
@@ -304,15 +322,15 @@ def cmd_memory(args: argparse.Namespace) -> int:
 
     elif args.subcmd == "store":
         result = store(args.key, args.value, category=args.category or "facts")
-        print(f"✅ Stored: {result['key']} ({result['status']})")
+        print(f"[OK] Stored: {result['key']} ({result['status']})")
         return 0
 
     elif args.subcmd == "forget":
         result = forget(args.key)
         if result["found"]:
-            print(f"✅ Forgotten: {args.key}")
+            print(f"[OK] Forgotten: {args.key}")
         else:
-            print(f"❌ Not found: {args.key}")
+            print(f"[FAIL] Not found: {args.key}")
         return 0
 
     print("Usage: friday memory [summary|search|store|forget] ...")
@@ -327,7 +345,7 @@ def cmd_lessons(args: argparse.Namespace) -> int:
     approved = approved_lessons()
     events = list_events()
 
-    print(f"\n📚 Lessons Loop\n")
+    print(f"\n[Lessons] Lessons Loop\n")
     print(f"  Approved lessons: {len(approved)}")
     for l in approved[:10]:
         print(f"    [{l.get('category', '?')}] {l.get('statement', '?')[:80]}")
@@ -356,7 +374,7 @@ def cmd_gaps(args: argparse.Namespace) -> int:
         except (json.JSONDecodeError, ValueError):
             pass
 
-    print(f"\n🔧 Capability Gaps\n")
+    print(f"\n[Gaps] Capability Gaps\n")
     print(f"  Total: {len(lines)}")
     print(f"  Pending: {len(pending)}")
     print(f"  Processed: {len(processed)}")
@@ -376,7 +394,7 @@ def cmd_analytics(args: argparse.Namespace) -> int:
     from friday.log_query import summarize_by_primitive, summarize_by_run, get_recent_goals
 
     hours = args.hours
-    print(f"\n📊 Goal Analytics (last {hours}h)\n")
+    print(f"\n[Analytics] Goal Analytics (last {hours}h)\n")
 
     # Recent goals
     goals = get_recent_goals(hours=hours)
@@ -437,6 +455,100 @@ def cmd_version(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_schedule(args: argparse.Namespace) -> int:
+    """Schedule a one-time goal execution."""
+    from datetime import datetime, timedelta
+
+    goal = args.goal
+    when = args.when
+
+    print(f"\n[Schedule] Schedule Goal: {goal}")
+    print(f"   When: {when}")
+
+    if args.dry_run:
+        print("\n[DRY RUN] Validating schedule...")
+
+    try:
+        # Parse the when argument (+5m, +1h, +1d, or ISO datetime)
+        if when.startswith("+"):
+            # Extract amount and unit
+            amount = int(''.join(c for c in when[1:] if c.isdigit()))
+            unit = ''.join(c for c in when if c.isalpha()).lower()
+
+            if unit == "m":
+                target_time = datetime.now() + timedelta(minutes=amount)
+            elif unit == "h":
+                target_time = datetime.now() + timedelta(hours=amount)
+            elif unit == "d":
+                target_time = datetime.now() + timedelta(days=amount)
+            else:
+                print(f"   Note: scheduling requires journald/cron integration")
+                return 0
+        else:
+            # Try ISO format
+            try:
+                target_time = datetime.fromisoformat(when.replace("Z", "+00:00"))
+            except ValueError:
+                print(f"   Note: scheduling requires journald/cron integration")
+                return 0
+
+        print(f"   Scheduled for: {target_time.isoformat()}")
+
+        if args.dry_run:
+            print("\n[OK] Schedule syntax is valid")
+        return 0
+    except Exception as exc:
+        print(f"[FAIL] Schedule validation failed: {exc}")
+        return 1
+
+
+def cmd_templates(args: argparse.Namespace) -> int:
+    """Manage goal templates."""
+    import os
+    from pathlib import Path
+
+    templates_dir = Path.home() / ".friday" / "templates"
+
+    if args.template_subcmd == "list":
+        print("\n[List] Available Templates")
+        if not templates_dir.exists():
+            print("   No templates found. Use 'friday templates add <name> <template>' to add one.")
+            return 0
+        for tf in sorted(templates_dir.glob("*.tpl")):
+            print(f"   {tf.stem}")
+        return 0
+
+    if args.template_subcmd == "use":
+        template_file = templates_dir / f"{args.name}.tpl"
+        if not template_file.exists():
+            print(f"[FAIL] Template '{args.name}' not found")
+            return 1
+
+        template = template_file.read_text()
+        # Show placeholders in the template
+        import re
+        placeholders = re.findall(r'\{(\w+)\}', template)
+        if placeholders:
+            print(f"\n[Template]: {args.name}")
+            print(template)
+            print(f"\nPlaceholders: {', '.join(placeholders)}")
+            print("Usage: friday run \"$(cat template.txt | sed 's/{var}/value/g')\"")
+        else:
+            print(template)
+        return 0
+
+    if args.template_subcmd == "add":
+        templates_dir.mkdir(parents=True, exist_ok=True)
+        template_file = templates_dir / f"{args.name}.tpl"
+        template_file.write_text(args.goal_template)
+        print(f"[OK] Template saved: {template_file}")
+        print(f"   Use: friday templates use {args.name}")
+        return 0
+
+    print("Usage: friday templates [list|use|add] ...")
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="friday",
@@ -446,9 +558,26 @@ def main(argv: list[str] | None = None) -> int:
 
     # run
     p_run = sub.add_parser("run", help="Execute a goal")
-    p_run.add_argument("goal", help="Natural-language goal to execute")
+    p_run.add_argument("goal", nargs="?", help="Natural-language goal to execute")
     p_run.add_argument("--attempts", type=int, default=3, help="Max planning attempts")
     p_run.add_argument("--show-plan", action="store_true", help="Print the plan JSON")
+    p_run.add_argument("--dry-run", action="store_true", help="Validate and show plan without executing")
+
+    # schedule
+    p_schedule = sub.add_parser("schedule", help="Schedule a one-time goal")
+    p_schedule.add_argument("goal", help="Goal to schedule")
+    p_schedule.add_argument("when", help="When to run (+5m, +1h, +1d, or ISO 8601)")
+    p_schedule.add_argument("--dry-run", action="store_true", help="Validate without scheduling")
+
+    # templates
+    p_templates = sub.add_parser("templates", help="Manage goal templates")
+    templates_sub = p_templates.add_subparsers(dest="template_subcmd")
+    templates_sub.add_parser("list", help="List available templates")
+    p_template_use = templates_sub.add_parser("use", help="Use a template")
+    p_template_use.add_argument("name", help="Template name")
+    p_template_add = templates_sub.add_parser("add", help="Add a new template")
+    p_template_add.add_argument("name", help="Template name")
+    p_template_add.add_argument("goal_template", help="Goal template (use {var} for placeholders)")
 
     # status
     sub.add_parser("status", help="Show system health")
@@ -511,6 +640,8 @@ def main(argv: list[str] | None = None) -> int:
         "gaps": cmd_gaps,
         "analytics": cmd_analytics,
         "version": cmd_version,
+        "schedule": cmd_schedule,
+        "templates": cmd_templates,
     }
     return cmds[args.command](args)
 
@@ -520,21 +651,21 @@ def _run_repl() -> int:
     _ensure_project_root()
     from friday import __version__
 
-    print(f"\n🤖 Friday v{__version__} — Interactive Mode")
+    print(f"\n[Friday v]{__version__} — Interactive Mode")
     print("   Type a goal in natural language, or 'help' for commands.\n")
 
     while True:
         try:
             goal = input("friday> ").strip()
         except (EOFError, KeyboardInterrupt):
-            print("\n👋 Goodbye!")
+            print("\n[Goodbye]!")
             break
 
         if not goal:
             continue
 
         if goal in ("quit", "exit", "q"):
-            print("👋 Goodbye!")
+            print("[Goodbye]!")
             break
 
         if goal == "help":

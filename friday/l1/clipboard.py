@@ -146,3 +146,123 @@ def write_text(text: str) -> str:
             state="clipboard not written",
         )
     return text
+
+
+# ---- clipboard image operations ----
+@contract(
+    precondition="None.",
+    postcondition="Returns current clipboard image data as bytes, or None if empty/not an image.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PrimitiveError when clipboard tool fails or returns error.",
+    returns="bytes | None - image data if available, None if empty or not an image.",
+)
+def read_image() -> bytes | None:
+    """Read image data from clipboard.
+
+    Uses wl-paste --type image/png (Wayland) or xclip -selection clipboard -t
+    image/png (X11) to extract image data. Returns None when the clipboard
+    is empty or contains no image data.
+
+    Returns:
+        Image bytes if available, None otherwise
+    """
+    wayland = bool(os.environ.get("WAYLAND_DISPLAY"))
+    x11 = bool(os.environ.get("DISPLAY"))
+    try:
+        if wayland or not x11:
+            proc = subprocess.run(
+                ["wl-paste", "--type", "image/png"],
+                capture_output=True,
+                timeout=5,
+            )
+        else:
+            proc = subprocess.run(
+                ["xclip", "-selection", "clipboard", "-t", "image/png", "-o"],
+                capture_output=True,
+                timeout=5,
+            )
+    except (TimeoutError, FileNotFoundError) as exc:
+        raise PrimitiveError(f"clipboard read image failed: {exc}", state="clipboard not read") from exc
+
+    if proc.returncode != 0:
+        return None
+
+    if not proc.stdout:
+        return None
+
+    return proc.stdout
+
+
+@contract(
+    precondition="data is image bytes to write to clipboard.",
+    postcondition="Writes image data to clipboard. Side-effect only change.",
+    idempotency=Idempotency.COMMUTATIVE_SAFE,
+    failure_mode="PrimitiveError when clipboard tool fails.",
+    returns="bytes: the image data that was written.",
+)
+def write_image(data: bytes) -> bytes:
+    """Write image data to clipboard.
+
+    Uses wl-copy --type image/png (Wayland) or xclip -selection clipboard
+    -t image/png (X11) to set the clipboard image.
+
+    Args:
+        data: Raw image bytes (PNG preferred)
+
+    Returns:
+        The image data that was written
+    """
+    wayland = bool(os.environ.get("WAYLAND_DISPLAY"))
+    x11 = bool(os.environ.get("DISPLAY"))
+    try:
+        if wayland or not x11:
+            proc = subprocess.run(
+                ["wl-copy", "--type", "image/png"],
+                input=data,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+        else:
+            proc = subprocess.run(
+                ["xclip", "-selection", "clipboard", "-t", "image/png"],
+                input=data,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+    except (TimeoutError, FileNotFoundError) as exc:
+        raise PrimitiveError(f"clipboard write image failed: {exc}", state="clipboard not written") from exc
+
+    if proc.returncode != 0:
+        tool = "wl-copy" if wayland or not x11 else "xclip"
+        raise PrimitiveError(f"clipboard tool {tool!r} exited {proc.returncode}", state="clipboard not written")
+
+    return data
+
+
+@contract(
+    precondition="None.",
+    postcondition="Clear clipboard content. Side-effect only change.",
+    idempotency=Idempotency.COMMUTATIVE_SAFE,
+    failure_mode="No-op on failure (best effort).",
+    returns="None",
+)
+def clear() -> None:
+    """Clear the clipboard content.
+
+    Uses wl-copy -x (Wayland) or xclip -selection clipboard -i /dev/null
+    to clear the clipboard. Best-effort - failures are ignored.
+    """
+    wayland = bool(os.environ.get("WAYLAND_DISPLAY"))
+    x11 = bool(os.environ.get("DISPLAY"))
+    try:
+        if wayland or not x11:
+            subprocess.run(["wl-copy", "-x", "--clear"], timeout=2)
+        else:
+            subprocess.run(
+                ["xclip", "-selection", "clipboard", "-i", "/dev/null"],
+                timeout=2,
+            )
+    except Exception:
+        pass  # Best effort - ignore failures

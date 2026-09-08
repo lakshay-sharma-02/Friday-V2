@@ -116,3 +116,124 @@ def request(
         "url": resp.url,
         "method": method_upper,
     }
+
+
+# ---- HTTP convenience wrappers ----
+
+@contract(
+    precondition="url is a non-empty string starting with http:// or https://.",
+    postcondition="Makes a GET request and returns the HTTP response.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PreconditionError for empty url; PrimitiveError on network/timeout failure.",
+    returns="dict: {status_code, headers, body, url, method}.",
+)
+def get(url: str, headers: dict[str, str] | None = None, timeout_s: int = DEFAULT_TIMEOUT_S) -> dict[str, Any]:
+    """Make a GET request.
+
+    Convenience wrapper around request() for the common GET method.
+
+    Args:
+        url: The target URL
+        headers: Optional dict of request headers
+        timeout_s: Request timeout in seconds
+
+    Returns:
+        HTTP response dict
+    """
+    return request(url, method="GET", headers=headers, timeout_s=timeout_s)
+
+
+@contract(
+    precondition="url is a non-empty string starting with http:// or https://.",
+    postcondition="Makes a POST request and returns the HTTP response.",
+    idempotency=Idempotency.AT_MOST_ONCE,
+    failure_mode="PreconditionError for empty url; PrimitiveError on network/timeout failure.",
+    returns="dict: {status_code, headers, body, url, method}.",
+)
+def post(url: str, headers: dict[str, str] | None = None, body: Any = None, timeout_s: int = DEFAULT_TIMEOUT_S) -> dict[str, Any]:
+    """Make a POST request.
+
+    Convenience wrapper around request() for the POST method.
+
+    Args:
+        url: The target URL
+        headers: Optional dict of request headers
+        body: Optional request body
+        timeout_s: Request timeout in seconds
+
+    Returns:
+        HTTP response dict
+    """
+    return request(url, method="POST", headers=headers, body=body, timeout_s=timeout_s)
+
+
+@contract(
+    precondition="url is a non-empty string starting with http:// or https://.",
+    postcondition="Makes a PUT request and returns the HTTP response.",
+    idempotency=Idempotency.AT_MOST_ONCE,
+    failure_mode="PreconditionError for empty url; PrimitiveError on network/timeout failure.",
+    returns="dict: {status_code, headers, body, url, method}.",
+)
+def put(url: str, headers: dict[str, str] | None = None, body: Any = None, timeout_s: int = DEFAULT_TIMEOUT_S) -> dict[str, Any]:
+    """Make a PUT request.
+
+    Convenience wrapper around request() for the PUT method.
+
+    Args:
+        url: The target URL
+        headers: Optional dict of request headers
+        body: Optional request body
+        timeout_s: Request timeout in seconds
+
+    Returns:
+        HTTP response dict
+    """
+    return request(url, method="PUT", headers=headers, body=body, timeout_s=timeout_s)
+
+
+@contract(
+    precondition="url is a non-empty string starting with http:// or https://.",
+    postcondition="Makes a DELETE request and returns the HTTP response.",
+    idempotency=Idempotency.AT_MOST_ONCE,
+    failure_mode="PreconditionError for empty url; PrimitiveError on network/timeout failure.",
+    returns="dict: {status_code, headers, body, url, method}.",
+)
+def delete(url: str, headers: dict[str, str] | None = None, body: Any = None, timeout_s: int = DEFAULT_TIMEOUT_S) -> dict[str, Any]:
+    """Make a DELETE request.
+
+    Convenience wrapper around request() for the DELETE method.
+
+    Args:
+        url: The target URL
+        headers: Optional dict of request headers
+        body: Optional request body
+        timeout_s: Request timeout in seconds
+
+    Returns:
+        HTTP response dict
+    """
+    return request(url, method="DELETE", headers=headers, body=body, timeout_s=timeout_s)
+
+
+@contract(
+    precondition="url is a non-empty string starting with http:// or https://.",
+    postcondition="Makes a PATCH request and returns the HTTP response.",
+    idempotency=Idempotency.AT_MOST_ONCE,
+    failure_mode="PreconditionError for empty url; PrimitiveError on network/timeout failure.",
+    returns="dict: {status_code, headers, body, url, method}.",
+)
+def patch(url: str, headers: dict[str, str] | None = None, body: Any = None, timeout_s: int = DEFAULT_TIMEOUT_S) -> dict[str, Any]:
+    """Make a PATCH request.
+
+    Convenience wrapper around request() for the PATCH method.
+
+    Args:
+        url: The target URL
+        headers: Optional dict of request headers
+        body: Optional request body
+        timeout_s: Request timeout in seconds
+
+    Returns:
+        HTTP response dict
+    """
+    return request(url, method="PATCH", headers=headers, body=body, timeout_s=timeout_s)

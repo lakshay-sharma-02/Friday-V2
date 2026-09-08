@@ -44,6 +44,135 @@ DEFAULT_BACKOFF_S = 1.0
 DEFAULT_VERIFY_WAIT_S = 8.0
 VERIFY_POLL_S = 0.5
 
+# ------------------------------------------------------------------ retry strategies ----
+
+from enum import Enum
+
+
+class BackoffStrategy(Enum):
+    """Available backoff strategies for retry logic."""
+    LINEAR = "linear"           # delay = base_delay * attempt
+    EXPONENTIAL = "exponential" # delay = base_delay * (2 ^ attempt)
+    FIBONACCI = "fibonacci"     # delay = fib(attempt) * base_delay
+    JITTER = "jitter"           # random jitter around exponential backoff
+
+
+@dataclass
+class CircuitBreaker:
+    """Circuit breaker pattern for preventing cascading failures.
+
+    After `failure_threshold` consecutive failures, the circuit opens
+    and stays open for `recovery_timeout_s` seconds. During this time,
+    new calls fail fast with CircuitBreakerOpen. After recovery timeout,
+    the circuit closes and allows traffic through.
+    """
+    failure_threshold: int = 5
+    recovery_timeout_s: float = 60.0
+    expected_exception: type[Exception] = Exception
+
+    _state: str = "closed"  # closed, open, half_open
+    _failure_count: int = 0
+    _last_failure_time: float | None = None
+
+    def call(self, fn: Callable, *args: Any, **kwargs: Any) -> Any:
+        """Execute fn with circuit breaker protection."""
+        if self._state == "open":
+            if self._last_failure_time is None:
+                raise FridayError("circuit breaker is open, no last failure time")
+            if time.monotonic() - self._last_failure_time < self.recovery_timeout_s:
+                raise FridayError(f"circuit breaker open, waiting for recovery timeout")
+            self._state = "half_open"
+
+        try:
+            result = fn(*args, **kwargs)
+            if self._state == "half_open":
+                self._state = "closed"
+                self._failure_count = 0
+            return result
+        except self.expected_exception as exc:
+            self._record_failure()
+            raise
+        except Exception:
+            # Unexpected exceptions don't count towards the failure count
+            raise
+
+    def _record_failure(self) -> None:
+        """Record a failure and potentially open the circuit."""
+        self._failure_count += 1
+        self._last_failure_time = time.monotonic()
+        if self._failure_count >= self.failure_threshold:
+            self._state = "open"
+
+    def is_open(self) -> bool:
+        """Check if circuit breaker is open."""
+        return self._state == "open"
+
+    def reset(self) -> None:
+        """Manually reset the circuit breaker to closed state."""
+        self._state = "closed"
+        self._failure_count = 0
+        self._last_failure_time = None
+
+
+@dataclass
+class RetryStrategy:
+    """Advanced retry configuration and computation.
+
+    Supports multiple backoff strategies with optional jitter.
+    """
+    max_attempts: int = 3
+    backoff_type: BackoffStrategy = BackoffStrategy.EXPONENTIAL
+    base_delay_s: float = 1.0
+    max_delay_s: float = 60.0
+    jitter: bool = True
+    retry_on: list[type[Exception]] | None = None
+
+    def compute_delay(self, attempt: int) -> float:
+        """Compute delay for the given attempt (1-indexed)."""
+        if attempt < 1:
+            return 0.0
+
+        if self.backoff_type == BackoffStrategy.LINEAR:
+            delay = self.base_delay_s * attempt
+        elif self.backoff_type == BackoffStrategy.EXPONENTIAL:
+            delay = self.base_delay_s * (2 ** (attempt - 1))
+        elif self.backoff_type == BackoffStrategy.FIBONACCI:
+            delays = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55]  # Fibonacci sequence
+            if attempt - 1 < len(delays):
+                delay = self.base_delay_s * delays[attempt - 1]
+            else:
+                # Fall back to exponential for large attempts
+                delay = self.base_delay_s * (2 ** (attempt - 1))
+        else:
+            delay = self.base_delay_s
+
+        # Cap at max_delay_s
+        delay = min(delay, self.max_delay_s)
+
+        # Add jitter (random ±50%)
+        if self.jitter:
+            import random
+            jitter_factor = random.uniform(0.5, 1.5)
+            delay = delay * jitter_factor
+
+        return delay
+
+    def should_retry(self, exception: Exception, attempt: int) -> bool:
+        """Determine if we should retry based on exception and attempt count."""
+        if attempt >= self.max_attempts:
+            return False
+        if self.retry_on is None:
+            return True
+        return isinstance(exception, tuple(self.retry_on))
+
+    def __post_init__(self) -> None:
+        if self.max_attempts < 1:
+            raise ValueError("max_attempts must be >= 1")
+        if self.base_delay_s < 0:
+            raise ValueError("base_delay_s must be >= 0")
+        if self.max_delay_s < self.base_delay_s:
+            raise ValueError("max_delay_s must be >= base_delay_s")
+
 # Plan-level result references: "$steps.2.result.address" resolves to the
 # return value of step 2 (a dict), keyed by "address". This is how a
 # deterministic plan composes steps (open, then close the thing just
@@ -74,6 +203,9 @@ class Step:
     retries: int | None = None  # None -> derived from the contract's idempotency
     backoff_s: float = DEFAULT_BACKOFF_S
     verify_wait_s: float = DEFAULT_VERIFY_WAIT_S
+    backoff_type: str = "linear"  # linear, exponential, fibonacci, jitter
+    jitter: bool = True  # add jitter to backoff
+    circuit_breaker: CircuitBreaker | None = None  # optional circuit breaker
 
 
 @dataclass

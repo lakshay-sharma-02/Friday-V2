@@ -447,3 +447,95 @@ def get_playing_title() -> str | None:
     if isinstance(data, str) and data.strip():
         return data
     return None
+
+
+# ---- gate-registered media.seek (2026-08-15) ----
+@contract(
+    precondition="position_s >= 0; player is running (or returns gracefully).",
+    postcondition="Seeks the player to the specified position in seconds.",
+    idempotency=Idempotency.COMMUTATIVE_SAFE,
+    failure_mode="No-op when no player is running; PrimitiveError on invalid position.",
+    returns="dict: {success: bool, position_s: float}.",
+)
+def seek(position_s: float) -> dict[str, Any]:
+    """Seek to a position in the currently playing media.
+
+    Seeks the mpv player to the specified position in seconds.
+    If no player is running, returns {success: False} gracefully
+    rather than raising an error.
+
+    Args:
+        position_s: Position to seek to (>= 0.0)
+
+    Returns:
+        dict with success status and the position seeked to
+    """
+    if position_s < 0:
+        raise PreconditionError("seek requires position_s >= 0")
+    reply = _socket_send({"command": ["set_property", "time-pos", position_s]})
+    return {"success": _reply_ok(reply), "position_s": position_s}
+
+
+# ---- media.list_playlists ----
+@contract(
+    precondition="None.",
+    postcondition="Returns list of available playlist entries (title and position).",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="No-op when no player running; returns empty list gracefully.",
+    returns="list[dict]: list of {index, title, duration_s, played_count, duration_str}.",
+)
+def list_playlists() -> list[dict[str, Any]]:
+    """List the current playlist contents.
+
+    Returns a list of playlist entries with their properties (index,
+    title, duration, etc.). Returns empty list when no player is running.
+
+    Returns:
+        List of playlist entry dicts
+    """
+    reply = _socket_send({"command": ["get_property", "playlist"]})
+    if reply is None or not _reply_ok(reply):
+        return []
+    playlist = reply.get("data", [])
+    if not isinstance(playlist, list):
+        return []
+    result = []
+    for entry in playlist:
+        if not isinstance(entry, dict):
+            continue
+        title = entry.get("title", "") or "Unknown"
+        result.append({
+            "index": entry.get("index", -1),
+            "title": str(title),
+            "duration_s": entry.get("duration", -1),
+            "played_count": entry.get("played_count", 0),
+        })
+    return result
+
+
+# ---- media.play_media ----
+@contract(
+    precondition="source is a non-empty local path or URL.",
+    postcondition="Plays media file/URL at the given volume until stopped.",
+    idempotency=Idempotency.AT_MOST_ONCE,
+    failure_mode="PrimitiveError if mpv cannot start or its IPC socket never appears.",
+    returns="dict: {pid, socket, source, volume}.",
+)
+def play_media(source: str, volume: int = DEFAULT_VOLUME) -> dict[str, Any]:
+    """Play a media file or URL directly.
+
+    Convenience wrapper around play() with explicit source parameter.
+    Stops any currently playing media before starting new playback.
+
+    Args:
+        source: Path to media file or URL
+        volume: Volume level (0-100, default 70)
+
+    Returns:
+        dict with pid, socket path, source, and volume
+    """
+    if not source or not source.strip():
+        raise PreconditionError("play_media requires a non-empty source")
+    if not 0 <= volume <= 100:
+        raise PreconditionError("volume must be between 0 and 100")
+    return play(source, volume=volume)
