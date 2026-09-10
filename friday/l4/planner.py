@@ -243,6 +243,7 @@ _L1_MODULES = (
     "memory",
     "system",
     "workflow",
+    "stark",
 )
 
 DEFAULT_ATTEMPTS = 3
