@@ -198,6 +198,7 @@ _TOOL_CATEGORIES: dict[str, str] = {
     "system": "System Info",
     "digestcheck": "Digest Verification",
     "workflow": "Workflow Orchestration",
+    "stark": "Stark Infrastructure",
 }
 
 
