@@ -13,9 +13,11 @@ Features:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -404,4 +406,318 @@ def resource_governor(resources: dict[str, Any]) -> dict[str, Any]:
         "model": model,
         "wait_for": wait_for,
         "reasoning": f"CPU:{cpu}, Mem:{memory_mb}MB, Time:{max_time}s -> {model}",
+    }
+
+
+@contract(
+    precondition="repos is an optional list of repository paths to analyze.",
+    postcondition="Returns a dict with cross-project pattern analysis and suggestions.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PrimitiveError on unexpected failures; degrades gracefully if repos missing.",
+    returns="dict: {patterns: list, suggestions: list, confidence: float}",
+)
+def recognize_patterns(repos: list[str] | None = None) -> dict[str, Any]:
+    """Recognize cross-project patterns and suggest transfers.
+
+    Analyzes git history and planning docs across multiple repositories to
+    identify recurring patterns, shared mechanisms, and potential knowledge
+    transfers.
+
+    Args:
+        repos: List of repo paths to analyze (defaults to common projects)
+
+    Returns:
+        Dict with recognized patterns, cross-project suggestions, and confidence score
+    """
+    if repos is None:
+        # Default to common repo locations
+        home = Path.home()
+        candidate_repos = [
+            home / "Projects" / "Friday V2",
+        ]
+        repos = [str(r) for r in candidate_repos if r.exists()]
+
+    patterns: list[dict[str, Any]] = []
+    suggestions: list[str] = []
+
+    repo_data: dict[str, dict[str, Any]] = {}
+
+    for repo_path in repos:
+        repo = Path(repo_path)
+        if not repo.exists():
+            continue
+
+        repo_name = repo.name
+        repo_info = {
+            "name": repo_name,
+            "path": str(repo),
+            "categories": set(),
+            "keywords": set(),
+        }
+
+        # Analyze recent git log
+        try:
+            from friday.l1.git import log as git_log
+
+            commits = git_log(repo_path=str(repo), count=15)
+            if commits and "items" in commits:
+                for commit in commits["items"]:
+                    commit_msg = commit.get("message", "")
+                    if commit_msg:
+                        cat = detect_semantic_category(commit_msg)
+                        if cat:
+                            repo_info["categories"].add(cat)
+                        keywords = extract_semantic_keywords(commit_msg)
+                        repo_info["keywords"].update(keywords)
+        except Exception:
+            pass
+
+        # Analyze planning docs
+        try:
+            from friday.l1.files import find_recent_doc
+
+            doc = find_recent_doc(repo_path=str(repo))
+            if doc:
+                from friday.l1.files import read_text as read_text_fn
+                doc_text = read_text_fn(path=doc, max_chars=5000)
+                if doc_text and "text" in doc_text:
+                    sample = doc_text["text"][:5000]
+                    cat = detect_semantic_category(sample)
+                    if cat:
+                        repo_info["categories"].add(cat)
+                    keywords = extract_semantic_keywords(sample)
+                    repo_info["keywords"].update(keywords)
+        except Exception:
+            pass
+
+        # Convert sets to lists for JSON serialization
+        repo_info["categories"] = list(repo_info["categories"])
+        repo_info["keywords"] = list(repo_info["keywords"])[:20]
+
+        repo_data[repo_name] = repo_info
+
+    # Identify cross-project patterns
+    all_categories: dict[str, list[str]] = defaultdict(list)
+    for repo_name, info in repo_data.items():
+        for cat in info.get("categories", []):
+            all_categories[cat].append(repo_name)
+
+    for cat, repos_in_cat in all_categories.items():
+        if len(repos_in_cat) > 1:
+            patterns.append({
+                "category": cat,
+                "repos": repos_in_cat,
+                "shared_keywords": _find_shared_keywords(
+                    [repo_data[r]["keywords"] for r in repos_in_cat if r in repo_data]
+                ),
+            })
+
+    # Generate suggestions based on patterns
+    for pattern in patterns:
+        cat = pattern["category"]
+        shared = pattern["shared_keywords"]
+        repos_in = pattern["repos"]
+
+        # Suggest transfer patterns
+        if shared:
+            suggestions.append(
+                f"Repository pattern '{cat}' exists in {len(repos_in)} repos "
+                f"({', '.join(repos_in)}). Consider extracting shared {cat} "
+                f"infrastructure (keywords: {', '.join(shared[:5])})."
+            )
+
+    # Calculate confidence based on data quality
+    total_repos = len(repo_data)
+    confidence = min(1.0, total_repos * 0.3 + len(patterns) * 0.1)
+
+    return {
+        "patterns": patterns,
+        "suggestions": suggestions,
+        "confidence": round(confidence, 2),
+        "analyzed_repos": list(repo_data.keys()),
+    }
+
+
+def _find_shared_keywords(keyword_lists: list[list[str]]) -> list[str]:
+    """Find keywords shared across multiple lists."""
+    if not keyword_lists or len(keyword_lists) < 2:
+        return []
+
+    sets = [set(kw_list) for kw_list in keyword_lists]
+    shared = set.intersection(*sets) if len(sets) > 1 else set()
+    return sorted(shared)[:10]
+
+
+@contract(
+    precondition="goal is a non-empty string describing a desired system state.",
+    postcondition="Returns a remediation plan dict for restoring system health.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PreconditionError for invalid goals.",
+    returns="dict: {steps: list, priority: str, estimated_time_s: int}",
+)
+def remediate(goal: str) -> dict[str, Any]:
+    """Generate a remediation plan based on health check and failure prediction.
+
+    Combines health_check() results and predict_failures() analysis to
+    produce a prioritized remediation plan.
+
+    Args:
+        goal: System health goal (e.g., "restore optimal performance", "prevent failures")
+
+    Returns:
+        Dict with remediation steps, priority level, and time estimate
+    """
+    if not goal or not goal.strip():
+        raise PreconditionError("remediate requires a non-empty goal")
+
+    # Get current health
+    health = health_check()
+    predictions = predict_failures()
+
+    steps: list[dict[str, Any]] = []
+    priority = "low"
+    estimated_time = 0
+
+    # Disk space remediation
+    disk_pct = health["resources"].get("disk_usage_pct", 0)
+    if isinstance(disk_pct, (int, float)) and disk_pct > 85:
+        steps.append({
+            "step": "cleanup_disk",
+            "primitive": "filesystem.cleanup",
+            "args": {"path": str(ROOT / "var" / "logs"), "older_than_days": 30},
+            "reason": f"Disk usage at {disk_pct}%"
+        })
+        priority = "high"
+        estimated_time += 300
+
+    # Log rotation
+    log_size = health["layers"].get("l0_logs", {}).get("log_size_mb", 0)
+    if isinstance(log_size, (int, float)) and log_size > 200:
+        steps.append({
+            "step": "rotate_logs",
+            "primitive": "filesystem.cleanup",
+            "args": {"path": str(ROOT / "var" / "logs"), "older_than_days": 60},
+            "reason": f"Log files exceed {log_size}MB"
+        })
+        if priority != "high":
+            priority = "medium"
+        estimated_time += 120
+
+    # Failure prediction remediation
+    likelihood = predictions.get("failure_likelihood", 0.0)
+    pattern = predictions.get("pattern", "none")
+
+    if likelihood > 0.5:
+        steps.append({
+            "step": "address_predicted_failures",
+            "primitive": "dev.run",
+            "args": {
+                "task": f"Investigate and address predicted failure pattern: {pattern}"
+            },
+            "reason": f"Failure likelihood at {likelihood}"
+        })
+        priority = "high"
+        estimated_time += 600
+
+    # Add health recommendations
+    for rec in health.get("recommendations", []):
+        if "log rotation" in rec.lower():
+            if not any(s["step"] == "rotate_logs" for s in steps):
+                steps.append({
+                    "step": "follow_health_recommendation",
+                    "primitive": "dev.run",
+                    "args": {"task": rec},
+                    "reason": "Health check recommendation"
+                })
+                estimated_time += 180
+
+    # If no issues found
+    if not steps:
+        steps.append({
+            "step": "no_action_needed",
+            "primitive": "notify.notify_send",
+            "args": {
+                "title": "Stark: System Health",
+                "body": f"System is healthy. No remediation needed for goal: {goal}"
+            },
+            "reason": "No issues detected"
+        })
+
+    return {
+        "goal": goal,
+        "steps": steps,
+        "priority": priority,
+        "estimated_time_s": estimated_time,
+        "health_status": health["status"],
+        "failure_likelihood": likelihood,
+    }
+
+
+@contract(
+    precondition="name is a non-empty string identifying the workflow.",
+    postcondition="Returns workflow status and recommendations from the orchestrator.",
+    idempotency=Idempotency.IDEMPOTENT,
+    failure_mode="PrimitiveError if the orchestrator is unavailable.",
+    returns="dict: {workflow_id, status, recommendations, next_step}",
+)
+def workflow_status(name: str) -> dict[str, Any]:
+    """Get enhanced workflow status with recommendations.
+
+    Extends the L1 workflow status with Stark-level analysis and
+    recommendations for optimization or remediation.
+
+    Args:
+        name: Workflow identifier (UUID or name)
+
+    Returns:
+        Enhanced workflow status with Stark-level recommendations
+    """
+    if not name or not name.strip():
+        raise PreconditionError("workflow_status requires a non-empty name")
+
+    from friday.l1.workflow import get_workflow_status
+
+    try:
+        base_status = get_workflow_status(name)
+    except Exception as e:
+        raise PrimitiveError(f"Failed to get workflow status: {e}") from e
+
+    recommendations: list[str] = []
+    duration_s = base_status.get("duration_s", 0)
+
+    # Analyze workflow duration
+    if duration_s > 300:
+        recommendations.append(
+            "Long execution time - consider parallel_run() for independent steps"
+        )
+
+    # Analyze errors
+    steps = base_status.get("step_results", [])
+    failed_steps = [s for s in steps if s.get("status") != "COMPLETED"]
+
+    if failed_steps:
+        recommendations.append(
+            f"{len(failed_steps)} step(s) failed - use remediate() to generate fix plan"
+        )
+
+    # Check for resource-heavy primitives
+    has_dev_run = any(
+        "dev.run" in str(s.get("steps", ""))
+        for s in steps
+    )
+    if has_dev_run:
+        recommendations.append(
+            "Contains LLM calls - consider resource_governor() for model optimization"
+        )
+
+    # Determine next step
+    next_step = "run" if base_status.get("status") == "completed" else "fix"
+
+    return {
+        "workflow_id": base_status.get("id", name),
+        "status": base_status.get("status"),
+        "duration_s": duration_s,
+        "step_count": len(steps),
+        "recommendations": recommendations,
+        "next_step": next_step,
     }
