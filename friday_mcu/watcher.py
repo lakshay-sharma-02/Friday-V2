@@ -749,6 +749,50 @@ def _file_seen_file() -> Path:
     return Path(os.environ.get("FRIDAY_MCU_SEEN_FILE", str(PROJECT_ROOT / "var" / "state" / "mcu_watcher_seen.json")))
 
 
+def _notified_patterns_file() -> Path:
+    """Persisted set of pattern IDs already reported proactively.
+
+    Ensures a pattern insight is only sent once per TTL window, not on every
+    poll tick. Pruned periodically of entries older than 7 days so a pattern
+    that stops recurring can resurface.
+    """
+    return Path(
+        os.environ.get(
+            "FRIDAY_MCU_PROACTIVE_NOTIFIED",
+            str(PROJECT_ROOT / "var" / "state" / "mcu_proactive_notified.json"),
+        )
+    )
+
+
+# Patterns already notified within this TTL (seconds) are not re-sent.
+_PROACTIVE_NOTIFIED_TTL_S = 7 * 24 * 3600  # 7 days
+
+
+def _load_notified_patterns() -> dict[str, float]:
+    """Load the {pattern_id: timestamp} map of already-notified patterns."""
+    try:
+        data = json.loads(_notified_patterns_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if isinstance(data, dict):
+        return {str(k): float(v) for k, v in data.items() if isinstance(v, (int, float))}
+    return {}
+
+
+def _save_notified_patterns(patterns: dict[str, float]) -> None:
+    """Persist the notified-pattern map, pruning expired entries."""
+    now = time.time()
+    pruned = {k: v for k, v in patterns.items() if now - v < _PROACTIVE_NOTIFIED_TTL_S}
+    try:
+        path = _notified_patterns_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(pruned, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
 def _load_seen() -> set[str]:
     try:
         data = json.loads(_file_seen_file().read_text(encoding="utf-8"))
@@ -851,6 +895,34 @@ def _in_retry_backoff(trigger_id: str, last_attempts: dict[str, float]) -> bool:
 # ──────────────────────────────── proactive + pattern hook
 
 
+PROACTIVE_CONFIDENCE_FLOOR = 0.8
+PROACTIVE_FREQUENCY_FLOOR = 5
+
+
+def _scheduled_trigger_goals() -> set[str]:
+    """Collect the goal strings from scheduled (time/file) triggers in the watcher
+    config so that routine/scheduled goals are not reported as novel patterns."""
+    try:
+        triggers = load_config()
+    except Exception:
+        return set()
+    goals: set[str] = set()
+    for t in triggers:
+        goal = t.get("goal")
+        if goal:
+            goals.add(goal.lower())
+    return goals
+
+
+def _is_scheduled_goal(goal_text: str, scheduled_goals: set[str]) -> bool:
+    """Check whether a pattern's goal text matches any scheduled trigger goal."""
+    g = goal_text.lower()
+    for sg in scheduled_goals:
+        if g in sg or sg in g:
+            return True
+    return False
+
+
 def _run_proactive_tick() -> None:
     """Run the proactive engine tick: detect patterns → suggest → flush."""
     try:
@@ -887,23 +959,49 @@ def _run_proactive_tick() -> None:
                 except Exception:
                     pass
 
+        # Load already-notified pattern IDs to avoid duplicate proactive messages
+        notified = _load_notified_patterns()
+
+        # Gather scheduled trigger goals so routine/repeatable triggers are
+        # not reported as novel observations.
+        scheduled_goals = _scheduled_trigger_goals()
+
         # Generate proactive suggestions from high-confidence patterns
         from friday_mcu.comms.natural import NaturalComms
         _nat = NaturalComms()
         engine = ProactiveEngine()
         for p in patterns:
-            if p.confidence >= 0.6 and p.type == "goal":
-                _nat_msg = _nat.build_proactive_suggestion(
-                    suggestion=p.description,
-                    reason=f"Observed {p.frequency} times (confidence={p.confidence:.0%})",
-                )
-                msg = ProactiveMessage(
-                    content=_nat_msg.content,
-                    priority="low",
-                    confidence=p.confidence,
-                    reason=f"pattern_{p.type}",
-                )
-                engine.suggest(msg)
+            # Only consider goal-type patterns worth reporting
+            if p.type != "goal":
+                continue
+            # Raise thresholds: only report truly recurring, high-confidence patterns
+            if p.confidence < PROACTIVE_CONFIDENCE_FLOOR:
+                continue
+            if p.frequency < PROACTIVE_FREQUENCY_FLOOR:
+                continue
+            # Skip patterns that correspond to scheduled trigger goals
+            if _is_scheduled_goal(p.description, scheduled_goals):
+                continue
+            # Skip patterns already reported within the TTL window
+            if p.id in notified:
+                continue
+
+            _nat_msg = _nat.build_proactive_suggestion(
+                suggestion=p.description,
+                reason=f"Observed {p.frequency} times (confidence={p.confidence:.0%})",
+            )
+            msg = ProactiveMessage(
+                content=_nat_msg.content,
+                priority="low",
+                confidence=p.confidence,
+                reason=f"pattern_{p.type}",
+            )
+            engine.suggest(msg)
+            notified[p.id] = time.time()
+
+        # Persist the updated notified set (prunes expired entries)
+        if notified:
+            _save_notified_patterns(notified)
 
         # Flush (sends if conditions allow)
         engine.flush()

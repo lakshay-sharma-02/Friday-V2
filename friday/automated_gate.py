@@ -184,7 +184,9 @@ _OBSERVED_STDLIB = frozenset(
 # shutil.copy/move for the file-operation primitives (copy, move); 'hashlib'
 # added 2026-08-20: memory.py uses hashlib.sha256 for deterministic memory
 # ID generation. All pure-compute, no side effects of their own.
-_OBSERVED_THIRD_PARTY = frozenset({"requests", "playwright", "PIL", "sentence_transformers", "numpy"})
+# psutil: stark.py imports it for optional memory stats in a try/except
+# that degrades gracefully when the package is absent - pure read-only.
+_OBSERVED_THIRD_PARTY = frozenset({"requests", "playwright", "PIL", "sentence_transformers", "numpy", "psutil"})
 _EXTRA_SAFE_STDLIB = frozenset(
     {
         "collections",

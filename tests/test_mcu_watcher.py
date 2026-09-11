@@ -349,6 +349,114 @@ class TestProactiveTick(unittest.TestCase):
         # Should not raise
         _run_proactive_tick()
 
+    def test_proactive_tick_dedupes_notified_patterns(self):
+        """A pattern already in the notified set is not re-sent."""
+        from friday_mcu.watcher import _run_proactive_tick
+        from friday_mcu.observer.patterns import PatternDetector
+
+        # Compute the actual pattern ID for our test goal using the same detector
+        tasks = [
+            {
+                "goal": "Goal: test repetitive task -> COMPLETED (2 steps)",
+                "gate6_passed": True,
+                "timestamp": datetime.now().isoformat(),
+            }
+            for _ in range(6)
+        ]
+        detector = PatternDetector()
+        patterns = detector.analyze(tasks, min_occurrences=2)
+        goal_patterns = [p for p in patterns if p.type == "goal"]
+        self.assertEqual(len(goal_patterns), 1)
+        pattern_id = goal_patterns[0].id
+
+        # Pre-populate the notified set so the pattern should be skipped
+        pre_notified = {pattern_id: time.time()}
+
+        # Create a real temp file for persistence
+        tmp_path = Path(tempfile.mktemp(suffix=".json"))
+
+        mock_mgr = mock.Mock()
+        mock_mgr.episodic.recent.return_value = []
+        for i in range(6):
+            m = mock.Mock()
+            m.content = "Goal: test repetitive task -> COMPLETED (2 steps)"
+            m.created_at = datetime.now().isoformat()
+            mock_mgr.episodic.recent.return_value.append(m)
+        mock_mgr.semantic = mock.Mock()
+
+        with mock.patch("friday_mcu.watcher._notified_patterns_file", return_value=tmp_path):
+            # Save pre-notified state
+            from friday_mcu.watcher import _save_notified_patterns
+            _save_notified_patterns(pre_notified)
+
+            with mock.patch("friday_mcu.comms.proactive.ProactiveEngine") as MockEngine:
+                instance = MockEngine.return_value
+                instance.suggest = mock.Mock()
+
+                with mock.patch("friday_mcu.memory.store.MemoryManager", return_value=mock_mgr):
+                    _run_proactive_tick()
+
+                # The pattern should have been skipped because it was already notified
+                instance.suggest.assert_not_called()
+
+    def test_proactive_tick_filters_scheduled_goals(self):
+        """Patterns matching scheduled trigger goals are not reported."""
+        from friday_mcu.watcher import _run_proactive_tick
+
+        # Mock config to return a scheduled trigger with matching goal
+        mock_triggers = [
+            {"id": "test-trigger", "goal": "check email", "schedule": {"type": "time", "at": "09:00"}}
+        ]
+
+        # Mock MemoryManager to use our test tasks
+        mock_mgr = mock.Mock()
+        mock_mgr.episodic.recent.return_value = []
+        for i in range(6):
+            m = mock.Mock()
+            m.content = "Goal: check email -> COMPLETED (2 steps)"
+            m.created_at = datetime.now().isoformat()
+            mock_mgr.episodic.recent.return_value.append(m)
+        mock_mgr.semantic = mock.Mock()
+
+        with mock.patch("friday_mcu.watcher.load_config", return_value=mock_triggers):
+            with mock.patch("friday_mcu.watcher._notified_patterns_file", return_value=Path(tempfile.mktemp(suffix=".json"))):
+                with mock.patch("friday_mcu.comms.proactive.ProactiveEngine") as MockEngine:
+                    instance = MockEngine.return_value
+                    instance.suggest = mock.Mock()
+
+                    with mock.patch("friday_mcu.memory.store.MemoryManager", return_value=mock_mgr):
+                        _run_proactive_tick()
+
+                    instance.suggest.assert_not_called()
+
+    def test_proactive_tick_respects_confidence_and_frequency_floors(self):
+        """Patterns below the confidence/frequency floors are not suggested."""
+        from friday_mcu.watcher import _run_proactive_tick, PROACTIVE_CONFIDENCE_FLOOR, PROACTIVE_FREQUENCY_FLOOR
+
+        self.assertGreaterEqual(PROACTIVE_CONFIDENCE_FLOOR, 0.8)
+        self.assertGreaterEqual(PROACTIVE_FREQUENCY_FLOOR, 5)
+
+        # Mock MemoryManager to use our test tasks (only 4 occurrences, below frequency floor of 5)
+        mock_mgr = mock.Mock()
+        mock_mgr.episodic.recent.return_value = []
+        for i in range(4):
+            m = mock.Mock()
+            m.content = "Goal: rare pattern task -> COMPLETED (2 steps)"
+            m.created_at = datetime.now().isoformat()
+            mock_mgr.episodic.recent.return_value.append(m)
+        mock_mgr.semantic = mock.Mock()
+
+        with mock.patch("friday_mcu.watcher._notified_patterns_file", return_value=Path(tempfile.mktemp(suffix=".json"))):
+            with mock.patch("friday_mcu.watcher.load_config", return_value=[]):
+                with mock.patch("friday_mcu.comms.proactive.ProactiveEngine") as MockEngine:
+                    instance = MockEngine.return_value
+                    instance.suggest = mock.Mock()
+
+                    with mock.patch("friday_mcu.memory.store.MemoryManager", return_value=mock_mgr):
+                        _run_proactive_tick()
+
+                    instance.suggest.assert_not_called()
+
 
 class TestFiredState(unittest.TestCase):
     """Once-per-day fired state persistence."""

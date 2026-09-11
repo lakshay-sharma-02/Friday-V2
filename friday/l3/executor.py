@@ -354,6 +354,14 @@ def _split_ref_path(rest: str, full_ref: str) -> list[str]:
 
 
 def _default_retries(qualified: str) -> int | None:
+    # Ensure the L1 modules that populate REGISTRY are imported, so that
+    # primitives that haven't been imported yet (their @contract hasn't run)
+    # don't falsely appear unregistered. Mirrors _resolve_primitive's guard.
+    if qualified not in REGISTRY:
+        try:
+            _resolve_primitive(qualified)
+        except KeyError:
+            return None
     c = REGISTRY.get(qualified)
     if c is None:
         return None
