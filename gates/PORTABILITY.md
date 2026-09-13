@@ -48,11 +48,13 @@ contracts; the design never changed - only the backend did.
 | `media.*` IPC | `AF_UNIX` stream socket to `/tmp/friday_mpv.sock` | Windows named pipe (`\\.\pipe\friday_mpv`) via `win32file`/`pywintypes` (pywin32) | `media._socket_send` dispatches on `os.name == "nt"`; the orphan sweep uses `tasklist` (stdlib) + `os.kill` (signal 0 / terminate work on Windows). pywin32 is a Windows-only dep (`pyproject.toml` marks it `platform_system == "Windows"`); never imported on POSIX. |
 | `audio.speak` (new) | N/A (new module) | `edge-tts` (en-IE-Emily neural voice) → temp WAV → `media.play()` (mpv sink) | Offline TTS, no credit burn. `audio.list_devices`/`get_default_device`/`get_output_volume` use `pactl` (Linux only — return empty/None on Windows). Voice profiles in `config/voices.json`. |
 
-- `audio.list_devices` / `get_default_device` / `get_output_volume` call `pactl`
-  (PipeWire/PulseAudio). On Windows with no pactl they return `[]` / `""` /
-  `None` — degraded read-only state, not a crash (mirrors `media.get_volume`'s
-  "no player → None, not an error" discipline). No Windows audio-daemon backend
-  is shipped yet; the primitives surface the real state or empty state safely.
+- `audio.list_devices` / `get_default_device` / `get_output_volume` now have a
+  full Windows backend via winmm (`waveOutGetNumDevs`/`waveInGetNumDevs` for
+  device count, `waveOutGetDefaultDevice` for the default, `waveOutGetVolume`
+  for the master scalar). On Linux they still use `pactl` (PipeWire/PulseAudio).
+  Both backends degrade to empty/`""`/`None` on failure (an absent sound server
+  is a result, never a crash — mirrors `media.get_volume`'s "no player → None,
+  not an error" discipline).
 - `audio.speak` is **live-verified on Windows**: renders the WAV, launches mpv
   over the named pipe, `media.get_playing_title()` reflects the utterance,
   `is_playing()` returns True, `media.stop()` halts it. The 1037-test suite is
@@ -63,6 +65,14 @@ contracts; the design never changed - only the backend did.
   (confirms speak() actually audibilized something via media.is_playing() +
   title match). Both import only `idempotent` primitives, satisfying Gate 3's
   read-only-assertion discipline.
+
+## `clipboard.*` — ported 2026-09-13 (backend swap behind the same contract)
+
+| Piece | Linux backend | Windows backend shipped | Notes |
+|---|---|---|---|
+| `clipboard.read_text` / `write_text` | `wl-paste`/`xclip` (read-only and write subprocess shapes) | `win32clipboard` (`CF_UNICODE`) via pywin32 | `os.name` dispatch; identical CONTRACT surface. Linux keeps the bounded subprocess shape (literal argv, timeout); Windows uses the native Win32 clipboard API (no daemon-fork deadlock concern). |
+| `clipboard.read_image` / `write_image` | `wl-paste --type image/png` / `wl-copy --type image/png` | `win32clipboard` (`CF_PNG`/`CF_DIB`) via pywin32 | PNG is the preferred/interchange format; DIB fallback on Windows returns raw bytes when PIL conversion is unavailable. |
+| `clipboard.clear` | `wl-copy -x --clear` / `xclip` with `/dev/null` | `win32clipboard.EmptyClipboard` via pywin32 | Best-effort on both: failures are silently ignored. |
 
 ## `screenshot.capture` — already ported (not a gap)
 
