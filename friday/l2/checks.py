@@ -17,10 +17,16 @@ from pathlib import Path
 
 from friday.errors import PreconditionError, PrimitiveError, PrimitiveTimeout
 from friday.l1 import files, media, window  # (read-only accessors only)
+from friday.l1.audio import (
+    get_default_device as audio_default_sink,
+    get_output_volume as audio_volume,
+)
 from friday.l1.browser import Locator, find_locator, read_page_text
 from friday.l1.gmail import get_message as gmail_message, list_unread as gmail_unread
-from friday.l1.memory import list_categories as memory_categories, retrieve as memory_retrieve, summary as memory_summary
-from friday.l1.whatsapp import download_media as whatsapp_download, get_me as whatsapp_identity
+from friday.l1.memory import (
+    retrieve as memory_retrieve,
+)
+from friday.l1.whatsapp import get_me as whatsapp_identity
 from friday.observability import observe
 
 # NOTE: window.list_clients, media.is_playing, browser.read_page_text,
@@ -105,6 +111,48 @@ def window_only_classes(classes: list[str]) -> bool:
 def media_playing() -> bool:
     """Claim: 'media is currently playing'. Read-only."""
     return bool(media.is_playing())
+
+
+@observe(layer="L2")
+def audio_output_ready(min_volume: int = 1, max_volume: int = 100) -> bool:
+    """Claim: 'the default audio sink is configured and the master volume is a
+    sane level to hear a Friday utterance'. Read-only - never adjusts volume.
+
+    min_volume/max_volume bound the acceptable volume so a plan can verify
+    'the user can actually hear me' before a speak() step. Returns False
+    (never raises) when the audio daemon is absent - an absent sound server
+    is a state, not an error - mirroring audio.get_output_volume's shape.
+    A volume outside [min, max] is a real signal the user won't hear us.
+    """
+    vol = audio_volume()
+    if vol is None:
+        return False  # no audio daemon / sink - can't verify audibility
+    sink = audio_default_sink("sink")
+    if not sink:
+        return False  # no default sink configured
+    return min_volume <= vol <= max_volume
+
+
+@observe(layer="L2")
+def audio_utterance_playing(title_substring: str) -> bool:
+    """Claim: 'media is currently playing and its title references the
+    utterance a speak() step just produced'. Read-only.
+
+    Verifies a speak() step actually audibilized something: media.is_playing()
+    is True AND media.get_playing_title() contains the speaker's source
+    filename substring (audio.speak hands media.play() a temp WAV named
+    friday_tts_<random>.wav). A plan references the WAV via
+    $steps.N.result.source and passes its basename here. A stale mpv playing
+    unrelated media fails this check - the title must match the utterance.
+    """
+    if not title_substring:
+        return False
+    if not media.is_playing():
+        return False
+    title = media.get_playing_title()
+    if not title:
+        return False
+    return title_substring.lower() in title.lower()
 
 
 @observe(layer="L2")
@@ -313,6 +361,7 @@ def memory_store_status(status: str) -> bool:
 # write_text is COMMUTATIVE_SAFE but we only use it for reading size verification.
 # Note: file primitives raise PreconditionError for missing/invalid paths,
 # so we catch both PreconditionError (expected) and PrimitiveError (unexpected).
+
 
 @observe(layer="L2")
 def file_size_equals(path: str, expected_bytes: int) -> bool:

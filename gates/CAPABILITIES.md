@@ -1,6 +1,6 @@
 # CAPABILITIES - what Friday can do (generated from the live registry)
 
-Status date: 2026-08-23.
+Status date: 2026-09-12.
 
 **This document is GENERATED from the running code, not hand-maintained** -
 regenerate it after any primitive/check/trigger change:
@@ -15,7 +15,7 @@ registered primitives -> L0 structured logs. An ambient watcher daemon fires
 triggers on schedule with per-trigger primitive allowlists, and a closed
 capability-gap loop lets human-approved new primitives register themselves.
 
-## L1 primitives (97 registered)
+## L1 primitives (128 registered)
 
 Retry semantics come from each contract's idempotency class: `idempotent` = safe
 to blind-retry (read-only); `at-most-once` = never blindly retried (side effect);
@@ -41,10 +41,13 @@ to blind-retry (read-only); `at-most-once` = never blindly retried (side effect)
 | `media.get_playing_title() -> 'str | None'` | `idempotent` | str | None - the current media title (mpv 'media-title' property), or… | Never raises: a missing or unreachable mpv player is reported as None, not an error.… |
 | `media.get_volume() -> 'int | None'` | `idempotent` | int | None - the current volume in the 0-100 range, or None when no p… | Never raises: a missing or unreachable mpv player is reported as None, not an error.… |
 | `media.is_playing() -> 'bool'` | `idempotent` | bool | Never raises: no player -> False. |
+| `media.list_playlists() -> 'list[dict[str, Any]]'` | `idempotent` | list[dict]: list of {index, title, duration_s, played_count, duration… | No-op when no player running; returns empty list gracefully. |
 | `media.pause() -> 'None'` | `commutative-safe` | None | No-op when no player is running. |
 | `media.play(source: 'str', volume: 'int' = 70) -> 'dict[str, Any]'` | `at-most-once` | dict: {pid, socket, source}. | PrimitiveError if mpv cannot start or its IPC socket never appears; any pre-existing… |
 | `media.play_for(minutes: 'float', source: 'str', volume: 'int' = 70) -> 'dict[str, Any]'` | `at-most-once` | dict: {pid, socket, length_s, source}. | PrimitiveError if mpv cannot start or its IPC socket never appears; any pre-existing… |
+| `media.play_media(source: 'str', volume: 'int' = 70) -> 'dict[str, Any]'` | `at-most-once` | dict: {pid, socket, source, volume}. | PrimitiveError if mpv cannot start or its IPC socket never appears. |
 | `media.resume() -> 'None'` | `commutative-safe` | None | No-op when no player is running. |
+| `media.seek(position_s: 'float') -> 'dict[str, Any]'` | `commutative-safe` | dict: {success: bool, position_s: float}. | No-op when no player is running; PrimitiveError on invalid position. |
 | `media.set_volume(percent: 'int') -> 'None'` | `commutative-safe` | None | PreconditionError on out-of-range volume; no-op (not an error) when no player is run… |
 | `media.stop() -> 'None'` | `commutative-safe` | None | None expected; stubborn processes are SIGTERM'd by the orphan sweep. |
 
@@ -68,7 +71,7 @@ to blind-retry (read-only); `at-most-once` = never blindly retried (side effect)
 
 | primitive | idempotency | returns | failure mode |
 |---|---|---|---|
-| `dev.digest(context: 'dict[str, Any]', instruction: 'str' = "You are Friday's cross-project digest. Below is recent activity from the user's projects, each under a label. Produce:\n(a) a plain 2-4 sentence summary of what happened in each project, and\n(b) at most 1-2 CONCRETE suggestions for how something in one project could apply to another - an actual specific pattern, piece of code, or approach that could transfer, not vague 'consider synergies' language. If the content is too thin for a specific suggestion, say so honestly rather than inventing one.\nReply with ONLY the digest text.") -> 'str'` | `idempotent` | str: the digest text (the task's human-verifiable deliverable). | PreconditionError for an empty context or instruction; PrimitiveError when the LLM r… |
+| `dev.digest(context: 'dict[str, Any]', instruction: 'str' = "You are Friday's cross-project digest. Below is recent activity from the user's projects, each under a label. Produce:\n(a) a plain 2-4 sentence summary of what happened in each project, and\n(b) at most 1-2 CONCRETE suggestions for how something in one project could apply to another - an actual specific pattern, piece of code, or approach that could transfer, not vague 'consider synergies' language. If the content is too thin for a specific suggestion, say so honestly rather than inventing one.\n(c) Identify 1-2 semantic themes/categories evident across the repos (e.g., 'email processing', 'security hardening', 'UI retheme', 'kernel setup') and note if any patterns could transfer between repos.\n(d) Focus suggestions on semantic patterns that actually exist in each repo's own content - do not invent mechanisms or attribute patterns to repos that don't have them.\nReply with ONLY the digest text.") -> 'str'` | `idempotent` | str: the digest text (the task's human-verifiable deliverable). | PreconditionError for an empty context or instruction; PrimitiveError when the LLM r… |
 | `dev.run(task: 'str', *, cwd: 'str | None' = None, timeout_s: 'int' = 300, model: 'str' = 'opus', allow_bypass_permissions: 'bool' = False) -> 'dict[str, Any]'` | `at-most-once` | dict: the `claude --output-format json` envelope (result, is_error, u… | PrimitiveError/PrimitiveTimeout from the subprocess; the task may have had side effe… |
 | `dev.run_shell(cwd: 'str', command: 'str', *, timeout_s: 'int' = 120, model: 'str' = 'opus', allow_bypass_permissions: 'bool' = False) -> 'dict[str, Any]'` | `at-most-once` | dict: {exit_code, stdout, stderr, model, duration_ms}. | PrimitiveError if claude fails or the result is not the required JSON; the command m… |
 
@@ -154,6 +157,15 @@ to blind-retry (read-only); `at-most-once` = never blindly retried (side effect)
 |---|---|---|---|
 | `digestcheck.verify_attribution(digest: 'str', context: 'dict[str, Any]') -> 'str'` | `idempotent` | str: the digest text followed by an '## Attribution check' appendix (… | PreconditionError for an empty digest or empty/malformed context. Never raises on an… |
 
+### `audio`
+
+| primitive | idempotency | returns | failure mode |
+|---|---|---|---|
+| `audio.get_default_device(device_type: 'str' = 'sink') -> 'str'` | `idempotent` | str: the default device name ('' if none). | PrimitiveError if pactl fails; returns '' when no default is set. |
+| `audio.get_output_volume() -> 'int | None'` | `idempotent` | int | None: 0-100 volume, or None. | PrimitiveError if pactl fails; returns None when no sink is found. |
+| `audio.list_devices() -> 'list[dict[str, Any]]'` | `idempotent` | list[dict]: [{name, index, type}] - type is 'sink' or 'source'. | PrimitiveError if pactl fails or is absent. |
+| `audio.speak(text: 'str', *, voice: 'str | None' = None) -> 'dict[str, Any]'` | `at-most-once` | dict: {engine, voice, duration_s, source, sink} | PrimitiveError on edge-tts rendering failure, empty text, or mpv launch failure. Do … |
+
 ### `calendar`
 
 | primitive | idempotency | returns | failure mode |
@@ -168,24 +180,35 @@ to blind-retry (read-only); `at-most-once` = never blindly retried (side effect)
 
 | primitive | idempotency | returns | failure mode |
 |---|---|---|---|
+| `clipboard.clear() -> 'None'` | `commutative-safe` | None | No-op on failure (best effort). |
+| `clipboard.read_image() -> 'bytes | None'` | `idempotent` | bytes | None - image data if available, None if empty or not an image. | PrimitiveError when clipboard tool fails or returns error. |
 | `clipboard.read_text() -> 'str'` | `idempotent` | str: the clipboard contents ('' when empty). | PrimitiveError when the clipboard tool is missing or fails to read - DISTINCT from a… |
+| `clipboard.write_image(data: 'bytes') -> 'bytes'` | `commutative-safe` | bytes: the image data that was written. | PrimitiveError when clipboard tool fails. |
 | `clipboard.write_text(text: 'str') -> 'str'` | `idempotent` | str: the text that was written to the clipboard (echoed back to the c… | PrimitiveError when the clipboard tool is missing or fails to write - DISTINCT from … |
 
 ### `http`
 
 | primitive | idempotency | returns | failure mode |
 |---|---|---|---|
+| `http.delete(url: 'str', headers: 'dict[str, str] | None' = None, body: 'Any' = None, timeout_s: 'int' = 30) -> 'dict[str, Any]'` | `at-most-once` | dict: {status_code, headers, body, url, method}. | PreconditionError for empty url; PrimitiveError on network/timeout failure. |
+| `http.get(url: 'str', headers: 'dict[str, str] | None' = None, timeout_s: 'int' = 30) -> 'dict[str, Any]'` | `idempotent` | dict: {status_code, headers, body, url, method}. | PreconditionError for empty url; PrimitiveError on network/timeout failure. |
+| `http.patch(url: 'str', headers: 'dict[str, str] | None' = None, body: 'Any' = None, timeout_s: 'int' = 30) -> 'dict[str, Any]'` | `at-most-once` | dict: {status_code, headers, body, url, method}. | PreconditionError for empty url; PrimitiveError on network/timeout failure. |
+| `http.post(url: 'str', headers: 'dict[str, str] | None' = None, body: 'Any' = None, timeout_s: 'int' = 30) -> 'dict[str, Any]'` | `at-most-once` | dict: {status_code, headers, body, url, method}. | PreconditionError for empty url; PrimitiveError on network/timeout failure. |
+| `http.put(url: 'str', headers: 'dict[str, str] | None' = None, body: 'Any' = None, timeout_s: 'int' = 30) -> 'dict[str, Any]'` | `at-most-once` | dict: {status_code, headers, body, url, method}. | PreconditionError for empty url; PrimitiveError on network/timeout failure. |
 | `http.request(url: 'str', method: 'str' = 'GET', headers: 'dict[str, str] | None' = None, body: 'Any' = None, timeout_s: 'int' = 30) -> 'dict[str, Any]'` | `idempotent` | dict: {status_code, headers, body, url, method}. | PreconditionError for empty url or invalid method; PrimitiveError on network/timeout… |
 
 ### `memory`
 
 | primitive | idempotency | returns | failure mode |
 |---|---|---|---|
+| `memory.export_memories() -> 'dict[str, Any]'` | `idempotent` | dict: {data: str (JSON), count: int, exported_at: str}. | PrimitiveError on storage read failure. |
 | `memory.forget(key: 'str', category: 'str | None' = None) -> 'dict[str, Any]'` | `commutative-safe` | dict: {key, found: bool}. | PreconditionError for empty key; PrimitiveError on storage failure. |
+| `memory.import_memories(data: 'str') -> 'dict[str, Any]'` | `commutative-safe` | dict: {imported: int, updated: int, skipped: int}. | PreconditionError for empty/malformed data; PrimitiveError on storage failure. |
 | `memory.list_categories() -> 'dict[str, Any]'` | `idempotent` | dict: {categories: {name: count}, total: int}. | PrimitiveError on storage read failure. |
+| `memory.list_memories(category: 'str | None' = None, tags: 'list[str] | None' = None, offset: 'int' = 0, limit: 'int' = 20) -> 'dict[str, Any]'` | `idempotent` | dict: {entries: list[dict], total: int, offset: int, limit: int}. | PrimitiveError on storage read failure. |
 | `memory.maintenance(ttl_days: 'int' = 90, min_access: 'int' = 5) -> 'dict[str, Any]'` | `idempotent` | dict: {archived: int, remaining: int, archived_keys: list[str]}. | PrimitiveError on storage failure. |
 | `memory.reinforce(key: 'str', category: 'str | None' = None) -> 'dict[str, Any]'` | `commutative-safe` | dict: {key, found: bool, access_count: int}. | PreconditionError for empty key; PrimitiveError on storage failure. |
-| `memory.retrieve(query: 'str', category: 'str | None' = None, limit: 'int' = 5) -> 'list[dict[str, Any]]'` | `idempotent` | list[dict]: [{id, key, value, category, relevance, access_count}] ran… | PreconditionError for empty query; PrimitiveError on storage read failure. |
+| `memory.retrieve(query: 'str', category: 'str | None' = None, tags: 'list[str] | None' = None, limit: 'int' = 5) -> 'list[dict[str, Any]]'` | `idempotent` | list[dict]: [{id, key, value, category, relevance, access_count}] ran… | PreconditionError for empty query; PrimitiveError on storage read failure. |
 | `memory.store(key: 'str', value: 'str', category: 'str' = 'facts', tags: 'list[str] | None' = None) -> 'dict[str, str]'` | `commutative-safe` | dict: {id, key, category, status}. | PreconditionError for empty key/value or invalid category; PrimitiveError on storage… |
 | `memory.summary() -> 'dict[str, Any]'` | `idempotent` | dict: {total, categories, oldest, newest, recent_keys: list[str]}. | PrimitiveError on storage read failure. |
 
@@ -194,6 +217,18 @@ to blind-retry (read-only); `at-most-once` = never blindly retried (side effect)
 | primitive | idempotency | returns | failure mode |
 |---|---|---|---|
 | `screenshot.capture(target: 'str' = 'full', output_path: 'str' = 'C:\\Users\\LAKSHA~1\\AppData\\Local\\Temp\\friday_screenshot.png') -> 'str'` | `idempotent` | str: the absolute path of the saved PNG. | PrimitiveError/PrimitiveTimeout when grim fails or times out; PreconditionError when… |
+
+### `stark`
+
+| primitive | idempotency | returns | failure mode |
+|---|---|---|---|
+| `stark.autonomous_plan(goal: 'str') -> 'dict[str, Any]'` | `idempotent` | dict: {goal, steps: list, estimated_cost: dict, confidence: float} | PreconditionError for invalid goals; PrimitiveError if planning fails. |
+| `stark.health_check() -> 'dict[str, Any]'` | `idempotent` | dict: {status: str, layers: dict, resources: dict, recommendations: l… | PrimitiveError on unexpected failures; best-effort degrades gracefully. |
+| `stark.predict_failures(log_path: 'str | None' = None, days: 'int' = 7) -> 'dict[str, Any]'` | `idempotent` | dict: {failure_likelihood: float, pattern: str, next_check: str} | PreconditionError for invalid arguments; returns 'unknown' on failure. |
+| `stark.recognize_patterns(repos: 'list[str] | None' = None) -> 'dict[str, Any]'` | `idempotent` | dict: {patterns: list, suggestions: list, confidence: float} | PrimitiveError on unexpected failures; degrades gracefully if repos missing. |
+| `stark.remediate(goal: 'str') -> 'dict[str, Any]'` | `idempotent` | dict: {steps: list, priority: str, estimated_time_s: int} | PreconditionError for invalid goals. |
+| `stark.resource_governor(resources: 'dict[str, Any]') -> 'dict[str, Any]'` | `idempotent` | dict: {allocation: str, model: str, wait_for: str} | PreconditionError for invalid resources dict. |
+| `stark.workflow_status(name: 'str') -> 'dict[str, Any]'` | `idempotent` | dict: {workflow_id, status, recommendations, next_step} | PrimitiveError if the orchestrator is unavailable. |
 
 ### `system`
 
@@ -213,7 +248,18 @@ to blind-retry (read-only); `at-most-once` = never blindly retried (side effect)
 | `vision.describe(image_path: 'str', instruction: 'str' = 'Describe what you see in this image in detail.', model: 'str | None' = None) -> 'str'` | `idempotent` | str: the LLM's description/analysis of the image. | PreconditionError for missing/empty files or empty instruction; PrimitiveError if th… |
 | `vision.extract_text(image_path: 'str', language: 'str' = 'eng') -> 'dict[str, Any]'` | `idempotent` | dict: {text: str, confidence: float|None, language: str, word_count: … | PreconditionError for missing/empty/oversized files or missing tesseract; PrimitiveE… |
 
-## L2 verification checks (37)
+### `workflow`
+
+| primitive | idempotency | returns | failure mode |
+|---|---|---|---|
+| `workflow.cancel_workflow(name: 'str') -> 'dict[str, Any]'` | `idempotent` | dict: {cancelled, workflow_id, status, error} | PrimitiveError if the workflow doesn't exist. |
+| `workflow.compose_plans(plan1: 'dict[str, Any]', plan2: 'dict[str, Any]') -> 'dict[str, Any]'` | `idempotent` | dict: A valid plan dict representing the composition. | PrimitiveError if plans are invalid. |
+| `workflow.get_workflow_status(name: 'str') -> 'dict[str, Any]'` | `idempotent` | dict: workflow state including status, duration, and results. | PrimitiveError if the workflow doesn't exist. |
+| `workflow.list_workflows() -> 'list[dict[str, Any]]'` | `idempotent` | list[dict]: List of workflow states. | None (returns empty list on error). |
+| `workflow.parallel_run(plans: 'list[dict[str, Any]]') -> 'dict[str, Any]'` | `idempotent` | dict: A plan dict that orchestrates parallel execution. | PrimitiveError if any plan is invalid. |
+| `workflow.run_workflow(goals: 'list[str]', *, name: 'str | None' = None, timeout_s: 'float' = 3600.0) -> 'dict[str, Any]'` | `at-most-once` | dict: {success, duration_s, step_results, error} | PrimitiveError when planning or execution fails entirely. |
+
+## L2 verification checks (39)
 
 Every check is side-effect-free: it reads current real-world state and returns
 True/False (or a scalar) against a specific claim. A step is VERIFIED only when
@@ -222,6 +268,8 @@ its check agrees with the world - absence of an exception is never enough.
 | check | claim |
 |---|---|
 | `checks.active_window_class` | Claim: 'the focused window's class is X' |
+| `checks.audio_output_ready` | Claim: 'the default audio sink is configured and the master volume is a sane level to hear a Friday utterance' |
+| `checks.audio_utterance_playing` | Claim: 'media is currently playing and its title references the utterance a speak() step just produced' |
 | `checks.browser_has_text` | Claim: 'the open page's visible text contains X' |
 | `checks.browser_input_has_value` | Claim: 'the field resolved by `what` currently contains exactly the text `value`' |
 | `checks.diff_is_clean` | Claim: 'the repository diff is clean (no staged or unstaged changes)' |
@@ -277,7 +325,7 @@ never sees them and L3 refuses them:
 | `ambient-gap-probe-email-send` | false | time 11:05 [daily] | false | notify.notify_send |
 | `ambient-gap-probe-file-write` | false | time 00:05 [daily] | false | notify.notify_send |
 | `discord-inbound` | false | time 12:05 [mon,tue,wed,thu,fri,sat,sun] | false | discord.poll_messages, discord.download_attachment |
-| `discord-inbound-text` | false | time 12:10 [mon,tue,wed,thu,fri,sat,sun] | false | discord.poll_messages, discord.enqueue_text_message |
+| `discord-inbound-text` | true | discord-text - [daily] | true | - |
 | `memory-maintenance` | true | time 03:00 [sun] | false | memory.maintenance |
 | `morning-calendar-summary` | true | time 08:00 [daily] | true | calendar.list_upcoming |
 | `morning-clipboard-digest` | true | time 08:05 [daily] | true | calendar.list_upcoming, dev.digest, clipboard.write_text |
@@ -287,7 +335,7 @@ never sees them and L3 refuses them:
 | `screenshot-digest` | true | time 12:00 [mon,tue,wed,thu,fri] | true | screenshot.capture, vision.describe, notify.notify_send |
 | `sunday-digest-reminder` | true | time 10:05 [sun] | false | notify.notify_send |
 | `telegram-inbound` | true | telegram-media - [daily] | true | telegram.poll_updates, telegram.download_file |
-| `telegram-inbound-text` | false | time 12:00 [mon,tue,wed,thu,fri,sat,sun] | false | telegram.poll_text_messages, telegram.enqueue_text_message |
+| `telegram-inbound-text` | true | telegram-text - [daily] | true | - |
 | `telegram-media-download` | true | telegram-media - [daily] | true | - |
 | `weekly-cross-project-digest` | true | time 10:00 [sun] | true | dev.digest, digestcheck.verify_attribution, files.find_rece… |
 | `weekly-email-digest` | false | time 10:30 [sun] | true | git.log, files.find_recent_doc, files.read_text, dev.digest… |
@@ -301,7 +349,7 @@ checks + sandboxed test run + build-verify where applicable) filters it before
 a human signature; on approval the primitive registers into L1 and the planner
 auto-discovers it - the originally-refused goal then re-runs and must pass.
 
-Gate-registered primitives (12):
+Gate-registered primitives (13):
 
 - `calendar.add_event`
 - `calendar.list_upcoming`
@@ -314,6 +362,7 @@ Gate-registered primitives (12):
 - `gmail.send_document`
 - `media.get_playing_title`
 - `media.get_volume`
+- `media.seek`
 - `screenshot.capture`
 
 ## Ambient learning (lessons + goal proposals)

@@ -155,6 +155,8 @@ _OBSERVED_STDLIB = frozenset(
         "__future__",
         "base64",
         "contextlib",
+        "csv",  # added 2026-09-12: media._pgrep_socket_windows() parses
+              # tasklist CSV output; Windows-only import path.
         "ctypes",
         "fcntl",
         "fnmatch",
@@ -170,6 +172,10 @@ _OBSERVED_STDLIB = frozenset(
         "tempfile",
         "threading",
         "time",
+        "asyncio",  # added 2026-09-12: audio.speak() drives edge-tts's
+                   # async stream() API to completion via asyncio.run();
+                   # pure control flow, no event-loop persistence across
+                   # primitive calls (each speak() owns a fresh loop).
         "pathlib",
         "typing",
     }
@@ -186,7 +192,27 @@ _OBSERVED_STDLIB = frozenset(
 # ID generation. All pure-compute, no side effects of their own.
 # psutil: stark.py imports it for optional memory stats in a try/except
 # that degrades gracefully when the package is absent - pure read-only.
-_OBSERVED_THIRD_PARTY = frozenset({"requests", "playwright", "PIL", "sentence_transformers", "numpy", "psutil"})
+# 'psutil' added 2026-08-18 (stark.py optional memory stats, graceful degrade);
+# 'edge_tts' added 2026-09-12: audio.speak() offline TTS renderer that streams
+# audio chunks to a temp WAV - no account, no credit burn, no network token;
+# pure data-in/data-out, the WAV is then handed to media.play() (mpv socket).
+_OBSERVED_THIRD_PARTY = frozenset(
+    {
+        "requests",
+        "playwright",
+        "PIL",
+        "sentence_transformers",
+        "numpy",
+        "psutil",
+        "edge_tts",
+        # win32file + pywintypes (2026-09-12, Option B Windows port): media._npipe_send()
+        # talks to mpv's named pipe on Windows. Both are inside `if os.name == "nt"`
+        # guards and never imported on POSIX - the gate vetos any third-party import
+        # outside the allowlist, so Windows-only deps get their own deliberate entry.
+        "win32file",
+        "pywintypes",
+    }
+)
 _EXTRA_SAFE_STDLIB = frozenset(
     {
         "collections",

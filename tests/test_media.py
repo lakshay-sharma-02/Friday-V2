@@ -86,17 +86,24 @@ class TestPreconditions(EnvTestCase):
 
 
 class TestOrphanSweep(EnvTestCase):
+    # These tests assert the POSIX pgrep parser. _pgrep_socket() now dispatches
+    # on os.name (Windows uses tasklist), so we pin os.name="posix" to exercise
+    # the POSIX code path deterministically on every platform - the parser
+    # logic is the same regardless of where the test runs.
+    @mock.patch.object(media.os, "name", "posix")
     def test_pgrep_parses_pids(self):
         proc = mock.Mock(returncode=0, stdout="123\n456\n", stderr="")
         with mock.patch.object(media.subprocess, "run", return_value=proc):
             self.assertEqual(media._pgrep_socket(), [123, 456])
 
+    @mock.patch.object(media.os, "name", "posix")
     def test_pgrep_timeout_returns_empty(self):
         with mock.patch.object(
             media.subprocess, "run", side_effect=subprocess.TimeoutExpired("pgrep", 5)
         ):
             self.assertEqual(media._pgrep_socket(), [])
 
+    @mock.patch.object(media.os, "name", "posix")
     def test_pgrep_missing_binary_returns_empty(self):
         with mock.patch.object(media.subprocess, "run", side_effect=FileNotFoundError):
             self.assertEqual(media._pgrep_socket(), [])

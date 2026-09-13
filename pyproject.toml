@@ -25,6 +25,14 @@ dependencies = [
     # Windows-port screenshot backend (2026-08-16): PIL.ImageGrab replaces
     # grim for capture on Windows; harmless on Linux.
     "Pillow>=10.0.0",
+    # TTS for audio.speak (offline, no credit burn); routes through the
+    # same mpv IPC socket media.py drives. Added 2026-09-12.
+    "edge-tts>=6.1.8",
+    # Windows IPC transport for media.py's mpv named-pipe client
+    # (win32file/win32pipe). Linux uses AF_UNIX sockets; Windows mpv
+    # has no Unix-socket support. platform-specific marker so Linux
+    # installs don't pull it. Added 2026-09-12 (Option B port).
+    "pywin32>=306; platform_system == 'Windows'",
 ]
 
 [project.optional-dependencies]

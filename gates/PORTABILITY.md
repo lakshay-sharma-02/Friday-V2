@@ -41,6 +41,39 @@ contracts; the design never changed - only the backend did.
 | Deployment | systemd user service (`deploy/friday-watcher.service`) | Task Scheduler (`deploy/install-windows.ps1`) | RUNBOOK has the 1:1 day-2 ops table. |
 | `window.*` (8 primitives) | `hyprctl` / Hyprland IPC | win32 API via stdlib `ctypes` (EnumWindows/GetWindowTextW/SetForegroundWindow/ShowWindow) - live-verified against the real desktop | No pywin32 dependency; the CONTRACT surface, idempotency classes, protected-window refusal, and all 7 window L2 checks survive untouched. One semantic mismatch: workspaces map to Windows virtual desktops rather than 1:1; `move_to_workspace`/`shutdown` refuse cleanly on Windows. |
 
+## Ported 2026-09-12 (audio IPC + edge-tts TTS)
+
+| Piece | Linux backend | Windows backend shipped | Notes |
+|---|---|---|---|
+| `media.*` IPC | `AF_UNIX` stream socket to `/tmp/friday_mpv.sock` | Windows named pipe (`\\.\pipe\friday_mpv`) via `win32file`/`pywintypes` (pywin32) | `media._socket_send` dispatches on `os.name == "nt"`; the orphan sweep uses `tasklist` (stdlib) + `os.kill` (signal 0 / terminate work on Windows). pywin32 is a Windows-only dep (`pyproject.toml` marks it `platform_system == "Windows"`); never imported on POSIX. |
+| `audio.speak` (new) | N/A (new module) | `edge-tts` (en-IE-Emily neural voice) → temp WAV → `media.play()` (mpv sink) | Offline TTS, no credit burn. `audio.list_devices`/`get_default_device`/`get_output_volume` use `pactl` (Linux only — return empty/None on Windows). Voice profiles in `config/voices.json`. |
+
+- `audio.list_devices` / `get_default_device` / `get_output_volume` call `pactl`
+  (PipeWire/PulseAudio). On Windows with no pactl they return `[]` / `""` /
+  `None` — degraded read-only state, not a crash (mirrors `media.get_volume`'s
+  "no player → None, not an error" discipline). No Windows audio-daemon backend
+  is shipped yet; the primitives surface the real state or empty state safely.
+- `audio.speak` is **live-verified on Windows**: renders the WAV, launches mpv
+  over the named pipe, `media.get_playing_title()` reflects the utterance,
+  `is_playing()` returns True, `media.stop()` halts it. The 1037-test suite is
+  green.
+- Two new L2 checks verify audio outcomes: `audio_output_ready` (sink configured
+  + volume in audible range; returns False without pactl on Windows - honest
+  "can't verify" rather than a crash) and `audio_utterance_playing(title_substring)`
+  (confirms speak() actually audibilized something via media.is_playing() +
+  title match). Both import only `idempotent` primitives, satisfying Gate 3's
+  read-only-assertion discipline.
+
+## `screenshot.capture` — already ported (not a gap)
+
+Contrary to the 2026-08-18 baseline, the Windows screenshot backend already
+ships and is live-verified: `screenshot._capture_windows` uses PIL's
+`ImageGrab.grab()` (full-screen) or `ImageGrab.grab(bbox=...)` (window crop
+via `window.get_active_window`/`list_clients` geometry). Captured a 945 KB
+valid PNG on this Windows 11 box. `grim`/`slurp` are Linux-only; PIL is the
+Windows backend, and `Pillow` is already a required dependency. The
+contract, idempotency, and the `_CAPTURE_TOOLS` allowlist are unchanged.
+
 ## Config + tests
 
 - `config/watcher.json` and `config/planner_facts.json` hardcode

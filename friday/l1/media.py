@@ -28,7 +28,12 @@ from typing import Any
 from friday.contracts import Idempotency, contract
 from friday.errors import PreconditionError, PrimitiveError
 
-SOCKET_PATH = "/tmp/friday_mpv.sock"
+# IPC socket path - platform-aware. Linux uses a Unix socket
+# (/tmp/friday_mpv.sock); Windows mpv has no Unix-socket support and
+# requires a named pipe (\\.\pipe\friday_mpv). The pipe path form is
+# identical to what mpv's --input-ipc-server accepts on Windows.
+# See gates/PORTABILITY.md (aspirational Windows port).
+SOCKET_PATH = r"\\.\pipe\friday_mpv" if os.name == "nt" else "/tmp/friday_mpv.sock"
 MPV_STDERR_LOG = "/tmp/friday_mpv_stderr.log"  # debug log; empty when all is well
 DEFAULT_VOLUME = 70
 _STARTUP_TIMEOUT = 8.0
@@ -42,13 +47,61 @@ _timer: threading.Timer | None = None
 
 
 def _pgrep_socket() -> list[int]:
-    """PIDs of mpv processes still bound to our IPC socket path."""
+    """PIDs of mpv processes still bound to our IPC socket path.
+
+    POSIX: `pgrep -f` matches mpv procs whose cmdline contains the
+    --input-ipc-server=PATH argument (and therefore the named socket file).
+    Windows: `tasklist` matches `mpv.exe` procs that were launched with
+    our pipe argument (matched via the cmdline column). pgrep/fuser don't
+    exist on Windows so the search is done with stdlib tasklist parsing.
+    """
+    if os.name == "nt":
+        return _pgrep_socket_windows()
     pattern = f"mpv.*input-ipc-server={SOCKET_PATH}"
     try:
         out = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True, timeout=5)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return []
     return [int(p) for p in out.stdout.split() if p.strip().isdigit()]
+
+
+def _pgrep_socket_windows() -> list[int]:
+    r"""Windows fallback: match mpv.exe procs whose cmdline names our pipe.
+
+    Uses tasklist (stdlib subprocess, no pywin32 needed) and matches on
+    the --input-ipc-server=\\.\pipe\friday_mpv argument to avoid catching
+    unrelated mpv instances. A proc whose cmdline we can't read is skipped
+    (never killed on guesswork).
+    """
+    try:
+        out = subprocess.run(
+            ["tasklist", "/v", "/fo", "csv"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return []
+    if out.returncode != 0:
+        return []
+    import csv as _csv
+
+    needle = "input-ipc-server"
+    pids: list[int] = []
+    # tasklist csv: header row then "name","pid","...","window title"
+    for row in _csv.reader(out.stdout.strip().splitlines()[1:]):
+        if len(row) < 2:
+            continue
+        cmdline = " ".join(row)  # tasklist doesn't expose full cmdline easily
+        # Fallback: match on the image name 'mpv.exe' - narrower than 'mpv'
+        # but tasklist csv image names are the executable.
+        if row[0].lower().startswith("mpv") and needle in cmdline:
+            try:
+                pids.append(int(row[1]))
+            except ValueError:
+                continue
+    return pids
 
 
 def _pid_alive(pid: int) -> bool:
@@ -138,8 +191,13 @@ def _sweep_orphans() -> list[int]:
             os.kill(pid, sigkill)
     for pid in survivors:
         _wait_pid_gone(pid, 1.5)
-    with contextlib.suppress(FileNotFoundError, subprocess.TimeoutExpired):
-        subprocess.run(["fuser", "-k", SOCKET_PATH], capture_output=True, timeout=5)
+    # `fuser -k` is a Linux-only fallback to kill listeners whose cmdline
+    # doesn't name mpv (e.g. wrappers). On Windows there is no fuser and no
+    # Unix socket path to fight over - named-pipe instances are owned by mpv
+    # alone, so the pgrep/tasklist sweep above is sufficient.
+    if os.name != "nt":
+        with contextlib.suppress(FileNotFoundError, subprocess.TimeoutExpired):
+            subprocess.run(["fuser", "-k", SOCKET_PATH], capture_output=True, timeout=5)
     return pids
 
 
@@ -154,10 +212,16 @@ def _prepare_socket() -> None:
 
 
 def _socket_send(payload: dict[str, Any], timeout: float = 2.0) -> dict[str, Any] | None:
-    """Send one newline-delimited JSON request; return the reply, or None if
-    no player is listening (connection refused / timeout / garbage)."""
-    # AF_UNIX is POSIX-only; on Windows there is no mpv Unix socket to
-    # talk to, so report 'no player' instead of raising AttributeError.
+    r"""Send one newline-delimited JSON request; return the reply, or None if
+    no player is listening (connection refused / timeout / garbage).
+
+    POSIX: AF_UNIX stream socket to the mpv --input-ipc-server path.
+    Windows: mpv has no Unix-socket support; it exposes a named pipe
+    (\\.\pipe\friday_mpv) which we talk to via pywin32 win32file.
+    """
+    if os.name == "nt":
+        return _npipe_send(payload, timeout=timeout)
+    # POSIX path below.
     af_unix = getattr(socket, "AF_UNIX", None)
     if af_unix is None:
         return None
@@ -179,6 +243,65 @@ def _socket_send(payload: dict[str, Any], timeout: float = 2.0) -> dict[str, Any
         return parsed if isinstance(parsed, dict) else None
     except (OSError, json.JSONDecodeError, TimeoutError):
         return None
+
+
+def _npipe_send(payload: dict[str, Any], timeout: float = 2.0) -> dict[str, Any] | None:
+    """Windows named-pipe client to mpv's --input-ipc-server.\\.\\pipe\\...\\s.
+
+    mpv's IPC protocol is identical over a named pipe as over a Unix socket
+    (one JSON command + newline per request, reply terminated by \\n). We
+    open the pipe with GENERIC_READ | GENERIC_WRITE, send the command, then
+    read until newline. A missing mpv (pipe not listening) surfaces as
+    FileNotFoundError / pywintypes.error -> None (no player), matching the
+    POSIX branch's 'no player listening' semantics.
+    """
+    import pywintypes
+    import win32file
+
+    try:
+        handle = win32file.CreateFile(
+            SOCKET_PATH,
+            win32file.GENERIC_READ | win32file.GENERIC_WRITE,
+            0,  # no sharing - mpv owns the pipe instance
+            None,
+            win32file.OPEN_EXISTING,
+            0,
+            None,
+        )
+    except (pywintypes.error, FileNotFoundError, OSError):
+        # ERROR_FILE_NOT_FOUND / ERROR_PIPE_BUSY = no listener / busy pipe.
+        return None
+
+    try:
+        data = (json.dumps(payload) + "\n").encode()
+        win32file.WriteFile(handle, data)
+        reply = b""
+        deadline = time.monotonic() + timeout
+        while not reply.endswith(b"\n") and time.monotonic() < deadline:
+            # ReadFile may block until a byte arrives; we keep looping until
+            # newline or timeout. 4096-byte chunks match the POSIX branch.
+            try:
+                _, chunk = win32file.ReadFile(handle, 4096)
+                if not chunk:
+                    break
+                reply += chunk
+            except pywintypes.error as exc:
+                # ERROR_BROKEN_PIPE: mpv closed the pipe mid-read.
+                if exc.winerror == 109:
+                    break
+                raise
+        if not reply:
+            return None
+        try:
+            parsed = json.loads(reply.decode(errors="replace"))
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            return None
+    finally:
+        try:
+            win32file.CloseHandle(handle)
+        except Exception:
+            pass
 
 
 def _wait_socket(timeout: float = _STARTUP_TIMEOUT) -> bool:
@@ -504,12 +627,14 @@ def list_playlists() -> list[dict[str, Any]]:
         if not isinstance(entry, dict):
             continue
         title = entry.get("title", "") or "Unknown"
-        result.append({
-            "index": entry.get("index", -1),
-            "title": str(title),
-            "duration_s": entry.get("duration", -1),
-            "played_count": entry.get("played_count", 0),
-        })
+        result.append(
+            {
+                "index": entry.get("index", -1),
+                "title": str(title),
+                "duration_s": entry.get("duration", -1),
+                "played_count": entry.get("played_count", 0),
+            }
+        )
     return result
 
 

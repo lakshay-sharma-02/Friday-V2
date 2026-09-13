@@ -1,0 +1,5 @@
+{
+  "default": "en-IE-EmilyNeural",
+  "friday-mcu": "en-IE-EmilyNeural",
+  "__comment": "Voice profiles for audio.speak. 'friday-mcu' is the intended Kerry Condon reference slot. Currently maps to en-IE-EmilyNeural (Microsoft's Irish female neural voice - the closest in-box match). To swap in a reference-cloned checkpoint, add an entry pointing at a local model path and update audio._VOICES - no primitive body change."
+}

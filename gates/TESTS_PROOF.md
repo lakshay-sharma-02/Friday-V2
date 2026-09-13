@@ -1,6 +1,6 @@
 # TESTS_PROOF — automated test suite for Friday
 
-Status date: 2026-08-18T05:20:36+00:00.
+Status date: 2026-09-12T16:52:56+00:00.
 
 The full unittest suite over every layer and feature: registry,
 observability (redaction / rotation / log_transform), the executor
@@ -12,7 +12,7 @@ never sends, launches, clicks or touches the compositor.
 
 ## Verdict: PASS
 
-Ran 577 tests: 577 passed, 0 failed, 0 errors.
+Ran 1037 tests: 1037 passed, 0 failed, 0 errors.
 
 ## Raw output
 
@@ -165,6 +165,13 @@ test_garbage_datetime_rejected (test_calendar.TestAddEvent.test_garbage_datetime
 test_env_credentials_refresh_and_cache (test_calendar.TestAuth.test_env_credentials_refresh_and_cache) ... ok
 test_missing_credentials_raise (test_calendar.TestAuth.test_missing_credentials_raise) ... ok
 test_refresh_failure_raises (test_calendar.TestAuth.test_refresh_failure_raises) ... ok
+test_delete_event_200_also_works (test_calendar.TestDeleteEvent.test_delete_event_200_also_works)
+Google API may return 200 or 204 on successful delete. ... ok
+test_delete_event_api_failure (test_calendar.TestDeleteEvent.test_delete_event_api_failure) ... ok
+test_delete_event_contract_registered (test_calendar.TestDeleteEvent.test_delete_event_contract_registered) ... ok
+test_delete_event_empty_id (test_calendar.TestDeleteEvent.test_delete_event_empty_id) ... ok
+test_delete_event_success (test_calendar.TestDeleteEvent.test_delete_event_success) ... ok
+test_delete_event_whitespace_id (test_calendar.TestDeleteEvent.test_delete_event_whitespace_id) ... ok
 test_401_refreshes_once_and_retries (test_calendar.TestListUpcoming.test_401_refreshes_once_and_retries)
 A stale cached access token (expired ~1h) must not fail the call: ... ok
 test_api_error_raises_not_empty (test_calendar.TestListUpcoming.test_api_error_raises_not_empty) ... ok
@@ -172,6 +179,13 @@ test_invalid_days_raises_precondition (test_calendar.TestListUpcoming.test_inval
 test_returns_parsed_events (test_calendar.TestListUpcoming.test_returns_parsed_events) ... ok
 test_summary_redacted_from_l0_log (test_calendar.TestListUpcoming.test_summary_redacted_from_l0_log)
 Event SUMMARY is metadata that could leak - the L0 result line ... ok
+test_update_event_api_failure (test_calendar.TestUpdateEvent.test_update_event_api_failure) ... ok
+test_update_event_contract_registered (test_calendar.TestUpdateEvent.test_update_event_contract_registered) ... ok
+test_update_event_empty_id (test_calendar.TestUpdateEvent.test_update_event_empty_id) ... ok
+test_update_event_invalid_end_datetime (test_calendar.TestUpdateEvent.test_update_event_invalid_end_datetime) ... ok
+test_update_event_invalid_start_datetime (test_calendar.TestUpdateEvent.test_update_event_invalid_start_datetime) ... ok
+test_update_event_success_summary_only (test_calendar.TestUpdateEvent.test_update_event_success_summary_only) ... ok
+test_update_event_with_times (test_calendar.TestUpdateEvent.test_update_event_with_times) ... ok
 test_args_shape_never_leaks_values (test_capability_gaps.TestExecutorGaps.test_args_shape_never_leaks_values)
 The recorded shape is type tags only - secrets never ride a gap. ... ok
 test_blocked_by_design_primitive_records_gap (test_capability_gaps.TestExecutorGaps.test_blocked_by_design_primitive_records_gap)
@@ -194,12 +208,26 @@ test_browser_has_text_no_page_is_false (test_checks.TestBrowserChecks.test_brows
 test_browser_has_text_real_error_propagates (test_checks.TestBrowserChecks.test_browser_has_text_real_error_propagates) ... ok
 test_browser_input_has_value_direct (test_checks.TestBrowserChecks.test_browser_input_has_value_direct) ... ok
 test_browser_input_has_value_wrapper_path (test_checks.TestBrowserChecks.test_browser_input_has_value_wrapper_path) ... ok
+test_file_exists_and_contents_false_missing (test_checks.TestFileChecks.test_file_exists_and_contents_false_missing) ... ok
+test_file_exists_and_contents_false_wrong_content (test_checks.TestFileChecks.test_file_exists_and_contents_false_wrong_content) ... ok
+test_file_exists_and_contents_true (test_checks.TestFileChecks.test_file_exists_and_contents_true) ... ok
+test_file_is_copied_to_false_missing (test_checks.TestFileChecks.test_file_is_copied_to_false_missing) ... ok
+test_file_is_copied_to_true (test_checks.TestFileChecks.test_file_is_copied_to_true) ... ok
+test_file_is_deleted_false_exists (test_checks.TestFileChecks.test_file_is_deleted_false_exists) ... ok
+test_file_is_deleted_true (test_checks.TestFileChecks.test_file_is_deleted_true) ... ok
+test_file_is_moved_from_true (test_checks.TestFileChecks.test_file_is_moved_from_true) ... ok
+test_file_size_equals_false (test_checks.TestFileChecks.test_file_size_equals_false) ... ok
+test_file_size_equals_missing_file (test_checks.TestFileChecks.test_file_size_equals_missing_file) ... ok
+test_file_size_equals_true (test_checks.TestFileChecks.test_file_size_equals_true) ... ok
 test_gmail_message_matches (test_checks.TestGmailChecks.test_gmail_message_matches) ... ok
 test_gmail_unread_exists (test_checks.TestGmailChecks.test_gmail_unread_exists) ... ok
 test_gmail_unread_exists_emits_exactly_one_l2_line (test_checks.TestGmailChecks.test_gmail_unread_exists_emits_exactly_one_l2_line)
 Regression for the duplicate @observe decorator bug: exactly one ... ok
 test_checks_emit_l2_lines (test_checks.TestL2Observed.test_checks_emit_l2_lines) ... ok
 test_whatsapp_identity_ok (test_checks.TestMessagingChecks.test_whatsapp_identity_ok) ... ok
+test_whatsapp_media_downloaded_false_empty (test_checks.TestMessagingChecks.test_whatsapp_media_downloaded_false_empty) ... ok
+test_whatsapp_media_downloaded_false_missing (test_checks.TestMessagingChecks.test_whatsapp_media_downloaded_false_missing) ... ok
+test_whatsapp_media_downloaded_true (test_checks.TestMessagingChecks.test_whatsapp_media_downloaded_true) ... ok
 test_file_exists (test_checks.TestPureChecks.test_file_exists) ... ok
 test_list_nonempty (test_checks.TestPureChecks.test_list_nonempty) ... ok
 test_message_sent_discord (test_checks.TestPureChecks.test_message_sent_discord) ... ok
@@ -295,6 +323,37 @@ test_missing_file_raises (test_files.TestReadText.test_missing_file_raises) ... 
 test_no_truncation_when_within_limit (test_files.TestReadText.test_no_truncation_when_within_limit) ... ok
 test_reads_text_and_reports_chars (test_files.TestReadText.test_reads_text_and_reports_chars) ... ok
 test_truncates_at_max_chars (test_files.TestReadText.test_truncates_at_max_chars) ... ok
+test_contract_registered_commutative_safe (test_files_extended.TestFileCopy.test_contract_registered_commutative_safe) ... ok
+test_copy_creates_file_in_dest (test_files_extended.TestFileCopy.test_copy_creates_file_in_dest) ... ok
+test_copy_overwrites_existing_file (test_files_extended.TestFileCopy.test_copy_overwrites_existing_file) ... ok
+test_copy_preserves_subdirectories (test_files_extended.TestFileCopy.test_copy_preserves_subdirectories) ... ok
+test_empty_dest_raises_precondition (test_files_extended.TestFileCopy.test_empty_dest_raises_precondition) ... ok
+test_empty_source_raises_precondition (test_files_extended.TestFileCopy.test_empty_source_raises_precondition) ... ok
+test_missing_dest_dir_raises_precondition (test_files_extended.TestFileCopy.test_missing_dest_dir_raises_precondition) ... ok
+test_missing_source_raises_precondition (test_files_extended.TestFileCopy.test_missing_source_raises_precondition) ... ok
+test_contract_registered_at_most_once (test_files_extended.TestFileDelete.test_contract_registered_at_most_once) ... ok
+test_delete_removes_file (test_files_extended.TestFileDelete.test_delete_removes_file) ... ok
+test_empty_path_raises_precondition (test_files_extended.TestFileDelete.test_empty_path_raises_precondition) ... ok
+test_missing_file_raises_precondition (test_files_extended.TestFileDelete.test_missing_file_raises_precondition) ... ok
+test_whitespace_path_raises_precondition (test_files_extended.TestFileDelete.test_whitespace_path_raises_precondition) ... ok
+test_contract_registered_at_most_once (test_files_extended.TestFileMove.test_contract_registered_at_most_once) ... ok
+test_empty_dest_raises_precondition (test_files_extended.TestFileMove.test_empty_dest_raises_precondition) ... ok
+test_empty_source_raises_precondition (test_files_extended.TestFileMove.test_empty_source_raises_precondition) ... ok
+test_missing_dest_raises_precondition (test_files_extended.TestFileMove.test_missing_dest_raises_precondition) ... ok
+test_missing_source_raises_precondition (test_files_extended.TestFileMove.test_missing_source_raises_precondition) ... ok
+test_move_creates_file_in_dest (test_files_extended.TestFileMove.test_move_creates_file_in_dest) ... ok
+test_move_removes_from_source (test_files_extended.TestFileMove.test_move_removes_from_source) ... ok
+test_bytes_to_kb (test_files_extended.TestFileSize.test_bytes_to_kb) ... ok
+test_bytes_to_mb (test_files_extended.TestFileSize.test_bytes_to_mb) ... ok
+test_contract_registered_idempotent (test_files_extended.TestFileSize.test_contract_registered_idempotent) ... ok
+test_empty_path_raises_precondition (test_files_extended.TestFileSize.test_empty_path_raises_precondition) ... ok
+test_missing_file_raises_precondition (test_files_extended.TestFileSize.test_missing_file_raises_precondition) ... ok
+test_returns_size_in_bytes_and_human (test_files_extended.TestFileSize.test_returns_size_in_bytes_and_human) ... ok
+test_contract_registered_idempotent (test_files_extended.TestListDir.test_contract_registered_idempotent) ... ok
+test_default_path_is_current_directory (test_files_extended.TestListDir.test_default_path_is_current_directory) ... ok
+test_directory_only_lists_immediate_contents (test_files_extended.TestListDir.test_directory_only_lists_immediate_contents) ... ok
+test_lists_files_and_dirs (test_files_extended.TestListDir.test_lists_files_and_dirs) ... ok
+test_missing_directory_raises_precondition (test_files_extended.TestListDir.test_missing_directory_raises_precondition) ... ok
 test_chain_exhausted_reuses_last_model (test_gap_triage.TestDraftOne.test_chain_exhausted_reuses_last_model)
 Primary AND fallback both fail: the last model is reused for the ... ok
 test_chain_single_model_without_fallbacks (test_gap_triage.TestDraftOne.test_chain_single_model_without_fallbacks) ... ok
@@ -358,6 +417,21 @@ The post-approval lifecycle: the ambient-gap probes keep refusing ... ok
 test_writes_artifacts_marks_processed_and_is_idempotent (test_gap_triage.TestTriage.test_writes_artifacts_marks_processed_and_is_idempotent) ... ok
 test_written_proposal_records_self_check_status (test_gap_triage.TestTriage.test_written_proposal_records_self_check_status)
 rationale.md must state whether the draft passed the triage ... ok
+test_branch_contract_registered (test_git.TestGitBranch.test_branch_contract_registered) ... ok
+test_branch_detached_head (test_git.TestGitBranch.test_branch_detached_head) ... ok
+test_branch_empty_path (test_git.TestGitBranch.test_branch_empty_path) ... ok
+test_branch_returns_current (test_git.TestGitBranch.test_branch_returns_current) ... ok
+test_commit_all_staged (test_git.TestGitCommit.test_commit_all_staged) ... ok
+test_commit_contract_registered (test_git.TestGitCommit.test_commit_contract_registered) ... ok
+test_commit_empty_message (test_git.TestGitCommit.test_commit_empty_message) ... ok
+test_commit_empty_path (test_git.TestGitCommit.test_commit_empty_path) ... ok
+test_commit_with_files (test_git.TestGitCommit.test_commit_with_files) ... ok
+test_diff_contract_registered (test_git.TestGitDiff.test_diff_contract_registered) ... ok
+test_diff_empty_path (test_git.TestGitDiff.test_diff_empty_path) ... ok
+test_diff_empty_repo (test_git.TestGitDiff.test_diff_empty_repo) ... ok
+test_diff_missing_repo (test_git.TestGitDiff.test_diff_missing_repo) ... ok
+test_diff_with_staged_changes (test_git.TestGitDiff.test_diff_with_staged_changes) ... ok
+test_diff_with_unstaged_changes (test_git.TestGitDiff.test_diff_with_unstaged_changes) ... ok
 test_contract_registered_idempotent (test_git.TestGitLog.test_contract_registered_idempotent) ... ok
 test_log_bad_count_days_raise_precondition (test_git.TestGitLog.test_log_bad_count_days_raise_precondition) ... ok
 test_log_count_limits_entries (test_git.TestGitLog.test_log_count_limits_entries) ... ok
@@ -428,6 +502,23 @@ test_writes_inert_proposal_and_rationale (test_goal_proposals.TestPropose.test_w
 test_l0_only_failures (test_goal_proposals.TestRead.test_l0_only_failures) ... ok
 test_malformed_lines_skipped (test_goal_proposals.TestRead.test_malformed_lines_skipped) ... ok
 test_top_signatures (test_goal_proposals.TestSummary.test_top_signatures) ... ok
+test_connection_error_raises_primitive_error (test_http.TestHttpRequestErrors.test_connection_error_raises_primitive_error) ... ok
+test_non_json_response_returns_text (test_http.TestHttpRequestErrors.test_non_json_response_returns_text) ... ok
+test_timeout_raises_primitive_error (test_http.TestHttpRequestErrors.test_timeout_raises_primitive_error) ... ok
+test_custom_headers_passed (test_http.TestHttpRequestMocked.test_custom_headers_passed) ... ok
+test_get_non_json_returns_text (test_http.TestHttpRequestMocked.test_get_non_json_returns_text) ... ok
+test_get_returns_structured_response (test_http.TestHttpRequestMocked.test_get_returns_structured_response) ... ok
+test_post_with_json_body (test_http.TestHttpRequestMocked.test_post_with_json_body) ... ok
+test_post_with_string_body (test_http.TestHttpRequestMocked.test_post_with_string_body) ... ok
+test_timeout_passed (test_http.TestHttpRequestMocked.test_timeout_passed) ... ok
+test_empty_url (test_http.TestHttpRequestPreconditions.test_empty_url) ... ok
+test_invalid_method (test_http.TestHttpRequestPreconditions.test_invalid_method) ... ok
+test_just_domain (test_http.TestHttpRequestPreconditions.test_just_domain) ... ok
+test_method_case_insensitive (test_http.TestHttpRequestPreconditions.test_method_case_insensitive) ... ok
+test_no_http_prefix (test_http.TestHttpRequestPreconditions.test_no_http_prefix) ... ok
+test_valid_methods (test_http.TestHttpRequestPreconditions.test_valid_methods)
+GET, POST, PUT, DELETE, PATCH should all be accepted. ... ok
+test_whitespace_url (test_http.TestHttpRequestPreconditions.test_whitespace_url) ... ok
 test_injection_is_bounded (test_lessons.TestApprovedStore.test_injection_is_bounded) ... ok
 test_invalid_entries_excluded_fail_open (test_lessons.TestApprovedStore.test_invalid_entries_excluded_fail_open) ... ok
 test_invalid_utf8_store_is_fail_open (test_lessons.TestApprovedStore.test_invalid_utf8_store_is_fail_open)
@@ -470,6 +561,401 @@ test_unknown_tool_is_error_not_crash (test_mcp_server.TestToolsCall.test_unknown
 test_description_carries_contract (test_mcp_server.TestToolsList.test_description_carries_contract) ... ok
 test_exposes_registered_primitives (test_mcp_server.TestToolsList.test_exposes_registered_primitives) ... ok
 test_schema_derived_from_signature (test_mcp_server.TestToolsList.test_schema_derived_from_signature) ... ok
+test_record_send (test_mcu_adapters.TestAdaptiveComms.test_record_send)
+Recording sends updates channel preferences. ... ok
+test_select_channel_prefers_high_score (test_mcu_adapters.TestAdaptiveComms.test_select_channel_prefers_high_score)
+Channel selection prefers high-scoring channels. ... ok
+test_read_text_returns_string (test_mcu_adapters.TestClipboardAdapter.test_read_text_returns_string)
+read_text returns a string (mocked). ... ok
+test_write_text_returns_text (test_mcu_adapters.TestClipboardAdapter.test_write_text_returns_text)
+write_text returns the text that was written (mocked). ... ok
+test_build_full_context (test_mcu_adapters.TestContextManager.test_build_full_context)
+Context manager builds a text block for the planner. ... ok
+test_goal_history (test_mcu_adapters.TestContextManager.test_goal_history)
+Goals are tracked in history. ... ok
+test_events_flow_through_bus (test_mcu_adapters.TestEventBus.test_events_flow_through_bus)
+Events emitted by adapters are received by subscribers. ... ok
+test_find_file (test_mcu_adapters.TestFilesAdapter.test_find_file)
+find_file locates a file by name substring. ... ok
+test_find_file_exact (test_mcu_adapters.TestFilesAdapter.test_find_file_exact)
+find_file_exact returns empty path for missing files. ... ok
+test_find_file_not_found (test_mcu_adapters.TestFilesAdapter.test_find_file_not_found)
+find_file raises PreconditionError when no match. ... ok
+test_find_newest (test_mcu_adapters.TestFilesAdapter.test_find_newest)
+find_newest returns the most recently modified file. ... ok
+test_list_dir (test_mcu_adapters.TestFilesAdapter.test_list_dir)
+list_dir returns directory entries. ... ok
+test_read_text (test_mcu_adapters.TestFilesAdapter.test_read_text)
+read_text returns file content. ... ok
+test_write_text (test_mcu_adapters.TestFilesAdapter.test_write_text)
+write_text creates and writes to a file. ... ok
+test_write_text_append (test_mcu_adapters.TestFilesAdapter.test_write_text_append)
+write_text appends when append=True. ... ok
+test_branch (test_mcu_adapters.TestGitAdapter.test_branch)
+git branch returns current branch. ... ok
+test_log (test_mcu_adapters.TestGitAdapter.test_log)
+git log returns commit entries. ... ok
+test_status (test_mcu_adapters.TestGitAdapter.test_status)
+git status returns branch and clean flag. ... ok
+test_get_volume_when_no_mpv (test_mcu_adapters.TestMediaAdapter.test_get_volume_when_no_mpv)
+get_volume returns 0 when no mpv is running. ... ok
+test_is_playing_when_no_mpv (test_mcu_adapters.TestMediaAdapter.test_is_playing_when_no_mpv)
+is_playing returns False when no mpv is running. ... ok
+test_procedural_memory (test_mcu_adapters.TestMemoryManager.test_procedural_memory)
+Procedural memory tracks success rates. ... ok
+test_search_all (test_mcu_adapters.TestMemoryManager.test_search_all)
+Search across all memory types. ... ok
+test_store_and_recall (test_mcu_adapters.TestMemoryManager.test_store_and_recall)
+Store and recall across memory types. ... ok
+test_notify_returns_delivered (test_mcu_adapters.TestNotifyAdapter.test_notify_returns_delivered)
+notify_send returns delivered flag. ... ok
+test_failure_patterns (test_mcu_adapters.TestPatternDetector.test_failure_patterns)
+Repeated failures are detected. ... ok
+test_goal_patterns (test_mcu_adapters.TestPatternDetector.test_goal_patterns)
+Recurring goals are detected. ... ok
+test_suggest_and_flush (test_mcu_adapters.TestProactiveEngine.test_suggest_and_flush)
+Messages can be suggested and flushed. ... ok
+test_analyze_failure_suggests_adaptation (test_mcu_adapters.TestReasoner.test_analyze_failure_suggests_adaptation)
+Failure analysis produces adaptation suggestions. ... ok
+test_assess_decreases_confidence_for_destructive (test_mcu_adapters.TestReasoner.test_assess_decreases_confidence_for_destructive)
+Destructive goals get lower confidence. ... ok
+test_assess_goal_with_primitives (test_mcu_adapters.TestReasoner.test_assess_goal_with_primitives)
+Goal assessment returns execute when primitives are available. ... ok
+test_adapter_registration (test_mcu_adapters.TestRegistry.test_adapter_registration)
+Adapters register themselves on import. ... ok
+test_build_catalog (test_mcu_adapters.TestRegistry.test_build_catalog)
+build_catalog includes registered primitives. ... ok
+test_discover_modules (test_mcu_adapters.TestRegistry.test_discover_modules)
+discover_modules finds adapter files. ... ok
+test_cpu_info (test_mcu_adapters.TestSystemAdapter.test_cpu_info)
+cpu_info returns model and cores. ... ok
+test_memory_info (test_mcu_adapters.TestSystemAdapter.test_memory_info)
+memory_info returns total and available. ... ok
+test_contract_registers_primitive (test_mcu_core.TestContracts.test_contract_registers_primitive)
+A @contract-decorated function appears in REGISTRY. ... ok
+test_contract_rejects_private (test_mcu_core.TestContracts.test_contract_rejects_private)
+A @contract decorator on a private function raises TypeError. ... ok
+test_idempotency_enum (test_mcu_core.TestContracts.test_idempotency_enum)
+Idempotency enum values are correct. ... ok
+test_friday_error_is_base (test_mcu_core.TestErrors.test_friday_error_is_base)
+All errors inherit from FridayError. ... ok
+test_primitive_error_has_state (test_mcu_core.TestErrors.test_primitive_error_has_state)
+PrimitiveError carries state information. ... ok
+test_emit_and_subscribe (test_mcu_core.TestEventBus.test_emit_and_subscribe)
+Events are delivered to subscribers. ... ok
+test_event_to_dict (test_mcu_core.TestEventBus.test_event_to_dict)
+Event serialization works. ... ok
+test_global_subscriber (test_mcu_core.TestEventBus.test_global_subscriber)
+Global subscribers receive all events. ... ok
+test_history (test_mcu_core.TestEventBus.test_history)
+Event history is maintained. ... ok
+test_subscriber_error_doesnt_crash (test_mcu_core.TestEventBus.test_subscriber_error_doesnt_crash)
+Subscriber errors are caught and ignored. ... ok
+test_unsubscribe (test_mcu_core.TestEventBus.test_unsubscribe)
+Unsubscribed callbacks stop receiving events. ... ok
+test_episodic_memory_store_and_search (test_mcu_core.TestMemoryStore.test_episodic_memory_store_and_search)
+Episodic memory stores and searches. ... ok
+test_memory_manager_context_building (test_mcu_core.TestMemoryStore.test_memory_manager_context_building)
+MemoryManager builds context for the planner. ... ok
+test_procedural_memory_pattern (test_mcu_core.TestMemoryStore.test_procedural_memory_pattern)
+Procedural memory stores and recalls patterns. ... ok
+test_semantic_memory_store_and_recall (test_mcu_core.TestMemoryStore.test_semantic_memory_store_and_recall)
+Semantic memory stores and recalls. ... ok
+test_working_memory_expiry (test_mcu_core.TestMemoryStore.test_working_memory_expiry)
+Working memory entries expire after TTL. ... ok
+test_working_memory_store_and_recall (test_mcu_core.TestMemoryStore.test_working_memory_store_and_recall)
+Working memory stores and recalls entries. ... ok
+test_goal_pattern_detection (test_mcu_core.TestPatternDetector.test_goal_pattern_detection)
+Recurring goals are detected as patterns. ... ok
+test_low_confidence_suppressed (test_mcu_core.TestProactiveEngine.test_low_confidence_suppressed)
+Low-confidence messages are suppressed. ... ok
+test_proactive_message_queued (test_mcu_core.TestProactiveEngine.test_proactive_message_queued)
+Messages are queued when conditions are met (bypass quiet hours in test). ... ok
+test_quiet_hours_suppress (test_mcu_core.TestProactiveEngine.test_quiet_hours_suppress)
+Messages are suppressed during quiet hours. ... ok
+test_channel_send_delivers_via_adapter (test_mcu_fixes.TestBuiltinChannels.test_channel_send_delivers_via_adapter) ... ok
+test_registers_only_credentialed_platforms (test_mcu_fixes.TestBuiltinChannels.test_registers_only_credentialed_platforms) ... ok
+test_gmail_check_uses_module_primitive (test_mcu_fixes.TestChecksReadRealState.test_gmail_check_uses_module_primitive) ... ok
+test_window_checks_read_live_clients (test_mcu_fixes.TestChecksReadRealState.test_window_checks_read_live_clients) ... ok
+test_existing_env_wins (test_mcu_fixes.TestCredentialLoader.test_existing_env_wins) ... ok
+test_loads_sections_into_env (test_mcu_fixes.TestCredentialLoader.test_loads_sections_into_env) ... ok
+test_missing_file_is_noop (test_mcu_fixes.TestCredentialLoader.test_missing_file_is_noop) ... ok
+test_bypass_requires_dangerous_env (test_mcu_fixes.TestDevRunInvocation.test_bypass_requires_dangerous_env) ... ok
+test_posix_no_shell_and_flags_preserved (test_mcu_fixes.TestDevRunInvocation.test_posix_no_shell_and_flags_preserved) ... ok
+test_windows_uses_shell_with_joined_command (test_mcu_fixes.TestDevRunInvocation.test_windows_uses_shell_with_joined_command) ... ok
+test_poll_filters_by_watermark (test_mcu_fixes.TestDiscordWatermark.test_poll_filters_by_watermark) ... ok
+test_concurrent_emit (test_mcu_fixes.TestEventBusThreadSafety.test_concurrent_emit) ... ok
+test_raising_subscriber_does_not_break_bus (test_mcu_fixes.TestEventBusThreadSafety.test_raising_subscriber_does_not_break_bus) ... ok
+test_unsubscribe_stops_delivery (test_mcu_fixes.TestEventBusThreadSafety.test_unsubscribe_stops_delivery) ... ok
+test_logs_when_run_id_given (test_mcu_fixes.TestExecutorLogging.test_logs_when_run_id_given) ... ok
+test_no_log_without_run_id (test_mcu_fixes.TestExecutorLogging.test_no_log_without_run_id) ... ok
+test_failed_verify_aborts_not_completes (test_mcu_fixes.TestExecutorVerifyDiscipline.test_failed_verify_aborts_not_completes) ... ok
+test_passing_verify_verifies (test_mcu_fixes.TestExecutorVerifyDiscipline.test_passing_verify_verifies) ... ok
+test_unresolvable_ref_aborts (test_mcu_fixes.TestExecutorVerifyDiscipline.test_unresolvable_ref_aborts) ... ok
+test_confidence_floor_applies_to_substring_matches (test_mcu_fixes.TestLearnerFixes.test_confidence_floor_applies_to_substring_matches) ... ok
+test_duration_lesson_no_duplicate_prefix (test_mcu_fixes.TestLearnerFixes.test_duration_lesson_no_duplicate_prefix) ... ok
+test_consolidate_decay_persisted (test_mcu_fixes.TestMemoryPersistence.test_consolidate_decay_persisted) ... ok
+test_prune_persisted (test_mcu_fixes.TestMemoryPersistence.test_prune_persisted) ... ok
+test_cache_returns_isolated_copies (test_mcu_fixes.TestPlannerValidationAndTemplates.test_cache_returns_isolated_copies) ... ok
+test_git_template_uses_correct_arg (test_mcu_fixes.TestPlannerValidationAndTemplates.test_git_template_uses_correct_arg) ... ok
+test_send_template_never_fabricates_default (test_mcu_fixes.TestPlannerValidationAndTemplates.test_send_template_never_fabricates_default) ... ok
+test_system_template_valid (test_mcu_fixes.TestPlannerValidationAndTemplates.test_system_template_valid) ... ok
+test_validate_rejects_missing_required_arg (test_mcu_fixes.TestPlannerValidationAndTemplates.test_validate_rejects_missing_required_arg) ... ok
+test_validate_rejects_unknown_arg (test_mcu_fixes.TestPlannerValidationAndTemplates.test_validate_rejects_unknown_arg) ... ok
+test_flush_sends_and_records_learning (test_mcu_fixes.TestProactiveChannelDelivery.test_flush_sends_and_records_learning) ... ok
+test_mark_read_only_advances (test_mcu_fixes.TestTelegramCommitModel.test_mark_read_only_advances) ... ok
+test_poll_media_only_returns_media (test_mcu_fixes.TestTelegramCommitModel.test_poll_media_only_returns_media) ... ok
+test_poll_updates_commit_semantics (test_mcu_fixes.TestTelegramCommitModel.test_poll_updates_commit_semantics) ... ok
+test_default_config_is_mcu_specific (test_mcu_fixes.TestWatcherMcuConfig.test_default_config_is_mcu_specific) ... ok
+test_inline_calendar_plan_validates (test_mcu_fixes.TestWatcherMcuConfig.test_inline_calendar_plan_validates) ... ok
+test_sample_triggers_load_and_are_inert (test_mcu_fixes.TestWatcherMcuConfig.test_sample_triggers_load_and_are_inert) ... ok
+test_file_seen_state_survives_restart (test_mcu_fixes.TestWatcherSemantics.test_file_seen_state_survives_restart) ... ok
+test_inline_plan_runs_without_llm (test_mcu_fixes.TestWatcherSemantics.test_inline_plan_runs_without_llm) ... ok
+test_cli_records_learning (test_mcu_learning.TestLearningIntegration.test_cli_records_learning)
+CLI cmd_run records learning outcomes. ... ok
+test_learning_context_included_in_planner_prompt (test_mcu_learning.TestLearningIntegration.test_learning_context_included_in_planner_prompt)
+The planner prompt includes learning context when available. ... ok
+test_apply_lesson (test_mcu_learning.TestMemoryLearner.test_apply_lesson)
+Lessons can be marked as applied. ... ok
+test_build_learning_context (test_mcu_learning.TestMemoryLearner.test_build_learning_context)
+Learning context provides useful info for the planner. ... ok
+test_consolidation (test_mcu_learning.TestMemoryLearner.test_consolidation)
+Consolidation decays unused lessons and prunes weak ones. ... ok
+test_duration_tracking (test_mcu_learning.TestMemoryLearner.test_duration_tracking)
+Duration lessons track expected duration. ... ok
+test_empty_goal_no_context (test_mcu_learning.TestMemoryLearner.test_empty_goal_no_context)
+No history means empty learning context. ... ok
+test_error_classification (test_mcu_learning.TestMemoryLearner.test_error_classification)
+Errors are classified into categories. ... ok
+test_persistence (test_mcu_learning.TestMemoryLearner.test_persistence)
+Lessons persist across instances. ... ok
+test_record_failure_outcome (test_mcu_learning.TestMemoryLearner.test_record_failure_outcome)
+Failed outcomes produce failure lessons. ... ok
+test_record_success_outcome (test_mcu_learning.TestMemoryLearner.test_record_success_outcome)
+Successful outcomes produce success lessons. ... ok
+test_repeated_failure_increases_confidence (test_mcu_learning.TestMemoryLearner.test_repeated_failure_increases_confidence)
+Repeated failures of same type increase lesson confidence. ... ok
+test_repeated_success_increases_confidence (test_mcu_learning.TestMemoryLearner.test_repeated_success_increases_confidence)
+Repeated successes increase lesson confidence. ... ok
+test_stats (test_mcu_learning.TestMemoryLearner.test_stats)
+Stats report learning state. ... ok
+test_empty_history_returns_neutral (test_mcu_natural.TestLearning.test_empty_history_returns_neutral)
+Empty history returns neutral tone. ... ok
+test_record_and_get_preferred_tone (test_mcu_natural.TestLearning.test_record_and_get_preferred_tone)
+Recorded tones influence preferred tone. ... ok
+test_stats (test_mcu_natural.TestLearning.test_stats)
+Stats report communication state. ... ok
+test_to_dict (test_mcu_natural.TestMessageToDict.test_to_dict)
+NaturalMessage serialization works. ... ok
+test_build_confirmation_formal (test_mcu_natural.TestNaturalComms.test_build_confirmation_formal)
+Formal confirmation is more formal. ... ok
+test_build_confirmation_request (test_mcu_natural.TestNaturalComms.test_build_confirmation_request)
+Confirmation requests ask before acting. ... ok
+test_build_daily_briefing (test_mcu_natural.TestNaturalComms.test_build_daily_briefing)
+Daily briefings are formatted nicely. ... ok
+test_build_error_report (test_mcu_natural.TestNaturalComms.test_build_error_report)
+Error reports are clear. ... ok
+test_build_error_report_with_attempts (test_mcu_natural.TestNaturalComms.test_build_error_report_with_attempts)
+Error reports include attempt count. ... ok
+test_build_goal_result_failure (test_mcu_natural.TestNaturalComms.test_build_goal_result_failure)
+Failure messages include the error. ... ok
+test_build_goal_result_progressive_disclosure (test_mcu_natural.TestNaturalComms.test_build_goal_result_progressive_disclosure)
+Summary is separate from full content. ... ok
+test_build_goal_result_success (test_mcu_natural.TestNaturalComms.test_build_goal_result_success)
+Success messages are natural and informative. ... ok
+test_build_goal_result_with_details (test_mcu_natural.TestNaturalComms.test_build_goal_result_with_details)
+Details are included in full content. ... ok
+test_build_proactive_suggestion (test_mcu_natural.TestNaturalComms.test_build_proactive_suggestion)
+Proactive suggestions are natural. ... ok
+test_daily_briefing_empty (test_mcu_natural.TestNaturalComms.test_daily_briefing_empty)
+Empty briefing still produces output. ... ok
+test_discord_keeps_markdown (test_mcu_natural.TestPlatformFormatting.test_discord_keeps_markdown)
+Discord keeps markdown formatting. ... ok
+test_telegram_keeps_markdown (test_mcu_natural.TestPlatformFormatting.test_telegram_keeps_markdown)
+Telegram keeps markdown formatting. ... ok
+test_whatsapp_strips_markdown (test_mcu_natural.TestPlatformFormatting.test_whatsapp_strips_markdown)
+WhatsApp strips markdown formatting. ... ok
+test_all_profiles_exist (test_mcu_natural.TestToneProfiles.test_all_profiles_exist)
+All predefined tone profiles exist. ... ok
+test_casual_tone_has_emoji (test_mcu_natural.TestToneProfiles.test_casual_tone_has_emoji)
+Casual tone has emoji. ... ok
+test_formal_tone_has_no_emoji (test_mcu_natural.TestToneProfiles.test_formal_tone_has_no_emoji)
+Formal tone has no emoji. ... ok
+test_profile_to_dict (test_mcu_natural.TestToneProfiles.test_profile_to_dict)
+Profile serialization works. ... ok
+test_evening_use_personal_tone (test_mcu_natural.TestToneSelection.test_evening_use_personal_tone)
+Evening hours default to personal tone. ... ok
+test_explicit_tone_overrides (test_mcu_natural.TestToneSelection.test_explicit_tone_overrides)
+Explicit tone in context overrides everything. ... ok
+test_neutral_default (test_mcu_natural.TestToneSelection.test_neutral_default)
+Unknown context defaults to neutral. ... ok
+test_platform_tone_override (test_mcu_natural.TestToneSelection.test_platform_tone_override)
+Platform-specific tone overrides time heuristic. ... ok
+test_work_hours_use_work_tone (test_mcu_natural.TestToneSelection.test_work_hours_use_work_tone)
+Work hours default to work tone. ... ok
+test_full_message_flow (test_mcu_natural_integration.TestNaturalCommsEndToEnd.test_full_message_flow)
+A goal result flows through NaturalComms from execution to notification. ... ok
+test_flush_emits_tone_in_event (test_mcu_natural_integration.TestProactiveNaturalWiring.test_flush_emits_tone_in_event)
+flush() includes tone in the MESSAGE_SENT event. ... ok
+test_flush_formats_with_natural_comms (test_mcu_natural_integration.TestProactiveNaturalWiring.test_flush_formats_with_natural_comms)
+flush() formats queued messages through NaturalComms before sending. ... ok
+test_flush_records_tone_in_metadata (test_mcu_natural_integration.TestProactiveNaturalWiring.test_flush_records_tone_in_metadata)
+flush() records the tone used in message metadata. ... ok
+test_notify_outcome_failure_uses_natural_comms (test_mcu_natural_integration.TestWatcherNaturalWiring.test_notify_outcome_failure_uses_natural_comms)
+_notify_outcome formats error messages through NaturalComms. ... ok
+test_notify_outcome_uses_natural_comms (test_mcu_natural_integration.TestWatcherNaturalWiring.test_notify_outcome_uses_natural_comms)
+_notify_outcome formats messages through NaturalComms. ... ok
+test_text_trigger_reply_uses_natural_comms (test_mcu_natural_integration.TestWatcherNaturalWiring.test_text_trigger_reply_uses_natural_comms)
+Text trigger replies use NaturalComms for formatting. ... ok
+test_anomaly_severity_sorting (test_mcu_observer.TestAnomalyDetector.test_anomaly_severity_sorting)
+Anomalies are sorted by severity. ... ok
+test_anomaly_to_dict (test_mcu_observer.TestAnomalyDetector.test_anomaly_to_dict)
+Anomaly serialization works. ... ok
+test_empty_tasks_no_anomalies (test_mcu_observer.TestAnomalyDetector.test_empty_tasks_no_anomalies)
+Empty task list produces no anomalies. ... ok
+test_failure_streak_detected (test_mcu_observer.TestAnomalyDetector.test_failure_streak_detected)
+Consecutive failures produce an anomaly. ... ok
+test_no_streak_on_successes (test_mcu_observer.TestAnomalyDetector.test_no_streak_on_successes)
+Successful goals don't produce failure streaks. ... ok
+test_performance_degradation (test_mcu_observer.TestAnomalyDetector.test_performance_degradation)
+Goals taking much longer than usual produce anomalies. ... ok
+test_resolve_anomaly (test_mcu_observer.TestAnomalyDetector.test_resolve_anomaly)
+Anomalies can be marked as resolved. ... ok
+test_stats (test_mcu_observer.TestAnomalyDetector.test_stats)
+Stats report detector state. ... ok
+test_empty_tasks_no_predictions (test_mcu_observer.TestPredictionEngine.test_empty_tasks_no_predictions)
+Empty task list produces no predictions. ... ok
+test_predict_next_goal (test_mcu_observer.TestPredictionEngine.test_predict_next_goal)
+Recurring goals produce predictions. ... ok
+test_predict_success_rate (test_mcu_observer.TestPredictionEngine.test_predict_success_rate)
+Goals with mixed results produce success rate predictions. ... ok
+test_predict_timing (test_mcu_observer.TestPredictionEngine.test_predict_timing)
+Repeated goals at the same hour produce timing predictions. ... ok
+test_prediction_to_dict (test_mcu_observer.TestPredictionEngine.test_prediction_to_dict)
+Prediction serialization works. ... ok
+test_prediction_validity (test_mcu_observer.TestPredictionEngine.test_prediction_validity)
+Predictions expire after their validity window. ... ok
+test_build_context (test_mcu_observer.TestUserModel.test_build_context)
+Context builder produces text for the planner. ... ok
+test_low_confidence_preference_returns_none (test_mcu_observer.TestUserModel.test_low_confidence_preference_returns_none)
+Low confidence preferences are hidden. ... ok
+test_observe_goal_detects_habits (test_mcu_observer.TestUserModel.test_observe_goal_detects_habits)
+Repeated goals at similar times create habits. ... ok
+test_observe_goal_records_history (test_mcu_observer.TestUserModel.test_observe_goal_records_history)
+Goal observations are recorded. ... ok
+test_persistence (test_mcu_observer.TestUserModel.test_persistence)
+Model persists across instances. ... ok
+test_preference_confidence_increase (test_mcu_observer.TestUserModel.test_preference_confidence_increase)
+Repeated same-value observations increase confidence. ... ok
+test_preference_new_value_replaces_if_higher_confidence (test_mcu_observer.TestUserModel.test_preference_new_value_replaces_if_higher_confidence)
+Higher confidence new value replaces old. ... ok
+test_record_and_get_preference (test_mcu_observer.TestUserModel.test_record_and_get_preference)
+Preferences can be recorded and retrieved. ... ok
+test_stats (test_mcu_observer.TestUserModel.test_stats)
+Stats report model state. ... ok
+test_adapters_command (test_mcu_phone.TestChatCommandRouting.test_adapters_command) ... ok
+test_chatter_not_consumed_no_reply (test_mcu_phone.TestChatCommandRouting.test_chatter_not_consumed_no_reply) ... ok
+test_empty_prefix_makes_plain_text_a_goal (test_mcu_phone.TestChatCommandRouting.test_empty_prefix_makes_plain_text_a_goal) ... ok
+test_extract_goal_backcompat (test_mcu_phone.TestChatCommandRouting.test_extract_goal_backcompat) ... ok
+test_goal_prefix_env_override (test_mcu_phone.TestChatCommandRouting.test_goal_prefix_env_override) ... ok
+test_goal_prefix_falls_through (test_mcu_phone.TestChatCommandRouting.test_goal_prefix_falls_through) ... ok
+test_goal_prefix_without_goal_gets_usage (test_mcu_phone.TestChatCommandRouting.test_goal_prefix_without_goal_gets_usage) ... ok
+test_help_command (test_mcu_phone.TestChatCommandRouting.test_help_command) ... ok
+test_memory_command (test_mcu_phone.TestChatCommandRouting.test_memory_command) ... ok
+test_phone_command (test_mcu_phone.TestChatCommandRouting.test_phone_command) ... ok
+test_status_command (test_mcu_phone.TestChatCommandRouting.test_status_command) ... ok
+test_unknown_slash_gets_help (test_mcu_phone.TestChatCommandRouting.test_unknown_slash_gets_help) ... ok
+test_phone_get_post (test_mcu_phone.TestPhoneApiEndpoints.test_phone_get_post) ... ok
+test_phone_context_in_full_context (test_mcu_phone.TestPhonePlannerContext.test_phone_context_in_full_context) ... ok
+test_allowlist_drops_unknown_keys (test_mcu_phone.TestPhoneState.test_allowlist_drops_unknown_keys) ... ok
+test_context_marks_dnd (test_mcu_phone.TestPhoneState.test_context_marks_dnd) ... ok
+test_context_render (test_mcu_phone.TestPhoneState.test_context_render) ... ok
+test_empty_value_clears_key (test_mcu_phone.TestPhoneState.test_empty_value_clears_key) ... ok
+test_no_state_returns_empty (test_mcu_phone.TestPhoneState.test_no_state_returns_empty) ... ok
+test_sensors_allowlisted (test_mcu_phone.TestPhoneState.test_sensors_allowlisted)
+Only allowlisted sensor keys are persisted. ... ok
+test_sms_and_notification_sensors (test_mcu_phone.TestPhoneState.test_sms_and_notification_sensors)
+SMS/call/notification telemetry persists and renders. ... ok
+test_update_and_get_roundtrip (test_mcu_phone.TestPhoneState.test_update_and_get_roundtrip) ... ok
+test_chatter_consumed_no_reply (test_mcu_phone.TestTextTriggerRouting.test_chatter_consumed_no_reply) ... ok
+test_discord_reply_uses_channel_id_kwarg (test_mcu_phone.TestTextTriggerRouting.test_discord_reply_uses_channel_id_kwarg)
+Regression: discord.send_text takes channel_id=, not to= — the old ... ok
+test_friday_command_replies_without_llm (test_mcu_phone.TestTextTriggerRouting.test_friday_command_replies_without_llm) ... ok
+test_goal_message_executes_and_replies (test_mcu_phone.TestTextTriggerRouting.test_goal_message_executes_and_replies) ... ok
+test_goal_prefix_env_used (test_mcu_phone.TestTextTriggerRouting.test_goal_prefix_env_used) ... ok
+test_empty_prefix_returns_all (test_mcu_watcher.TestCommandPrefix.test_empty_prefix_returns_all) ... ok
+test_extract_goal_case_insensitive (test_mcu_watcher.TestCommandPrefix.test_extract_goal_case_insensitive) ... ok
+test_extract_goal_with_prefix (test_mcu_watcher.TestCommandPrefix.test_extract_goal_with_prefix) ... ok
+test_no_prefix_returns_none (test_mcu_watcher.TestCommandPrefix.test_no_prefix_returns_none) ... ok
+test_prefix_only_returns_none (test_mcu_watcher.TestCommandPrefix.test_prefix_only_returns_none) ... ok
+test_corrupt_file_returns_empty (test_mcu_watcher.TestFiredState.test_corrupt_file_returns_empty) ... ok
+test_missing_file_returns_empty (test_mcu_watcher.TestFiredState.test_missing_file_returns_empty) ... ok
+test_save_and_load_fired_state (test_mcu_watcher.TestFiredState.test_save_and_load_fired_state) ... ok
+test_proactive_tick_dedupes_notified_patterns (test_mcu_watcher.TestProactiveTick.test_proactive_tick_dedupes_notified_patterns)
+A pattern already in the notified set is not re-sent. ... ok
+test_proactive_tick_does_not_crash_on_empty_memory (test_mcu_watcher.TestProactiveTick.test_proactive_tick_does_not_crash_on_empty_memory)
+Proactive tick handles empty memory gracefully. ... ok
+test_proactive_tick_filters_scheduled_goals (test_mcu_watcher.TestProactiveTick.test_proactive_tick_filters_scheduled_goals)
+Patterns matching scheduled trigger goals are not reported. ... ok
+test_proactive_tick_respects_confidence_and_frequency_floors (test_mcu_watcher.TestProactiveTick.test_proactive_tick_respects_confidence_and_frequency_floors)
+Patterns below the confidence/frequency floors are not suggested. ... ok
+test_proactive_tick_stores_patterns (test_mcu_watcher.TestProactiveTick.test_proactive_tick_stores_patterns)
+Detected patterns are stored as semantic memories. ... ok
+test_in_backoff_within_window (test_mcu_watcher.TestRetryBackoff.test_in_backoff_within_window) ... ok
+test_not_in_backoff_after_window (test_mcu_watcher.TestRetryBackoff.test_not_in_backoff_after_window) ... ok
+test_not_in_backoff_unknown_trigger (test_mcu_watcher.TestRetryBackoff.test_not_in_backoff_unknown_trigger) ... ok
+test_record_task_writes_jsonl (test_mcu_watcher.TestTaskRecording.test_record_task_writes_jsonl) ... ok
+test_empty_allowlist_not_reached (test_mcu_watcher.TestWatcherAllowlist.test_empty_allowlist_not_reached) ... ok
+test_exact_match (test_mcu_watcher.TestWatcherAllowlist.test_exact_match) ... ok
+test_multiple_patterns (test_mcu_watcher.TestWatcherAllowlist.test_multiple_patterns) ... ok
+test_no_match (test_mcu_watcher.TestWatcherAllowlist.test_no_match) ... ok
+test_pattern_match (test_mcu_watcher.TestWatcherAllowlist.test_pattern_match) ... ok
+test_triggers_command_bad_config (test_mcu_watcher.TestWatcherCLI.test_triggers_command_bad_config)
+triggers command handles bad config gracefully. ... ok
+test_triggers_command_lists_triggers (test_mcu_watcher.TestWatcherCLI.test_triggers_command_lists_triggers)
+triggers command lists configured triggers. ... ok
+test_bad_json_raises (test_mcu_watcher.TestWatcherConfig.test_bad_json_raises)
+Malformed JSON raises FridayError. ... ok
+test_bad_schedule_type_raises (test_mcu_watcher.TestWatcherConfig.test_bad_schedule_type_raises)
+Unknown schedule type raises FridayError. ... ok
+test_bad_time_format_raises (test_mcu_watcher.TestWatcherConfig.test_bad_time_format_raises)
+Invalid HH:MM raises FridayError. ... ok
+test_duplicate_id_raises (test_mcu_watcher.TestWatcherConfig.test_duplicate_id_raises)
+Duplicate trigger IDs raise FridayError. ... ok
+test_file_schedule_needs_directory (test_mcu_watcher.TestWatcherConfig.test_file_schedule_needs_directory)
+File schedule without directory raises FridayError. ... ok
+test_load_valid_config (test_mcu_watcher.TestWatcherConfig.test_load_valid_config)
+Valid config loads successfully. ... ok
+test_missing_config_raises (test_mcu_watcher.TestWatcherConfig.test_missing_config_raises)
+Missing config file raises FridayError. ... ok
+test_missing_goal_and_plan_raises (test_mcu_watcher.TestWatcherConfig.test_missing_goal_and_plan_raises)
+Trigger without goal or plan raises FridayError. ... ok
+test_unknown_day_raises (test_mcu_watcher.TestWatcherConfig.test_unknown_day_raises)
+Unknown day name raises FridayError. ... ok
+test_valid_file_schedule (test_mcu_watcher.TestWatcherConfig.test_valid_file_schedule)
+Valid file schedule loads. ... ok
+test_missing_directory_returns_empty (test_mcu_watcher.TestWatcherNewFiles.test_missing_directory_returns_empty) ... ok
+test_new_files_detected (test_mcu_watcher.TestWatcherNewFiles.test_new_files_detected) ... ok
+test_non_matching_files_ignored (test_mcu_watcher.TestWatcherNewFiles.test_non_matching_files_ignored) ... ok
+test_seen_files_not_repeated (test_mcu_watcher.TestWatcherNewFiles.test_seen_files_not_repeated) ... ok
+test_once_fires_due_trigger (test_mcu_watcher.TestWatcherRunOnce.test_once_fires_due_trigger)
+--once fires a due trigger and exits. ... ok
+test_once_skips_disabled_trigger (test_mcu_watcher.TestWatcherRunOnce.test_once_skips_disabled_trigger)
+--once skips disabled triggers. ... ok
+test_once_with_inline_plan_skips_llm (test_mcu_watcher.TestWatcherRunOnce.test_once_with_inline_plan_skips_llm)
+Inline deterministic plans execute directly without an LLM plan. ... ok
+test_day_filter_allows_correct_day (test_mcu_watcher.TestWatcherScheduling.test_day_filter_allows_correct_day)
+Trigger fires on included days. ... ok
+test_day_filter_blocks_wrong_day (test_mcu_watcher.TestWatcherScheduling.test_day_filter_blocks_wrong_day)
+Trigger doesn't fire on excluded days. ... ok
+test_time_due_after_at (test_mcu_watcher.TestWatcherScheduling.test_time_due_after_at)
+Trigger is due when current time is past the scheduled time. ... ok
+test_time_due_on_different_day (test_mcu_watcher.TestWatcherScheduling.test_time_due_on_different_day)
+Trigger is due on a new day even if fired yesterday. ... ok
+test_time_not_due_before_at (test_mcu_watcher.TestWatcherScheduling.test_time_not_due_before_at)
+Trigger is not due before the scheduled time. ... ok
+test_time_not_due_if_already_fired (test_mcu_watcher.TestWatcherScheduling.test_time_not_due_if_already_fired)
+Trigger is not due if already fired today. ... ok
 test_idle_means_stopped (test_media.TestIsPlaying.test_idle_means_stopped) ... ok
 test_no_player_returns_false (test_media.TestIsPlaying.test_no_player_returns_false) ... ok
 test_paused_means_not_playing (test_media.TestIsPlaying.test_paused_means_not_playing) ... ok
@@ -489,16 +975,138 @@ test_play_requires_source (test_media.TestPreconditions.test_play_requires_sourc
 test_set_volume_range (test_media.TestPreconditions.test_set_volume_range) ... ok
 test_failure_or_none (test_media.TestReplyOk.test_failure_or_none) ... ok
 test_success (test_media.TestReplyOk.test_success) ... ok
+test_build_memory_context_category_filter (test_memory.TestMemoryBuildContext.test_build_memory_context_category_filter) ... ok
+test_build_memory_context_empty (test_memory.TestMemoryBuildContext.test_build_memory_context_empty) ... ok
+test_build_memory_context_with_memories (test_memory.TestMemoryBuildContext.test_build_memory_context_with_memories) ... ok
+test_concurrent_store_retrieve (test_memory.TestMemoryEdgeCases.test_concurrent_store_retrieve) ... ok
+test_corrupted_memory_file (test_memory.TestMemoryEdgeCases.test_corrupted_memory_file)
+Test that corrupted memory file is handled gracefully. ... ok
+test_memory_file_atomicity (test_memory.TestMemoryEdgeCases.test_memory_file_atomicity)
+Test that writes are atomic (no partial writes on crash). ... ok
+test_retrieve_tag_boost (test_memory.TestMemoryEdgeCases.test_retrieve_tag_boost) ... ok
+test_store_special_characters (test_memory.TestMemoryEdgeCases.test_store_special_characters) ... ok
+test_forget_empty_key (test_memory.TestMemoryForget.test_forget_empty_key) ... ok
+test_forget_existing (test_memory.TestMemoryForget.test_forget_existing) ... ok
+test_forget_nonexistent (test_memory.TestMemoryForget.test_forget_nonexistent) ... ok
+test_forget_with_category (test_memory.TestMemoryForget.test_forget_with_category) ... ok
+test_memory_has_key_found (test_memory.TestMemoryL2Checks.test_memory_has_key_found) ... ok
+test_memory_has_key_not_found (test_memory.TestMemoryL2Checks.test_memory_has_key_not_found) ... ok
+test_memory_has_key_with_category (test_memory.TestMemoryL2Checks.test_memory_has_key_with_category) ... ok
+test_memory_retrieval_ok_found (test_memory.TestMemoryL2Checks.test_memory_retrieval_ok_found) ... ok
+test_memory_retrieval_ok_not_found (test_memory.TestMemoryL2Checks.test_memory_retrieval_ok_not_found) ... ok
+test_memory_store_status (test_memory.TestMemoryL2Checks.test_memory_store_status) ... ok
+test_empty_store (test_memory.TestMemoryListCategories.test_empty_store) ... ok
+test_with_entries (test_memory.TestMemoryListCategories.test_with_entries) ... ok
+test_maintenance_archives_old_low_access (test_memory.TestMemoryMaintenance.test_maintenance_archives_old_low_access) ... ok
+test_maintenance_keeps_frequent (test_memory.TestMemoryMaintenance.test_maintenance_keeps_frequent) ... ok
+test_maintenance_keeps_fresh (test_memory.TestMemoryMaintenance.test_maintenance_keeps_fresh) ... ok
+test_maintenance_no_entries (test_memory.TestMemoryMaintenance.test_maintenance_no_entries) ... ok
+test_build_memory_block_empty (test_memory.TestMemoryPlannerIntegration.test_build_memory_block_empty) ... ok
+test_build_memory_block_import_error (test_memory.TestMemoryPlannerIntegration.test_build_memory_block_import_error)
+Test that import errors are handled gracefully. ... ok
+test_build_memory_block_with_memories (test_memory.TestMemoryPlannerIntegration.test_build_memory_block_with_memories) ... ok
+test_record_decision (test_memory.TestMemoryRecordDecision.test_record_decision) ... ok
+test_record_decision_empty (test_memory.TestMemoryRecordDecision.test_record_decision_empty) ... ok
+test_record_decision_empty_rationale (test_memory.TestMemoryRecordDecision.test_record_decision_empty_rationale) ... ok
+test_record_success (test_memory.TestMemoryRecordSuccess.test_record_success) ... ok
+test_record_success_empty_goal (test_memory.TestMemoryRecordSuccess.test_record_success_empty_goal) ... ok
+test_reinforce_empty_key (test_memory.TestMemoryReinforce.test_reinforce_empty_key) ... ok
+test_reinforce_existing (test_memory.TestMemoryReinforce.test_reinforce_existing) ... ok
+test_reinforce_nonexistent (test_memory.TestMemoryReinforce.test_reinforce_nonexistent) ... ok
+test_retrieve_by_value (test_memory.TestMemoryRetrieve.test_retrieve_by_value) ... ok
+test_retrieve_empty_query (test_memory.TestMemoryRetrieve.test_retrieve_empty_query) ... ok
+test_retrieve_exact_key (test_memory.TestMemoryRetrieve.test_retrieve_exact_key) ... ok
+test_retrieve_invalid_category (test_memory.TestMemoryRetrieve.test_retrieve_invalid_category) ... ok
+test_retrieve_no_match (test_memory.TestMemoryRetrieve.test_retrieve_no_match) ... ok
+test_retrieve_reinforces_access (test_memory.TestMemoryRetrieve.test_retrieve_reinforces_access) ... ok
+test_retrieve_relevance_ranking (test_memory.TestMemoryRetrieve.test_retrieve_relevance_ranking) ... ok
+test_retrieve_respects_limit (test_memory.TestMemoryRetrieve.test_retrieve_respects_limit) ... ok
+test_retrieve_with_category_filter (test_memory.TestMemoryRetrieve.test_retrieve_with_category_filter) ... ok
+test_store_all_categories (test_memory.TestMemoryStore.test_store_all_categories) ... ok
+test_store_basic (test_memory.TestMemoryStore.test_store_basic) ... ok
+test_store_empty_key (test_memory.TestMemoryStore.test_store_empty_key) ... ok
+test_store_empty_value (test_memory.TestMemoryStore.test_store_empty_value) ... ok
+test_store_invalid_category (test_memory.TestMemoryStore.test_store_invalid_category) ... ok
+test_store_truncates_long_values (test_memory.TestMemoryStore.test_store_truncates_long_values) ... ok
+test_store_update_existing (test_memory.TestMemoryStore.test_store_update_existing) ... ok
+test_store_with_tags (test_memory.TestMemoryStore.test_store_with_tags) ... ok
+test_empty_store (test_memory.TestMemorySummary.test_empty_store) ... ok
+test_with_entries (test_memory.TestMemorySummary.test_with_entries) ... ok
+test_sync_lessons_empty_approved (test_memory.TestMemorySyncLessons.test_sync_lessons_empty_approved) ... ok
+test_sync_lessons_with_approved (test_memory.TestMemorySyncLessons.test_sync_lessons_with_approved) ... ok
 test_send_file_missing (test_messaging.TestDiscord.test_send_file_missing) ... ok
 test_send_text_empty (test_messaging.TestDiscord.test_send_text_empty) ... ok
 test_send_document_missing_file (test_messaging.TestTelegram.test_send_document_missing_file) ... ok
 test_send_text_empty (test_messaging.TestTelegram.test_send_text_empty) ... ok
+test_download_file_bad_dest (test_messaging.TestTelegramReceive.test_download_file_bad_dest) ... ok
+test_download_file_empty_id (test_messaging.TestTelegramReceive.test_download_file_empty_id) ... ok
+test_download_file_full_flow (test_messaging.TestTelegramReceive.test_download_file_full_flow)
+End-to-end mocked download: getFile -> download binary. ... ok
+test_poll_updates_empty (test_messaging.TestTelegramReceive.test_poll_updates_empty)
+poll_updates returns empty list when no new messages. ... ok
+test_poll_updates_extracts_media (test_messaging.TestTelegramReceive.test_poll_updates_extracts_media)
+poll_updates extracts photo messages with file_id. ... ok
+test_poll_updates_skips_text_messages (test_messaging.TestTelegramReceive.test_poll_updates_skips_text_messages)
+Text-only messages are skipped (nothing to download). ... ok
+test_clear_pending_media_all (test_messaging.TestWhatsapp.test_clear_pending_media_all) ... ok
+test_clear_pending_media_selective (test_messaging.TestWhatsapp.test_clear_pending_media_selective) ... ok
+test_download_media_bad_dest (test_messaging.TestWhatsapp.test_download_media_bad_dest) ... ok
+test_download_media_empty_id (test_messaging.TestWhatsapp.test_download_media_empty_id) ... ok
+test_download_media_ext_for_mime (test_messaging.TestWhatsapp.test_download_media_ext_for_mime)
+The reverse MIME map covers common types. ... ok
+test_download_media_fallback_filename (test_messaging.TestWhatsapp.test_download_media_fallback_filename)
+When Content-Disposition is absent, fallback uses media_id + ext. ... ok
+test_download_media_full_flow (test_messaging.TestWhatsapp.test_download_media_full_flow)
+End-to-end mocked download: get_media_url -> download binary. ... ok
+test_download_media_missing_dest_file (test_messaging.TestWhatsapp.test_download_media_missing_dest_file)
+dest_dir must be an existing directory, not a file. ... ok
+test_enqueue_and_load (test_messaging.TestWhatsapp.test_enqueue_and_load) ... ok
+test_enqueue_deduplicates (test_messaging.TestWhatsapp.test_enqueue_deduplicates) ... ok
+test_enqueue_empty_media_id (test_messaging.TestWhatsapp.test_enqueue_empty_media_id) ... ok
+test_enqueue_multiple (test_messaging.TestWhatsapp.test_enqueue_multiple) ... ok
+test_get_media_url_api_error (test_messaging.TestWhatsapp.test_get_media_url_api_error)
+get_media_url raises PrimitiveError on non-200. ... ok
+test_get_media_url_empty (test_messaging.TestWhatsapp.test_get_media_url_empty) ... ok
+test_get_media_url_no_url_in_response (test_messaging.TestWhatsapp.test_get_media_url_no_url_in_response)
+get_media_url raises PrimitiveError when url is missing. ... ok
+test_get_media_url_whitespace (test_messaging.TestWhatsapp.test_get_media_url_whitespace) ... ok
+test_load_pending_media_empty_on_missing_file (test_messaging.TestWhatsapp.test_load_pending_media_empty_on_missing_file) ... ok
 test_mime_map (test_messaging.TestWhatsapp.test_mime_map) ... ok
 test_mime_unknown_raises (test_messaging.TestWhatsapp.test_mime_unknown_raises) ... ok
 test_send_document_missing_file (test_messaging.TestWhatsapp.test_send_document_missing_file) ... ok
 test_send_text_bad_recipient (test_messaging.TestWhatsapp.test_send_text_bad_recipient) ... ok
 test_send_text_empty (test_messaging.TestWhatsapp.test_send_text_empty) ... ok
 test_upload_document_missing_file (test_messaging.TestWhatsapp.test_upload_document_missing_file) ... ok
+test_delete_event_empty (test_new_primitives.TestCalendarDeleteEvent.test_delete_event_empty) ... ok
+test_update_event_empty (test_new_primitives.TestCalendarUpdateEvent.test_update_event_empty) ... ok
+test_copy_file (test_new_primitives.TestFilesCopy.test_copy_file) ... ok
+test_copy_missing_dest (test_new_primitives.TestFilesCopy.test_copy_missing_dest) ... ok
+test_copy_missing_source (test_new_primitives.TestFilesCopy.test_copy_missing_source) ... ok
+test_delete_file (test_new_primitives.TestFilesDelete.test_delete_file) ... ok
+test_delete_missing_file (test_new_primitives.TestFilesDelete.test_delete_missing_file) ... ok
+test_file_size (test_new_primitives.TestFilesFileSize.test_file_size) ... ok
+test_file_size_missing (test_new_primitives.TestFilesFileSize.test_file_size_missing) ... ok
+test_list_dir (test_new_primitives.TestFilesListDir.test_list_dir) ... ok
+test_list_dir_missing (test_new_primitives.TestFilesListDir.test_list_dir_missing) ... ok
+test_move_file (test_new_primitives.TestFilesMove.test_move_file) ... ok
+test_branch_detached (test_new_primitives.TestGitBranch.test_branch_detached) ... ok
+test_branch_returns_current (test_new_primitives.TestGitBranch.test_branch_returns_current) ... ok
+test_commit_empty_message (test_new_primitives.TestGitCommit.test_commit_empty_message) ... ok
+test_commit_with_files (test_new_primitives.TestGitCommit.test_commit_with_files) ... ok
+test_diff_empty_path (test_new_primitives.TestGitDiff.test_diff_empty_path) ... ok
+test_diff_empty_repo (test_new_primitives.TestGitDiff.test_diff_empty_repo) ... ok
+test_diff_missing_repo (test_new_primitives.TestGitDiff.test_diff_missing_repo) ... ok
+test_diff_with_changes (test_new_primitives.TestGitDiff.test_diff_with_changes) ... ok
+test_mark_read_empty (test_new_primitives.TestGmailMarkRead.test_mark_read_empty) ... ok
+test_search_empty_query (test_new_primitives.TestGmailSearch.test_search_empty_query) ... ok
+test_send_text_empty (test_new_primitives.TestGmailSendText.test_send_text_empty) ... ok
+test_send_text_no_recipient (test_new_primitives.TestGmailSendText.test_send_text_no_recipient) ... ok
+test_battery_no_battery (test_new_primitives.TestSystemInfo.test_battery_no_battery) ... ok
+test_cpu_info (test_new_primitives.TestSystemInfo.test_cpu_info) ... ok
+test_disk_info (test_new_primitives.TestSystemInfo.test_disk_info) ... ok
+test_memory_info (test_new_primitives.TestSystemInfo.test_memory_info) ... ok
+test_system_summary (test_new_primitives.TestSystemInfo.test_system_summary) ... ok
+test_uptime_info (test_new_primitives.TestSystemInfo.test_uptime_info) ... ok
 test_empty_title_precondition (test_notify.TestNotifySend.test_empty_title_precondition) ... ok
 test_missing_binary (test_notify.TestNotifySend.test_missing_binary) ... ok
 test_no_body_omits_body_arg (test_notify.TestNotifySend.test_no_body_omits_body_arg) ... ok
@@ -682,6 +1290,38 @@ test_due_on_enabled_day_after_time (test_watcher.TestTimeDue.test_due_on_enabled
 test_fires_once_per_day (test_watcher.TestTimeDue.test_fires_once_per_day) ... ok
 test_no_days_means_every_day (test_watcher.TestTimeDue.test_no_days_means_every_day) ... ok
 test_not_enabled_day (test_watcher.TestTimeDue.test_not_enabled_day) ... ok
+test_download_pending_media_full_flow (test_watcher.TestWhatsAppMediaTrigger.test_download_pending_media_full_flow)
+_download_pending_media downloads all pending items and clears ... ok
+test_has_pending_media_false_when_empty (test_watcher.TestWhatsAppMediaTrigger.test_has_pending_media_false_when_empty)
+_has_pending_media returns False when queue is empty or missing. ... ok
+test_has_pending_media_true (test_watcher.TestWhatsAppMediaTrigger.test_has_pending_media_true)
+_has_pending_media returns True when there are items in the queue. ... ok
+test_run_whatsapp_media_trigger_completes (test_watcher.TestWhatsAppMediaTrigger.test_run_whatsapp_media_trigger_completes)
+The whatsapp-media trigger handler runs and records properly. ... ok
+test_run_whatsapp_media_trigger_empty_queue (test_watcher.TestWhatsAppMediaTrigger.test_run_whatsapp_media_trigger_empty_queue)
+When queue is empty, trigger completes with 0 downloads. ... ok
+test_whatsapp_media_trigger_due_check (test_watcher.TestWhatsAppMediaTrigger.test_whatsapp_media_trigger_due_check)
+The whatsapp-media trigger is due when there are pending items ... ok
+test_whatsapp_media_trigger_end_to_end (test_watcher.TestWhatsAppMediaTrigger.test_whatsapp_media_trigger_end_to_end)
+Full watcher run with a whatsapp-media trigger: enqueue -> ... ok
+test_whatsapp_media_trigger_loads (test_watcher.TestWhatsAppMediaTrigger.test_whatsapp_media_trigger_loads)
+A whatsapp-media trigger must pass config validation. ... ok
+test_audio_message (test_webhook_server.TestExtractMediaMessages.test_audio_message) ... ok
+test_document_message (test_webhook_server.TestExtractMediaMessages.test_document_message) ... ok
+test_empty_payload (test_webhook_server.TestExtractMediaMessages.test_empty_payload) ... ok
+test_image_message (test_webhook_server.TestExtractMediaMessages.test_image_message) ... ok
+test_media_id_missing_skipped (test_webhook_server.TestExtractMediaMessages.test_media_id_missing_skipped) ... ok
+test_multiple_media_messages (test_webhook_server.TestExtractMediaMessages.test_multiple_media_messages) ... ok
+test_no_messages_in_payload (test_webhook_server.TestExtractMediaMessages.test_no_messages_in_payload) ... ok
+test_sticker_message (test_webhook_server.TestExtractMediaMessages.test_sticker_message) ... ok
+test_text_message_skipped (test_webhook_server.TestExtractMediaMessages.test_text_message_skipped) ... ok
+test_video_message (test_webhook_server.TestExtractMediaMessages.test_video_message) ... ok
+test_empty_payload (test_webhook_server.TestVerifySignature.test_empty_payload) ... ok
+test_invalid_signature (test_webhook_server.TestVerifySignature.test_invalid_signature) ... ok
+test_no_secret_allows_all (test_webhook_server.TestVerifySignature.test_no_secret_allows_all)
+When no app_secret is configured, all signatures pass. ... ok
+test_valid_signature (test_webhook_server.TestVerifySignature.test_valid_signature) ... ok
+test_valid_signature_without_prefix (test_webhook_server.TestVerifySignature.test_valid_signature_without_prefix) ... ok
 test_hyprctl_failure_raises_primitive_error (test_window.TestListClientsErrors.test_hyprctl_failure_raises_primitive_error) ... ok
 test_compact_client (test_window.TestLogProjection.test_compact_client) ... ok
 test_log_clients_result_list_and_single (test_window.TestLogProjection.test_log_clients_result_list_and_single) ... ok
@@ -710,7 +1350,7 @@ test_win_clients_shape (test_window.TestWin32Backend.test_win_clients_shape) ...
 test_win_enum_failure_degrades_to_empty (test_window.TestWin32Backend.test_win_enum_failure_degrades_to_empty) ... ok
 
 ----------------------------------------------------------------------
-Ran 577 tests in 39.936s
+Ran 1037 tests in 89.694s
 
 OK
 ```
