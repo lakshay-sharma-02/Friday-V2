@@ -465,10 +465,12 @@ print("Prompt: " + repr(__import__('sys').argv[1]))
                 if path_match:
                     target = path_match.group(1).strip().rstrip('/')
             # Map common folder names to actual paths (resolved at runtime for portability)
+            # Use os.path.join for cross-platform path correctness
+            _home = os.path.expanduser("~")
             folder_map = {
-                "downloads": "~/Downloads",
-                "desktop": "~/Desktop",
-                "documents": "~/Documents",
+                "downloads": os.path.join(_home, "Downloads"),
+                "desktop": os.path.join(_home, "Desktop"),
+                "documents": os.path.join(_home, "Documents"),
             }
             if target.lower() in folder_map:
                 target = folder_map[target.lower()]
