@@ -7,7 +7,7 @@ proof before the next layer starts. Five layers, strict dependency order:
 L4  Planning     (LLM: goal -> plan JSON)      [Gate 5]
 L3  Execution    (deterministic runner)         [Gate 4]
 L2  Verification (read-only state checks)       [Gate 3]
-L1  Primitives   (window/media/browser/dev/...) [Gate 1]
+L1  Primitives   (window/media/browser/dev/files/gmail/audio/...) [Gate 1]
 L0  Observability (structured logging)          [Gate 2]
 ```
 
@@ -17,7 +17,7 @@ passing task ids** — the **13 composite tasks**, the `retry-stress` gate,
 and **11 live-automation records** (watch/e2e) — are on record in
 `var/logs/tasks.jsonl`; every executor-callable L1 primitive has
 standalone bring-up proof; the core is hardened (blocked primitives,
-protected windows, dangerous-dev gate); a **537-test unit suite** covers
+protected windows, dangerous-dev gate); a **1010-test unit suite** covers
 every layer; a **live end-to-end check** runs the real stack against
 this machine's real state — including a real gmail summary through the
 ambient watch loop — and the watch loop is **deployed as a persistent
@@ -27,15 +27,18 @@ restarts on failure) with a `daemon.alive` heartbeat every 60 s; the
 end: refused steps become structured records, triage drafts proposed
 primitives, an **automated gate** (AST checks + sandboxed test run)
 rejects structural defects before any human review, and a human-signed
-approval registers them — **10 real primitives registered and re-proven**
+approval registers them — **16 real primitives registered and re-proven**
 through the full loop: `files.find_file_exact` (read-only),
 **`gmail.send_document`** (the loop's first SIDE-EFFECTING primitive,
 hand-built rather than LLM-drafted after the two rejected drafts for
 it), `files.write_text`, `calendar.list_upcoming`, `clipboard.read_text`,
 `files.find_newest`, `media.get_volume`, `media.get_playing_title`,
-`calendar.add_event` and `clipboard.write_text` (the last two registered
-2026-08-14; `clipboard.write_text` needed the gate's WRITE subprocess
-shape after its READ-shape first registration deadlocked live), and a deliberately
+`calendar.add_event`, `clipboard.write_text` (registered 2026-08-14;
+`clipboard.write_text` needed the gate's WRITE subprocess shape after its
+READ-shape first registration deadlocked live), `git.status` (2026-08-18),
+`screenshot.capture` (2026-08-15), `clipboard.read_image`,
+`clipboard.write_image`, `clipboard.clear` (2026-09-13 — Windows port),
+and a deliberately
 bad draft is mechanically blocked in the proof; the **lessons loop**
 makes the
 rejections stick: every mechanical rejection is recorded as a structured
@@ -66,9 +69,11 @@ friday/
                     primitive, run_id, duration, errors)
   secrets.py        pass-based credential store (friday/<service>)
   l1/               L1 primitives (each contract-registered; see below)
-    window.py       hyprctl IPC  (open/close/focus/list/move/shutdown)
-    media.py        mpv IPC socket (play/pause/resume/stop/volume; orphan
-                    sweep + zombie reaping - lifecycle-fixed and re-proven)
+    window.py       hyprctl IPC (Linux); ctypes/user32 (Windows)
+                    (open/close/focus/list/move/shutdown)
+    media.py        mpv IPC socket (AF_UNIX on Linux, named pipe on Windows)
+                    (play/pause/resume/stop/volume; orphan sweep + zombie
+                    reaping - lifecycle-fixed and re-proven)
     browser.py      Playwright persistent context (DOM, not screenshots)
     dev.py          claude -p subprocess (bypass is explicit opt-in); digest()
                     LLM-in-primitive cross-project synthesis (Phase C)
@@ -87,13 +92,19 @@ friday/
                     add_event — the loop's first calendar WRITE, registered
                     2026-08-14; refresh-grant auth + summary redaction)
     clipboard.py    gate-registered clipboard primitives (read_text /
-                    write_text — wl-paste/wl-copy on Wayland, xclip on X11;
-                    the WRITE shape's stdout/stderr=DEVNULL is the
+                    write_text / read_image / write_image / clear — wl-paste/
+                    wl-copy on Wayland, xclip on X11; win32clipboard on
+                    Windows; the WRITE shape's stdout/stderr=DEVNULL is the
                     daemon-fork fix from the 2026-08-14 deadlock)
+    audio.py        system audio state + TTS (edge-tts offline TTS -> mpv
+                    socket; list_devices/get_default_device/get_output_volume
+                    via pactl on Linux, winmm on Windows; speak() renders
+                    to temp WAV + media.play())
     screenshot.py   gate-registered capture (grim on Wayland, PIL on Windows)
     vision.py       two-tier image analysis: extract_text (Tesseract OCR, free)
                     and describe (LLM-based, ~$0.01/call)
-    notify.py       desktop notifications (notify-send / PowerShell)
+    notify.py       desktop notifications (notify-send on Linux, PowerShell
+                    toast on Windows)
     memory.py       persistent cross-session knowledge store (JSONL-backed,
                     category-filtered retrieval, decay/maintenance)
     system.py       system info via fastfetch (CPU/RAM/disk/battery/uptime)
@@ -103,6 +114,7 @@ friday/
                     download_attachment — inbound message polling via REST)
     whatsapp.py     WhatsApp Cloud API (get_me / send_text / send_document /
                     upload_document / download_media)
+    http.py         HTTP request primitives (get/post/put/patch/delete/request)
   mcp_server.py     MCP stdio server (JSON-RPC 2.0; every primitive as a tool)
   webhook_server.py webhook server for WhatsApp Cloud API incoming messages
                     (health check at GET /health)
@@ -120,7 +132,7 @@ friday/
   goal_proposals.py the goals-proposal stage: recurring FAILED goals from
                     tasks.jsonl + L0 failures -> INERT trigger proposals
                     (gates/proposed_triggers/) for human approval
-tests/               dependency-free unittest suite (571+ tests, all mocked)
+tests/               dependency-free unittest suite (1010 tests, all mocked)
   l2/
     checks.py       L2 verification: read-only checks (catalog below)
   l3/
@@ -368,8 +380,8 @@ the Gate 6 prompt's scheme, counting starts at `gate6` from here on.
 | `BRINGUP_REMAINING_PROOF.md` | Last unproven primitives: media pause/resume, browser upload, window focus/move/close_all |
 | `MPV_LIFECYCLE_FIX_PROOF.md` | mpv orphan-leak + zombie-reap defects fixed and re-proven |
 | `RETRY_STRESS_PROOF.md` | Lifecycle holds under repeated invocation + executor retry paths |
-| `TESTS_PROOF.md` | The dependency-free unit suite, raw output (regenerated by `gates/test_suite.py`; 571 tests) |
-| `CAPABILITIES.md` | Live capability inventory GENERATED from the contract registry — 58 primitives, 17 checks, 10 triggers, 11 gate-registered primitives (regenerate: `./.venv/bin/python gates/generate_capabilities.py`, idempotent) |
+| `TESTS_PROOF.md` | The dependency-free unit suite, raw output (regenerated by `gates/test_suite.py`; 1010 tests) |
+| `CAPABILITIES.md` | Live capability inventory GENERATED from the contract registry — 128 primitives, 39 checks, 20 triggers, 16 gate-registered primitives (regenerate: `./.venv/bin/python gates/generate_capabilities.py`, idempotent) |
 | `PORTABILITY.md` | Windows-port analysis + ordered checklist — reference/aspirational, no porting scheduled |
 | `WATCHER_PROOF.md` | Watch loop first proof: time + file triggers fire deterministic plans through the real watcher (no LLM, no side effects), recorded in tasks.jsonl, notified |
 | `WATCHER_GMAIL_PROOF.md` | The enabled `morning-gmail-summary` trigger runs a REAL gmail summary through the unmodified watcher (`$facts.gmail_sender`, `allow: ["gmail.*"]`, live LLM plan, verified) |
