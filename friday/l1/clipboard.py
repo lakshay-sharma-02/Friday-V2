@@ -1,6 +1,18 @@
-# ---- gate-registered clipboard primitives ----
-# read_text / write_text: registered 2026-08-14, hand-corrected by human review
-# read_image / write_image / clear: registered 2026-09-13 (Windows port addition)
+# ---- gate-registered clipboard.read_text (2026-08-14) ----
+# created by the capability-gap approval gate; reviewed by a human before signing.
+# Hand-corrected after human review (2026-08-14): the LLM draft lacked the @contract
+# decorator (so it would never register), referenced an undefined log_transform,
+# raised bare RuntimeError instead of FridayError, and had no xclip fallback.
+# ---- gate-registered clipboard.write_text (2026-08-14) ----
+# Hand-corrected after live verification (2026-08-14): the first registered write
+# shipped the READ subprocess shape (capture_output=True) and EVERY write failed
+# with a 5s timeout - wl-copy/xclip fork a daemon that inherits the child's pipe
+# fds, so communicate() waits forever for EOF. Output must be DISCARDED
+# (stdout/stderr=subprocess.DEVNULL), which completes in ~0.1s.
+# ---- gate-registered clipboard.read_image (2026-09-13) ----
+# ---- gate-registered clipboard.write_image (2026-09-13) ----
+# ---- gate-registered clipboard.clear (2026-09-13) ----
+# read_image / write_image / clear: registered 2026-09-13 (Windows port addition).
 #
 # Linux backend: wl-paste/wl-copy (Wayland) or xclip (X11) - the ONLY way to
 # touch the clipboard on Linux. Windows backend: win32clipboard (pywin32) - the

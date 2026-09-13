@@ -1,6 +1,6 @@
 # CAPABILITIES - what Friday can do (generated from the live registry)
 
-Status date: 2026-09-12.
+Status date: 2026-09-13.
 
 **This document is GENERATED from the running code, not hand-maintained** -
 regenerate it after any primitive/check/trigger change:
@@ -161,9 +161,9 @@ to blind-retry (read-only); `at-most-once` = never blindly retried (side effect)
 
 | primitive | idempotency | returns | failure mode |
 |---|---|---|---|
-| `audio.get_default_device(device_type: 'str' = 'sink') -> 'str'` | `idempotent` | str: the default device name ('' if none). | PrimitiveError if pactl fails; returns '' when no default is set. |
-| `audio.get_output_volume() -> 'int | None'` | `idempotent` | int | None: 0-100 volume, or None. | PrimitiveError if pactl fails; returns None when no sink is found. |
-| `audio.list_devices() -> 'list[dict[str, Any]]'` | `idempotent` | list[dict]: [{name, index, type}] - type is 'sink' or 'source'. | PrimitiveError if pactl fails or is absent. |
+| `audio.get_default_device(device_type: 'str' = 'sink') -> 'str'` | `idempotent` | str: the default device name or index ('' if none). | PrimitiveError if the enumeration tool fails; returns '' when no default is set (deg… |
+| `audio.get_output_volume() -> 'int | None'` | `idempotent` | int | None: 0-100 volume, or None. | PrimitiveError if the volume tool fails; returns None when no sink is found or the v… |
+| `audio.list_devices() -> 'list[dict[str, Any]]'` | `idempotent` | list[dict]: [{name, index, type}] - type is 'sink' or 'source'. | PrimitiveError if the enumeration tool fails or is absent; returns an empty list whe… |
 | `audio.speak(text: 'str', *, voice: 'str | None' = None) -> 'dict[str, Any]'` | `at-most-once` | dict: {engine, voice, duration_s, source, sink} | PrimitiveError on edge-tts rendering failure, empty text, or mpv launch failure. Do … |
 
 ### `calendar`
@@ -349,11 +349,14 @@ checks + sandboxed test run + build-verify where applicable) filters it before
 a human signature; on approval the primitive registers into L1 and the planner
 auto-discovers it - the originally-refused goal then re-runs and must pass.
 
-Gate-registered primitives (13):
+Gate-registered primitives (16):
 
 - `calendar.add_event`
 - `calendar.list_upcoming`
+- `clipboard.clear`
+- `clipboard.read_image`
 - `clipboard.read_text`
+- `clipboard.write_image`
 - `clipboard.write_text`
 - `files.find_file_exact`
 - `files.find_newest`
