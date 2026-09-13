@@ -313,7 +313,7 @@ def {primitive_name.replace("skunk_", "")}() -> dict:
     def _generate_script(self, prompt: str, analysis: dict) -> str:
         """Generate an executable Python script for direct execution."""
         # Extract key entities from prompt
-        if "download" in prompt.lower() or "fetch" in prompt.lower():
+        if ("download" in prompt.lower() or "fetch" in prompt.lower()) and "list" not in prompt.lower():
             # Try to extract URL from prompt, else search known sources
             url_match = re.search(r'https?://[^\s]+', prompt)
             if url_match:
@@ -464,9 +464,24 @@ print("Prompt: " + repr(__import__('sys').argv[1]))
                 path_match = re.search(r'(?:in|from|at)\s+(.+)', prompt, re.IGNORECASE)
                 if path_match:
                     target = path_match.group(1).strip().rstrip('/')
+            # Map common folder names to actual paths
+            folder_map = {
+                "downloads": "~/Downloads",
+                "desktop": "~/Desktop",
+                "documents": "~/Documents",
+                "downloads": os.path.join(os.path.expanduser("~"), "Downloads"),
+            }
+            if target.lower() in folder_map:
+                target = folder_map[target.lower()]
+
             return f'''
 import os
 target = {repr(target)}
+# Map common folder names to actual paths
+_folder_map = {folder_map}
+if target.lower() in _folder_map:
+    target = _folder_map[target.lower()]
+
 if target.startswith('.'):
     base = os.getcwd()
 else:
