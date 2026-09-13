@@ -211,6 +211,10 @@ _OBSERVED_THIRD_PARTY = frozenset(
         # outside the allowlist, so Windows-only deps get their own deliberate entry.
         "win32file",
         "pywintypes",
+        # win32clipboard added 2026-09-13: clipboard.py uses it for the Windows
+        # backend (CF_UNICODE/CF_PNG write/read). Windows-only, gated behind
+        # os.name == "nt" checks, never imported on POSIX.
+        "win32clipboard",
     }
 )
 _EXTRA_SAFE_STDLIB = frozenset(
