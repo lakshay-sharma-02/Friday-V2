@@ -464,12 +464,11 @@ print("Prompt: " + repr(__import__('sys').argv[1]))
                 path_match = re.search(r'(?:in|from|at)\s+(.+)', prompt, re.IGNORECASE)
                 if path_match:
                     target = path_match.group(1).strip().rstrip('/')
-            # Map common folder names to actual paths
+            # Map common folder names to actual paths (resolved at runtime for portability)
             folder_map = {
                 "downloads": "~/Downloads",
                 "desktop": "~/Desktop",
                 "documents": "~/Documents",
-                "downloads": os.path.join(os.path.expanduser("~"), "Downloads"),
             }
             if target.lower() in folder_map:
                 target = folder_map[target.lower()]
